@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Run by a Corps's Main Agent once the user has reviewed a Division it spawned:
+# remove the worktree workspace, and delete the branch only if it is merged.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+[[ $# -eq 1 ]] || die "usage: berthier division-done <name>"
+branch=$(slug "$1")
+ws_id=${BERTHIER_WORKSPACE:-${HERDR_WORKSPACE_ID:-}}
+[[ -n $ws_id ]] || die "run this from the Main Agent's Herdr pane (no HERDR_WORKSPACE_ID)"
+
+corps=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
+entry=$(jq -c --arg n "$branch" '.[$n] // empty' "$BERTHIER_DIVISIONS" 2>/dev/null || true)
+[[ -n $entry ]] || die "no Division '$branch'"
+[[ $(jq -r .corps <<<"$entry") == "$corps" ]] || die "Division '$branch' belongs to $(jq -r .corps <<<"$entry"), not $corps"
+[[ $(jq -r '.worktree // false' <<<"$entry") == true ]] \
+  || die "'$branch' is an adopted workspace, not a spawned worktree; it stays until the user closes it"
+
+label="$DIVISION_PREFIX$branch"
+IFS=$'\t' read -r div_ws path repo < <(hd workspace list | jq -r --arg l "$label" '
+  [.result.workspaces[] | select(.label == $l)] | first // empty
+  | [.workspace_id, .worktree.checkout_path, .worktree.repo_root] | @tsv')
+[[ -n ${div_ws:-} ]] || die "no workspace labelled '$label'"
+
+hd worktree remove --workspace "$div_ws" >/dev/null \
+  || die "could not remove '$label' (uncommitted changes in $path?)"
+division_set "$branch" null
+
+if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then
+  echo "division '$label' done: worktree removed, merged branch $branch deleted"
+else
+  echo "division '$label' done: worktree removed; branch $branch kept because it is not merged"
+fi

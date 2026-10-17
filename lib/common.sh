@@ -16,7 +16,7 @@ BERTHIER_HERDR_SESSION=${BERTHIER_HERDR_SESSION:-}
 BERTHIER_INTERVAL=${BERTHIER_INTERVAL:-10}
 BERTHIER_BLOCKED_AFTER=${BERTHIER_BLOCKED_AFTER:-120}
 BERTHIER_LONG_AFTER=${BERTHIER_LONG_AFTER:-3600}
-BERTHIER_TASK_SETTLE=${BERTHIER_TASK_SETTLE:-30}
+BERTHIER_DIVISION_SETTLE=${BERTHIER_DIVISION_SETTLE:-30}
 BERTHIER_REVIVE_MAX=${BERTHIER_REVIVE_MAX:-3}
 BERTHIER_REVIVE_BACKOFF=${BERTHIER_REVIVE_BACKOFF:-60}
 BERTHIER_REVIVE_RESET=${BERTHIER_REVIVE_RESET:-300}
@@ -31,7 +31,7 @@ BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
 
-TASK_PREFIX="󱎦 "
+DIVISION_PREFIX="󱎦 "
 
 mkdir -p "$BERTHIER_HOME" "$BERTHIER_INBOX" "$BERTHIER_REPORTS"
 
@@ -39,10 +39,20 @@ mkdir -p "$BERTHIER_HOME" "$BERTHIER_INBOX" "$BERTHIER_REPORTS"
 jqn() { local prog=${*: -1}; jq -L "$BERTHIER_ROOT/lib" "${@:1:$#-1}" "include \"names\"; $prog"; }
 corps_name() { jqn -rn --arg s "$1" '$s | corps_name'; }
 
-# How the Agent in a pane is addressed: berthier, its Corps, or its Task.
+# How the Agent in a pane is addressed: berthier, its Corps, or its Division.
 caller_name() {
   jqn -r --arg p "$1" 'if .berthier == $p then "berthier"
     else (.agents[$p].workspace_label // empty | corps_name) end' <"$BERTHIER_STATE"
+}
+
+# Record a Division's Corps in divisions.json ({name: {corps, worktree}});
+# a null entry forgets it. Atomic, so the Main Loop never reads half a file.
+division_set() { # name json-or-null
+  local tmp
+  tmp=$(mktemp "$BERTHIER_HOME/.divisions.XXXXXX")
+  jq --arg n "$1" --argjson v "$2" 'if $v == null then del(.[$n]) else .[$n] = $v end' \
+    <<<"$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" >"$tmp"
+  mv "$tmp" "$BERTHIER_DIVISIONS"
 }
 
 die() { printf 'berthier: %s\n' "$*" >&2; exit 1; }

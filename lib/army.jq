@@ -20,8 +20,8 @@ def unit_view: {name: (.name | corps_name), workspace_id, agents: [.agents[] | a
 
 ($state.agents // {}) as $agents
 | [($state.corps // [])[] | unit_view
-   + {divisions: [.divisions[]? | unit_view], tasks: [.tasks[]? | unit_view]}] as $corps
-| [$corps[] | ., .divisions[], .tasks[] | .agents[]]
+   + {divisions: [.divisions[]? | unit_view + {worktree: (.worktree // false)}]}] as $corps
+| [$corps[] | ., .divisions[] | .agents[]]
   + (if $state.berthier then [agent_view($state.berthier)] else [] end) as $all
 | {
     available: $available,

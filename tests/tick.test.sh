@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10}'
 pass=0 fail=0
 
 tick() { # prev snap now
@@ -25,7 +25,9 @@ pane() { jq -cn --arg p "$1" '{pane_id: $p}'; }
 snap() { # workspaces-json-array agents-json-array panes-json-array
   jq -cn --argjson w "$1" --argjson a "$2" --argjson p "$3" '{workspaces: $w, agents: $a, panes: $p}'; }
 
-W="[$(ws w1 skipli /r/skipli/.git /r/skipli),$(ws w2 '󱎦 skipli/dark-mode' /r/skipli/.git /h/dark-mode),$(ws w3 berthier),$(ws w4 notes)]"
+W="[$(ws w1 skipli /r/skipli/.git /r/skipli),$(ws w2 '󱎦 dark-mode' /r/skipli/.git /h/dark-mode),$(ws w3 berthier),$(ws w4 notes)]"
+D0='{"dark-mode":{"corps":"skipli","worktree":true}}'
+DIVISIONS=$D0
 
 # --- First observation records agents, no actions.
 s1=$(snap "$W" "[$(agent w1:p1 idle sid-1)]" "[$(pane w1:p1)]")
@@ -76,7 +78,7 @@ check "berthier blocked notifies" "$(jq -c '.notify | map(.key)' <<<"$o")" '["bl
 check "blocked speaks once" "$(jq -c '.speak' <<<"$(tick "$(jq -c .state <<<"$o")" "$sb" 1140)")" '[]'
 check "blocked speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$prev" "$sb" 1030)")" '["skipli is waiting on you","berthier is waiting on you"]'
 st=$(snap "$W" "[$(agent w2:p1 blocked sid-t)]" "[$(pane w2:p1)]")
-check "task speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$(jq -c .state <<<"$(tick '{}' "$st" 1000)")" "$st" 1030)")" '["skipli task dark mode is waiting on you"]'
+check "spawned division speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$(jq -c .state <<<"$(tick '{}' "$st" 1000)")" "$st" 1030)")" '["dark mode in skipli is waiting on you"]'
 check "no speech under threshold" "$(jq -c '.speak' <<<"$(tick "$prev" "$sb" 1020)")" '[]'
 check "berthier recorded" "$(jq -r '.state.berthier' <<<"$o")" 'w3:p1'
 
@@ -98,7 +100,7 @@ check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks b
 
 # --- Divisions: nested under their Corps; their trouble goes to the Corps's Main Agent.
 WD="[$(ws w1 learning),$(ws w6 '󱎦 tailscale'),$(ws w3 berthier)]"
-DIVISIONS='{"tailscale":"learning"}'
+DIVISIONS='{"tailscale":{"corps":"learning","worktree":false}}'
 sd=$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 blocked sid-6),$(agent w3:p1 idle sid-b "" /home/u/berthier)]" "[$(pane w1:p1),$(pane w6:p1),$(pane w3:p1)]")
 prev=$(jq -c .state <<<"$(INBOX='[]' tick '{}' "$sd" 1000)")
 o=$(INBOX='[]' tick "$prev" "$sd" 1130)
@@ -107,25 +109,26 @@ check "division escalates to its corps" "$(jq -c '.escalate | map([.key, .to])' 
 check "division speech" "$(jq -c '.speak | map(.text)' <<<"$o")" '["tailscale in learning is waiting on you"]'
 check "orphan division stays a corps" "$(DIVISIONS='{}' tick "$prev" "$sd" 1130 | jq -c '.state.corps | map(.name)')" '["learning","󱎦 tailscale"]'
 check "division addressable" "$(INBOX='[{"id":"9","from":"skipli","to":"tailscale","text":"t","at":1100}]' tick "$prev" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.deliver | map(.pane_id)')" '["w6:p1"]'
-DIVISIONS='{}'
+check "adopted division stop is not escalated" "$(tick "$(jq -c '.agents["w6:p1"] += {status: "working", prev_status: "idle"}' <<<"$prev")" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.escalate')" '[]'
+DIVISIONS=$D0
 
 # --- Long working.
 sw=$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
 check "long working" "$(jq -c '.escalate | map(.key)' <<<"$(tick "$prev" "$sw" 4600)")" '["long:w1:p1:1000"]'
 
-# --- Task agent stops working: escalate after settle; Corps agent does not.
+# --- A spawned Division stops working: its Corps hears after settle; a Corps agent does not.
 sw=$(snap "$W" "[$(agent w2:p1 working sid-2),$(agent w1:p1 working sid-1)]" "[$(pane w2:p1),$(pane w1:p1)]")
 si=$(snap "$W" "[$(agent w2:p1 idle sid-2),$(agent w1:p1 idle sid-1)]" "[$(pane w2:p1),$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
 prev=$(jq -c .state <<<"$(tick "$prev" "$si" 1100)")
-check "task settle wait" "$(jq -c '.escalate | length' <<<"$(tick "$prev" "$si" 1110)")" '0'
-check "task stopped" "$(jq -c '.escalate | map(.key)' <<<"$(tick "$prev" "$si" 1131)")" '["task_stopped:w2:p1:1100"]'
+check "division settle wait" "$(jq -c '.escalate | length' <<<"$(tick "$prev" "$si" 1110)")" '0'
+check "division stopped" "$(jq -c '.escalate | map([.key, .to])' <<<"$(tick "$prev" "$si" 1131)")" '[["division_stopped:w2:p1:1100","w1:p1"]]'
 
-# --- Corps: Task grouped under its repo, Berthier and Tasks excluded.
+# --- Corps: Divisions nested under their Corps, Berthier excluded.
 o=$(tick '{}' "$si" 1000)
-check "corps" "$(jq -c '.state.corps | map({name, tasks: (.tasks | map(.name))})' <<<"$o")" \
-  '[{"name":"skipli","tasks":["skipli/dark-mode"]},{"name":"notes","tasks":[]}]'
+check "corps" "$(jq -c '.state.corps | map({name, divisions: (.divisions | map([.name, .worktree, .path]))})' <<<"$o")" \
+  '[{"name":"skipli","divisions":[["󱎦 dark-mode",true,"/h/dark-mode"]]},{"name":"notes","divisions":[]}]'
 
 # --- Berthier is whoever runs in its repo (subdirs too), whatever the workspace label.
 Wh="[$(ws w1 skipli),$(ws w5 hq)]"

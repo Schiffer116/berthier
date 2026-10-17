@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Print the Army view model (lib/army.jq) as JSON: every Corps with its
-# Divisions and Tasks, each Agent's live status and own report, what needs the
+# Divisions, each Agent's live status and own report, what needs the
 # user, asks in flight and recent activity. "available" is false when the Main
 # Loop has not written state.json recently.
 # shellcheck source=lib/common.sh

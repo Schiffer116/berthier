@@ -13,16 +13,13 @@ ws=$(hd workspace list)
 child_id=$(jq -r --arg l "$child" '.result.workspaces[] | select(.label == $l) | .workspace_id' <<<"$ws")
 [[ -n $child_id ]] || die "no workspace labelled '$child'"
 jq -e --arg l "$corps" 'any(.result.workspaces[]; .label == $l)' <<<"$ws" >/dev/null || die "no Corps '$corps'"
-[[ $child != "$TASK_PREFIX"* && $child != */* ]] || die "'$child' is already a Task or a Division"
+[[ $child != "$DIVISION_PREFIX"* && $child != */* ]] || die "'$child' is already a Division"
 [[ $child != berthier ]] || die "berthier answers to the user only"
-[[ $corps != "$TASK_PREFIX"* && $corps != */* ]] || die "'$corps' is a Task or a Division, not a Corps"
+[[ $corps != "$DIVISION_PREFIX"* && $corps != */* ]] || die "'$corps' is a Division, not a Corps"
 
 name=${child#.}
-label="$TASK_PREFIX$name"
-divisions=$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')
-tmp=$(mktemp "$BERTHIER_HOME/.divisions.XXXXXX")
-jq --arg n "$(corps_name "$name")" --arg c "$corps" '.[$n] = $c' <<<"$divisions" >"$tmp"
-mv "$tmp" "$BERTHIER_DIVISIONS"
+label="$DIVISION_PREFIX$name"
+division_set "$(corps_name "$name")" "$(jq -cn --arg c "$corps" '{corps: $c, worktree: false}')"
 hd workspace rename "$child_id" "$label" >/dev/null
 log "adopted $child as $label"
 echo "'$child' is now Division '$label' of $corps; brief $corps's Main Agent that it commands it"

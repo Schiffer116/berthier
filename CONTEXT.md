@@ -23,15 +23,15 @@ One Herdr workspace, whatever it contains; it need not be a git repository. Same
 _Avoid_: project, herdr session, campaign, repo, folder
 
 **Division**:
-A workspace a Corps adopted, labelled `󱎦 <division>` (the Corps is recorded by Berthier, not in the label), with its own long-lived Agent. The Corps's Main Agent commands it: assigns and reviews its work, and receives its Escalations. Unlike a Task, it is not a worktree and does not end.
-_Avoid_: sub-project, child, team
+A sub-unit of a Corps, labelled `󱎦 <name>` (the Corps is recorded by Berthier, not in the label), with its own Agent: either a worktree the Main Agent spawns for a side feature, which ends once the user has reviewed it, or an existing workspace the Corps adopted, which lasts. The Corps's Main Agent commands it: assigns and reviews its work, and receives its Escalations.
+_Avoid_: task, sub-project, child, team
 
 **Agent**:
 One coding-agent session in a Herdr pane inside a Corps, whether the user or Berthier started it.
 _Avoid_: worker, crewmate, bot
 
 **Main Agent**:
-The Agent working a Corps on its main branch, in the Corps's own workspace; it decides when to split off Tasks.
+The Agent working a Corps on its main branch, in the Corps's own workspace; it decides when to spawn Divisions.
 _Avoid_: lead, primary
 
 **Army**:
@@ -44,12 +44,8 @@ _Avoid_: status file, snapshot
 
 ### Work
 
-**Task**:
-A piece of work a Main Agent splits off to run side by side with the main branch, in its own worktree workspace labelled with the 󱎦 prefix and worked by one Agent at a time; a Revived Agent continues the same Task. The user reviews a finished Task personally.
-_Avoid_: job, ticket, assignment, split
-
 **Brief**:
-The initial instructions handed to a new Agent (by Berthier to a Main Agent, or by a Main Agent to a Task's Agent): the goal and what done looks like.
+The initial instructions handed to a new Agent (by Berthier to a Main Agent, or by a Main Agent to a Division's Agent): the goal and what done looks like.
 _Avoid_: orders, prompt, task description
 
 ### Supervision

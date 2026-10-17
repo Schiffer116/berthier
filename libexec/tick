@@ -15,7 +15,7 @@ cfg=$(jq -cn \
   --arg berthier_root "$BERTHIER_ROOT" \
   --argjson blocked_after "$BERTHIER_BLOCKED_AFTER" \
   --argjson long_after "$BERTHIER_LONG_AFTER" \
-  --argjson task_settle "$BERTHIER_TASK_SETTLE" \
+  --argjson division_settle "$BERTHIER_DIVISION_SETTLE" \
   --argjson revive_max "$BERTHIER_REVIVE_MAX" \
   --argjson revive_backoff "$BERTHIER_REVIVE_BACKOFF" \
   --argjson revive_reset "$BERTHIER_REVIVE_RESET" \

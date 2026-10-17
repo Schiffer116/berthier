@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Send a request to another Corps (or a Task, or berthier). The Main Loop
+# Send a request to another Corps (or a Division, or berthier). The Main Loop
 # delivers it to that Corps's Agent once the Agent is ready for input.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"

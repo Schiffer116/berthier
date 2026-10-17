@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Run by a Corps's Main Agent from its own pane: spawn a Division for a side
+# feature, a worktree workspace labelled "󱎦 <name>" on branch <name>, with
+# its own Agent started on the Brief. The Corps commands it.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+[[ $# -ge 2 ]] || die "usage: berthier division-new <name> <brief>"
+name=$1
+shift
+brief=$*
+ws_id=${BERTHIER_WORKSPACE:-${HERDR_WORKSPACE_ID:-}}
+[[ -n $ws_id ]] || die "run this from the Main Agent's Herdr pane (no HERDR_WORKSPACE_ID)"
+
+corps=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
+[[ $corps != "$DIVISION_PREFIX"* ]] || die "already inside a Division; spawn from the Corps's own workspace"
+# Herdr fills in workspace git metadata lazily, so ask git from a pane's cwd.
+cwd=$(hd pane list --workspace "$ws_id" | jq -r '.result.panes[0].cwd')
+common=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+  || die "Corps '$corps' is not a git repository; a new Division needs a worktree"
+repo=$(dirname "$common")
+
+branch=$(slug "$name")
+[[ -n $branch ]] || die "division name must contain letters"
+label="$DIVISION_PREFIX$branch"
+hd workspace list | jq -e --arg l "$label" 'any(.result.workspaces[]; .label == $l)' >/dev/null \
+  && die "a workspace labelled '$label' already exists; pick another name"
+pane=$(hd worktree create --cwd "$repo" --branch "$branch" --label "$label" --no-focus \
+  | jq -re '.result.root_pane.pane_id') || die "could not create worktree for branch '$branch'"
+division_set "$branch" "$(jq -cn --arg c "$corps" '{corps: $c, worktree: true}')"
+
+agent=$(slug "$corps-$branch")
+if hd agent start "$agent" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
+     -- ${brief:+"$brief"} >/dev/null 2>&1; then
+  echo "division '$label' of $corps started: branch $branch, pane $pane, agent '$agent'"
+else
+  echo "division '$label' of $corps created: pane $pane, agent '$agent' is waiting on a startup dialog - the user must answer it in Herdr"
+fi
