@@ -1,7 +1,7 @@
 # Pure decision core of the Main Loop.
 #
 # Inputs (all via --argjson):
-#   $prev  previous Fleet State ({} on first run)
+#   $prev  previous Army State ({} on first run)
 #   $snap  `herdr api snapshot` .result.snapshot
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, task_settle, revive_max,
@@ -160,7 +160,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
    | with_entries(select(.value > ($now - $cfg.escalation_ttl)))
    | . + ($events + $speak | map({key: .key, value: $now}) | from_entries)) as $escalated
 
-# --- Projects: every workspace that is not a Task and not Berthier's own.
+# --- Corps: every workspace that is not a Task and not Berthier's own.
 | ($agents | to_entries | group_by(.value.workspace_id)
    | map({key: .[0].value.workspace_id, value: map(.key)}) | from_entries) as $by_ws
 | ($workspaces | map(select(.label | is_task_label))) as $task_ws
@@ -180,14 +180,14 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
                  path: (.worktree.checkout_path // null),
                  agents: ($by_ws[.workspace_id] // [])
                }))
-     })) as $projects
+     })) as $corps
 
 | {
     state: {
       version: 1,
       updated_at: $now,
       berthier: $berthier,
-      projects: $projects,
+      corps: $corps,
       agents: $agents,
       escalated: $escalated,
       ask_log: $ask_log

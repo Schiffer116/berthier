@@ -95,7 +95,7 @@ BERTHIER_WORKSPACE="$ws" \
   BERTHIER_START_TIMEOUT_MS=5000 bin/berthier task-split "Dark Mode" "Reply with just: hi"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "󱎦 demo/dark-mode")' >/dev/null || fail "task workspace missing"
 bin/berthier tick
-jq -e 'any(.projects[].tasks[]; .name == "demo/dark-mode")' "$BERTHIER_HOME/state.json" >/dev/null || fail "state does not show the task"
+jq -e 'any(.corps[].tasks[]; .name == "demo/dark-mode")' "$BERTHIER_HOME/state.json" >/dev/null || fail "state does not show the task"
 BERTHIER_WORKSPACE="$ws" bin/berthier task-done "Dark Mode"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "󱎦 demo/dark-mode") | not' >/dev/null || fail "task workspace not removed"
 git -C "$repo" show-ref --verify --quiet refs/heads/dark-mode && fail "merged task branch not deleted"

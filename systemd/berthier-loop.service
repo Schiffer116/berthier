@@ -1,5 +1,5 @@
 [Unit]
-Description=Berthier Main Loop (Herdr fleet supervision)
+Description=Berthier Main Loop (Herdr army supervision)
 
 [Service]
 Type=simple

@@ -98,7 +98,7 @@ sw=$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
 check "long working" "$(jq -c '.escalate | map(.key)' <<<"$(tick "$prev" "$sw" 4600)")" '["long:w1:p1:1000"]'
 
-# --- Task agent stops working: escalate after settle; Project agent does not.
+# --- Task agent stops working: escalate after settle; Corps agent does not.
 sw=$(snap "$W" "[$(agent w2:p1 working sid-2),$(agent w1:p1 working sid-1)]" "[$(pane w2:p1),$(pane w1:p1)]")
 si=$(snap "$W" "[$(agent w2:p1 idle sid-2),$(agent w1:p1 idle sid-1)]" "[$(pane w2:p1),$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
@@ -106,16 +106,16 @@ prev=$(jq -c .state <<<"$(tick "$prev" "$si" 1100)")
 check "task settle wait" "$(jq -c '.escalate | length' <<<"$(tick "$prev" "$si" 1110)")" '0'
 check "task stopped" "$(jq -c '.escalate | map(.key)' <<<"$(tick "$prev" "$si" 1131)")" '["task_stopped:w2:p1:1100"]'
 
-# --- Projects: Task grouped under its repo, Berthier and Tasks excluded.
+# --- Corps: Task grouped under its repo, Berthier and Tasks excluded.
 o=$(tick '{}' "$si" 1000)
-check "projects" "$(jq -c '.state.projects | map({name, tasks: (.tasks | map(.name))})' <<<"$o")" \
+check "corps" "$(jq -c '.state.corps | map({name, tasks: (.tasks | map(.name))})' <<<"$o")" \
   '[{"name":"skipli","tasks":["skipli/dark-mode"]},{"name":"notes","tasks":[]}]'
 
 # --- Berthier is whoever runs in its repo (subdirs too), whatever the workspace label.
 Wh="[$(ws w1 skipli),$(ws w5 hq)]"
 sh=$(snap "$Wh" "[$(agent w5:p1 idle sid-h "" /home/u/berthier/tests),$(agent w1:p1 idle sid-1 "" /home/u/berthier-other)]" "[$(pane w5:p1),$(pane w1:p1)]")
 o=$(tick '{}' "$sh" 1000)
-check "berthier by cwd" "$(jq -c '[.state.berthier, (.state.projects | map(.name))]' <<<"$o")" '["w5:p1",["skipli"]]'
+check "berthier by cwd" "$(jq -c '[.state.berthier, (.state.corps | map(.name))]' <<<"$o")" '["w5:p1",["skipli"]]'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

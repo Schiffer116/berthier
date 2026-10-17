@@ -1,13 +1,13 @@
 # Berthier
 
-Berthier is the user's chief of staff for coding agents. It runs the Fleet of Agents in Herdr: it starts them on the user's command, keeps them alive, checks on them, and tells the user where things stand. The user talks to Agents directly; Berthier is never in that loop.
+Berthier is the user's chief of staff for coding agents. It runs the Army of Agents in Herdr: it starts them on the user's command, keeps them alive, checks on them, and tells the user where things stand. The user talks to Agents directly; Berthier is never in that loop.
 
 ## Language
 
 ### Who
 
 **Berthier**:
-The chief-of-staff agent: whichever coding agent runs in Berthier's own repository, distinguished only by its goal of keeping the Fleet moving and learning how the user works.
+The chief-of-staff agent: whichever coding agent runs in Berthier's own repository, distinguished only by its goal of keeping the Army moving and learning how the user works.
 _Avoid_: orchestrator, controller, first mate
 
 **Notes**:
@@ -15,27 +15,27 @@ Berthier's running record of open threads, commitments, and recent decisions, ke
 _Avoid_: memory, journal, log
 
 **Main Loop**:
-The deterministic, always-running process that observes the Fleet, Revives gone Agents, and Escalates everything else to Berthier.
+The deterministic, always-running process that observes the Army, Revives gone Agents, and Escalates everything else to Berthier.
 _Avoid_: daemon, watcher, supervisor
 
-**Project**:
-One Herdr workspace, whatever it contains; it need not be a git repository.
-_Avoid_: herdr session, campaign, repo, folder
+**Corps**:
+One Herdr workspace, whatever it contains; it need not be a git repository. Same word singular and plural, as in Napoleon's Grande Armée.
+_Avoid_: project, herdr session, campaign, repo, folder
 
 **Agent**:
-One coding-agent session in a Herdr pane inside a Project, whether the user or Berthier started it.
+One coding-agent session in a Herdr pane inside a Corps, whether the user or Berthier started it.
 _Avoid_: worker, crewmate, bot
 
 **Main Agent**:
-The Agent working a Project on its main branch, in the Project's own workspace; it decides when to split off Tasks.
-_Avoid_: lead, primary, project agent
+The Agent working a Corps on its main branch, in the Corps's own workspace; it decides when to split off Tasks.
+_Avoid_: lead, primary
 
-**Fleet**:
+**Army**:
 Every Agent currently known to Berthier.
-_Avoid_: crew, swarm
+_Avoid_: fleet, crew, swarm
 
-**Fleet State**:
-The Main Loop's latest record of every Project and Agent; only the Main Loop writes it.
+**Army State**:
+The Main Loop's latest record of every Corps and Agent; only the Main Loop writes it.
 _Avoid_: status file, snapshot
 
 ### Work
@@ -69,11 +69,11 @@ _Avoid_: ping, poke
 ### Coordination
 
 **Owner**:
-The Project responsible for an area (the bar, systemd units, an app); listed in `owners.md`. Only the Owner's Agents change it.
+The Corps responsible for an area (the bar, systemd units, an app); listed in `owners.md`. Only the Owner's Agents change it.
 _Avoid_: maintainer
 
 **Ask**:
-A request one Agent sends another Project's Agent through Berthier's inbox, delivered when the addressee is ready for input; answered with an Ask back.
+A request one Agent sends another Corps's Agent through Berthier's inbox, delivered when the addressee is ready for input; answered with an Ask back.
 _Avoid_: message, ticket, relay
 
 **Report**:

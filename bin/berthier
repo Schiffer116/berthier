@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# berthier - multi-step Fleet conventions as deterministic commands.
+# berthier - multi-step Army conventions as deterministic commands.
 set -euo pipefail
 
 root=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
@@ -8,7 +8,7 @@ usage() {
   cat <<'EOF'
 usage: berthier <command> [args]
 
-project-new <name> <dir> [brief]    create a Project workspace with a Main Agent
+corps-new <name> <dir> [brief]      create a Corps workspace with a Main Agent
 task-split <task> <brief>           (Main Agent) split a Task into a 󱎦 worktree workspace
 task-done <task>                    (Main Agent) remove a Task's worktree workspace
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
@@ -26,7 +26,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  project-new|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
+  corps-new|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac

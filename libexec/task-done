@@ -9,8 +9,8 @@ branch=$(slug "$1")
 ws_id=${BERTHIER_WORKSPACE:-${HERDR_WORKSPACE_ID:-}}
 [[ -n $ws_id ]] || die "run this from the Main Agent's Herdr pane (no HERDR_WORKSPACE_ID)"
 
-project=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
-label="$TASK_PREFIX$project/$branch"
+corps=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
+label="$TASK_PREFIX$corps/$branch"
 IFS=$'\t' read -r task_ws path repo < <(hd workspace list | jq -r --arg l "$label" '
   [.result.workspaces[] | select(.label == $l)] | first // empty
   | [.workspace_id, .worktree.checkout_path, .worktree.repo_root] | @tsv')

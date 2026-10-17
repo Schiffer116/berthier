@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One Main Loop pass: observe Herdr, decide (lib/tick.jq), act, write state.
-# The Main Loop is the only writer of the Fleet State.
+# The Main Loop is the only writer of the Army State.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -80,7 +80,7 @@ done < <(jq -r '.deliver[] | [.id, .pane_id, .text] | @tsv' <<<"$out")
 # cannot take it (gone or blocked).
 mapfile -t lines < <(jq -r '.escalate[].text' <<<"$out")
 if ((${#lines[@]})); then
-  msg="[berthier-loop] Fleet events:"
+  msg="[berthier-loop] Army events:"
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
   berthier=$(jq -r '.berthier // empty' <<<"$state")
   if [[ -n $berthier ]] && hd agent prompt "$berthier" "$msg" >/dev/null 2>&1; then
