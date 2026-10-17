@@ -77,6 +77,12 @@ h agent wait demo-main --until idle --timeout 90000 >/dev/null
 h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier ask\] from helper' || fail "ask not in demo-main's pane"
 [[ -z $(ls "$BERTHIER_HOME/inbox") ]] || fail "delivered ask left in the inbox"
 
+step "adopt makes helper a Division of demo"
+bin/berthier adopt helper demo >/dev/null
+bin/berthier tick
+jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["demo/helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
+  || fail "helper not nested under demo"
+
 step "a deliberate /exit must not be Revived"
 h agent wait "$pane" --timeout 60000 >/dev/null
 h pane send-text "$pane" "/exit" >/dev/null

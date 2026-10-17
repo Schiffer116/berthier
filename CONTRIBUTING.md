@@ -19,6 +19,7 @@
 - Reports: `report` writes `state/reports/<claude session id>.json`; `counts` joins them with live Agents for the bar. `hook-stop` is a Claude Code Stop hook (wired globally by the dotfiles) that blocks a turn's end in a Herdr pane until the Agent has reported during it.
 - Berthier = the agent whose cwd is this repo; the loop prompts escalations into its pane, and sends Berthier's own problems to `herdr notification show`.
 - Revive = `herdr agent start <name> --kind claude --pane <pane> -- --resume <session>`, only when the pane survived at a shell prompt. Deliberate stops are forgotten, never Revived: a closed pane, or a clean Claude exit (it prints `Resume this session with: claude --resume <id>`; a killed process does not), checked on the tick the agent vanishes and again before any Revive.
+- Divisions are workspaces relabelled `<corps>/<division>` by `adopt`; `tick.jq` nests them under their Corps and routes their escalations (`to`) to the Corps's Main Agent.
 - Tasks are worktree workspaces labelled `󱎦 <corps>/<task>` (`herdr worktree create`, default `~/.herdr/worktrees/`), split by Main Agents via `task-split`/`task-done`.
 - Runtime data is gitignored: `state/` (loop) and `notes.md` (Berthier's Notes for session continuity, imported by `CLAUDE.md`; Berthier edits the "How the user works" section of `CLAUDE.md` itself). Berthier's skills go in `.claude/skills/`.
 

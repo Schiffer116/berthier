@@ -9,6 +9,7 @@ usage() {
 usage: berthier <command> [args]
 
 corps-new <name> <dir> [brief]      create a Corps workspace with a Main Agent
+adopt <workspace> <corps>           make a workspace a Division of a Corps (relabels it <corps>/<name>)
 task-split <task> <brief>           (Main Agent) split a Task into a 󱎦 worktree workspace
 task-done <task>                    (Main Agent) remove a Task's worktree workspace
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
@@ -26,7 +27,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  corps-new|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
+  corps-new|adopt|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac

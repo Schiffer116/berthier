@@ -22,6 +22,10 @@ _Avoid_: daemon, watcher, supervisor
 One Herdr workspace, whatever it contains; it need not be a git repository. Same word singular and plural, as in Napoleon's Grande Armée.
 _Avoid_: project, herdr session, campaign, repo, folder
 
+**Division**:
+A workspace a Corps adopted, labelled `<corps>/<division>`, with its own long-lived Agent. The Corps's Main Agent commands it: assigns and reviews its work, and receives its Escalations. Unlike a Task, it is not a worktree and does not end.
+_Avoid_: sub-project, child, team
+
 **Agent**:
 One coding-agent session in a Herdr pane inside a Corps, whether the user or Berthier started it.
 _Avoid_: worker, crewmate, bot

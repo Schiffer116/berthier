@@ -85,6 +85,13 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
        session_id: .value.session_id}
   )) as $revive
 
+# --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
+| ($agents | to_entries
+   | map(select(.value.status != "gone"
+                and (.value.workspace_label | (is_task_label or is_division_label) | not)))
+   | group_by(.value.workspace_label) | map({key: .[0].value.workspace_label, value: .[0].key})
+   | from_entries) as $main_of
+
 # --- Asks: deliver each to its addressee's Agent once it is ready for input,
 # at most one per Agent per tick, oldest first.
 | ($agents | to_entries | map(select(.value.status != "gone") | {
@@ -112,19 +119,22 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     | ($now - ($v.status_since // $now)) as $age
     | ($v.workspace_label // $v.workspace_id) as $where
     | "agent '\($v.name // "-")' in \($where) (pane \($pane))" as $who
+    # A Division's trouble goes to its Corps's Main Agent, which commands it.
+    | (if $v.workspace_label | is_division_label
+       then $main_of[$v.workspace_label | parent_corps] else null end) as $to
     | if $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
-        {key: "revive_failed:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name,
+        {key: "revive_failed:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
          text: "revive failed \($v.revive_attempts)x: \($who), session \($v.session_id)"}
       elif $v.status == "blocked" and $age >= $cfg.blocked_after then
-        {key: "blocked:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name,
+        {key: "blocked:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
          text: "blocked \($age / 60 | floor)m on an approval or question: \($who)"}
       elif $v.status == "working" and $age >= $cfg.long_after then
-        {key: "long:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name,
+        {key: "long:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
          text: "working \($age / 60 | floor)m without stopping: \($who)"}
       elif ($v.workspace_label | is_task_label)
            and ($v.status == "idle" or $v.status == "done")
            and $v.prev_status == "working" and $age >= $cfg.task_settle then
-        {key: "task_stopped:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name,
+        {key: "task_stopped:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
          text: "task agent stopped working (finished or stalled): \($who)"}
       else empty end
   )
@@ -167,13 +177,17 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 | ($agents | to_entries | group_by(.value.workspace_id)
    | map({key: .[0].value.workspace_id, value: map(.key)}) | from_entries) as $by_ws
 | ($workspaces | map(select(.label | is_task_label))) as $task_ws
+| ($workspaces | map(select(.label | is_division_label))) as $division_ws
 | ($workspaces
-   | map(select((.label | is_task_label | not) and .workspace_id != $berthier_ws and .label != "berthier"))
+   | map(select((.label | (is_task_label or is_division_label) | not)
+                 and .workspace_id != $berthier_ws and .label != "berthier"))
    | map(. as $w | {
        name: $w.label,
        workspace_id: $w.workspace_id,
        repo_root: ($w.worktree.repo_root // null),
        agents: ($by_ws[$w.workspace_id] // []),
+       divisions: ($division_ws | map(select((.label | parent_corps) == $w.label) | {
+                     name: .label, workspace_id: .workspace_id, agents: ($by_ws[.workspace_id] // [])})),
        tasks: ($task_ws | map(select(
                  (($w.worktree.repo_key // null) != null and .worktree.repo_key == $w.worktree.repo_key)
                  or ((.label | ltrimstr(task_prefix) | split("/")[0]) == $w.label)

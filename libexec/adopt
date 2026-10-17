@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Make a workspace a Division of a Corps: relabel it "<corps>/<name>". Its
+# Agents keep running; the Corps's Main Agent now commands them, and the Main
+# Loop sends their trouble there instead of to Berthier.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+[[ $# -eq 2 ]] || die "usage: berthier adopt <workspace> <corps>"
+child=$1 corps=$2
+[[ $child != "$corps" ]] || die "a Corps cannot adopt itself"
+ws=$(hd workspace list)
+child_id=$(jq -r --arg l "$child" '.result.workspaces[] | select(.label == $l) | .workspace_id' <<<"$ws")
+[[ -n $child_id ]] || die "no workspace labelled '$child'"
+jq -e --arg l "$corps" 'any(.result.workspaces[]; .label == $l)' <<<"$ws" >/dev/null || die "no Corps '$corps'"
+[[ $child != "$TASK_PREFIX"* && $child != */* ]] || die "'$child' is already a Task or a Division"
+[[ $corps != "$TASK_PREFIX"* && $corps != */* ]] || die "'$corps' is a Task or a Division, not a Corps"
+
+label="$corps/${child#.}"
+hd workspace rename "$child_id" "$label" >/dev/null
+log "adopted $child as $label"
+echo "'$child' is now Division '$label'; brief $corps's Main Agent that it commands it"

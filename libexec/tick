@@ -76,20 +76,23 @@ while IFS=$'\t' read -r id pane text; do
   fi
 done < <(jq -r '.deliver[] | [.id, .pane_id, .text] | @tsv' <<<"$out")
 
-# --- Escalate to Berthier in one prompt; fall back to the user if Berthier
-# cannot take it (gone or blocked).
-mapfile -t lines < <(jq -r '.escalate[].text' <<<"$out")
-if ((${#lines[@]})); then
-  msg="[berthier-loop] Army events:"
+# --- Escalate: a Division's events go to its Corps's Main Agent, the rest to
+# Berthier, one prompt each. Fall back to the user if the target cannot take it.
+berthier=$(jq -r '.berthier // empty' <<<"$state")
+while IFS= read -r group; do
+  [[ -n $group ]] || continue
+  to=$(jq -r '.[0].to // "-"' <<<"$group")
+  mapfile -t lines < <(jq -r '.[].text' <<<"$group")
+  if [[ $to == - ]]; then target=$berthier who=berthier msg="[berthier-loop] Army events:"
+  else target=$to who=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
-  berthier=$(jq -r '.berthier // empty' <<<"$state")
-  if [[ -n $berthier ]] && hd agent prompt "$berthier" "$msg" >/dev/null 2>&1; then
-    log "escalated ${#lines[@]} event(s) to berthier"
+  if [[ -n $target ]] && hd agent prompt "$target" "$msg" >/dev/null 2>&1; then
+    log "escalated ${#lines[@]} event(s) to $who"
   else
     hd notification show "Berthier unreachable" --body "$msg" --sound request >/dev/null 2>&1 || true
-    log "berthier unreachable; notified user of ${#lines[@]} event(s)"
+    log "$who unreachable; notified user of ${#lines[@]} event(s)"
   fi
-fi
+done < <(jq -c '.escalate | group_by(.to // "-")[]' <<<"$out")
 
 # --- Berthier's own trouble goes straight to the user.
 while IFS= read -r l; do
