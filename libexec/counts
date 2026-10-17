@@ -1,36 +1,16 @@
 #!/usr/bin/env bash
-# Print how many Agents are in each status, as one JSON object for status bars.
-# Every status key is always present; "available" is false when the Main Loop
-# has not written state.json recently, so a bar can tell stale data apart.
-# "report" has one line per live Agent (every Corps shows up), "<corps>: <state> - <its own report>",
-# needs-you lines first; <state> is "needs you" or the Agent's live status.
+# The bar's compact view of `berthier army`: availability, Agent count per
+# status, and "report", one line per live Agent ("<who>: <state> - <report>",
+# needs-you first; <state> is "needs you" or the live status).
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 [[ $# -eq 0 ]] || die "usage: berthier counts"
 
-stale_after=$((BERTHIER_INTERVAL * 3))
-now=$(date +%s)
-mtime=$(stat -c %Y "$BERTHIER_STATE" 2>/dev/null || echo 0)
-available=false
-((now - mtime <= stale_after)) && available=true
-
-reports=$(find "$BERTHIER_REPORTS" -maxdepth 1 -name '*.json' -print0 \
-  | xargs -0r jq -c '{key: (input_filename | split("/") | last | rtrimstr(".json")), value: .}' \
-  | jq -cs 'from_entries')
-
-jqn -cn --argjson available "$available" --argjson reports "${reports:-{\}}" \
-  --slurpfile s <(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}') '
-  ($s[0].agents // {}) as $agents
-  | ($agents | [.[].status]) as $st
-  | {available: $available}
-  + ([["working","blocked","done","idle","unknown","gone"][] as $k
-      | {($k): ($st | map(select(. == $k)) | length)}] | add)
-  + {report: ([$agents | to_entries[]
-        | select(.value.status != "gone")
-        | ($reports[.value.session_id // ""].line // "no report yet") as $line
-        | (if .key == $s[0].berthier then "berthier" else (.value.workspace_label | corps_name) end) as $who
-        | ($line | test("^needs you:"; "i")) as $needs
-        | {needs: $needs, who: $who,
-           text: "\($who): \(if $needs then "needs you" else .value.status end) - \($line | sub("^needs you: *"; ""; "i"))"}]
-      | sort_by((.needs | not), .who) | map(.text) | join("\n"))}'
+"$BERTHIER_ROOT/libexec/army" | jq -c '
+  {available} + .counts
+  + {report: ([.corps[] | ., .divisions[], .tasks[] | .agents[]] + [.berthier // empty]
+      | map(select(.status != "gone"))
+      | sort_by((.needs_you | not), .who)
+      | map("\(.who): \(if .needs_you then "needs you" else .status end) - \(.report // "no report yet")")
+      | join("\n"))}'

@@ -27,7 +27,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  corps-new|adopt|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
+  corps-new|adopt|army|task-split|task-done|report|ask|owners|counts|hook-stop|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac
