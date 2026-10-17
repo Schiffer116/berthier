@@ -4,7 +4,7 @@
 
 ## Commands
 
-- Unit tests (pure, instant): `tests/tick.test.sh`
+- Unit tests (pure, instant): `tests/tick.test.sh`, `tests/counts.test.sh`
 - E2E (real Herdr + Claude haiku, isolated `berthier-e2e` session, ~1 min): `tests/e2e.sh`
 - Lint: `shellcheck bin/berthier libexec/* lib/common.sh tests/*.sh` (`.shellcheckrc` resolves sources)
 - Try against a scratch Herdr session: `BERTHIER_HERDR_SESSION=<name> BERTHIER_HOME=<tmpdir> bin/berthier <cmd>`

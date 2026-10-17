@@ -11,6 +11,7 @@ usage: berthier <command> [args]
 project-new <name> <dir> [brief]    create a Project workspace with a Main Agent
 task-split <task> <brief>           (Main Agent) split a Task into a 󱎦 worktree workspace
 task-done <task>                    (Main Agent) remove a Task's worktree workspace
+counts                              Agent count per status, as JSON for status bars
 tick                                run one Main Loop pass
 loop                                run the Main Loop forever
 EOF
@@ -21,7 +22,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  project-new|task-split|task-done|tick|loop)
+  project-new|task-split|task-done|counts|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac
