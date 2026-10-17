@@ -133,10 +133,13 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       | select(.id as $id | $deliver | any(.id == $id) | not)
       | {key: "ask_stuck:\(.id)", pane_id: null,
          text: "ask from \(.from) to \(.to) undelivered \(($now - .at) / 60 | floor)m: \(.text)"}))
-  + ($ask_log | map([.from, .to] | sort | join(" and ")) | group_by(.)
-     | map(select(length >= $cfg.pingpong_max)
-       | {key: "pingpong:\(.[0]):\($now / 3600 | floor)", pane_id: null,
-          text: "asks bouncing between \(.[0]): \(length) in the last hour"}))
+  # Ping-pong: replies flipping direction again and again; one-way updates don't count.
+  + ($ask_log | map(. + {pair: ([.from, .to] | sort | join(" and "))}) | group_by(.pair)
+     | map(sort_by(.at) as $l
+       | ([range(1; $l | length) | select($l[.].from != $l[. - 1].from)] | length) as $flips
+       | select($flips >= $cfg.pingpong_max)
+       | {key: "pingpong:\($l[0].pair):\($now / 3600 | floor)", pane_id: null,
+          text: "asks bouncing between \($l[0].pair): \($flips) back-and-forths in the last hour"}))
   | map(select($prev_escalated[.key] == null))) as $events
 
 # --- Spoken alerts: the user is needed. Faster than escalation, because they

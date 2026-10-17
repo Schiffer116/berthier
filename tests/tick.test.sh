@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":6}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10}'
 pass=0 fail=0
 
 tick() { # prev snap now
@@ -89,9 +89,12 @@ check "ask delivery" "$(jq -c '.deliver | map([.id, .pane_id])' <<<"$o")" '[["1"
 check "ask text" "$(jq -r '.deliver[0].text' <<<"$o")" '[berthier ask] from notes: hi (Reply or report back with: berthier ask notes "...")'
 check "ask stuck escalates" "$(jq -c '.escalate | map(.key)' <<<"$o")" '["ask_stuck:3"]'
 check "ask logged" "$(jq -c '.state.ask_log | map(.to)' <<<"$o")" '["skipli","berthier"]'
-log5=$(jq -c '[range(5) | {from: "skipli", to: "notes", at: 1990}]' <<<null)
-o=$(INBOX='[{"id":"1","from":"notes","to":"skipli","text":"hi","at":1990}]' tick "$(jq -c --argjson l "$log5" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
-check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 6 in the last hour"]'
+oneway=$(jq -c '[range(12) | {from: "notes", to: "skipli", at: (1900 + .)}]' <<<null)
+o=$(INBOX='[]' tick "$(jq -c --argjson l "$oneway" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
+check "one-way updates are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
+flips=$(jq -c '[range(11) | {from: (if . % 2 == 0 then "skipli" else "notes" end), to: (if . % 2 == 0 then "notes" else "skipli" end), at: (1900 + .)}]' <<<null)
+o=$(INBOX='[]' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
+check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
 
 # --- Long working.
 sw=$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")
