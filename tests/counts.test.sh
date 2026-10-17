@@ -35,11 +35,15 @@ check "report" "$(counts | jq -r .report)" $'dark-mode: needs you - no report ye
 
 # --- army: the full view model behind counts and the dashboard.
 army() { BERTHIER_HOME=$home bin/berthier army; }
-printf '2026-10-17T13:00:00+07:00 delivered ask 1 to c:p1\n2026-10-17T13:05:00+07:00 spoke: skipli is waiting on you\n' >"$home/loop.log"
+now=$(date +%s); ts() { date -d "@$((now - $1))" -Is; }
+printf '%s escalated long to berthier: too old\n%s loop started (interval 10s, session default)\n%s delivered ask skipli -> dotfiles (c:p1)\n%s spoke: skipli is waiting on you.\n%s escalated blocked to berthier: blocked 2m on an approval or question: x\n' \
+  "$(ts $((8 * 86400)))" "$(ts 600)" "$(ts 300)" "$(ts 200)" "$(ts 100)" >"$home/loop.log"
 mkdir -p "$home/inbox"; echo '{"from":"skipli","to":"dotfiles","text":"unit","at":5}' >"$home/inbox/7-skipli.json"
 check "army needs you" "$(army | jq -c '.needs_you | map(.who)')" '["dark-mode","dotfiles"]'
 check "army division nested" "$(army | jq -c '.corps[0].divisions[0] | [.name, .worktree, .agents[0].status]')" '["dark-mode",true,"blocked"]'
-check "army activity newest first" "$(army | jq -c '.activity | map(.text)')" '["spoke: skipli is waiting on you","delivered ask 1 to c:p1"]'
+check "army activity newest first" "$(army | jq -c '.activity[0:3] | map(.tag)')" '["escal","speak","ask"]'
+check "army log times" "$(army | jq -c --argjson n "$now" '[.loop.started_at - $n, .activity[0].at - $n]')" '[-600,-100]'
+check "army escalations 7d" "$(army | jq -c '.escalations | map([.kind, .to])')" '[["blocked","berthier"],["speak","you"]]'
 check "army asks" "$(army | jq -c '.asks | map([.id, .to])')" '[["7-skipli","dotfiles"]]'
 check "army berthier" "$(army | jq -c '.berthier | [.who, .report]')" '["berthier","watching the Army"]'
 

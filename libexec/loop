@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 # The Main Loop: one tick every BERTHIER_INTERVAL seconds, forever.
-# A failed tick is logged and retried next interval; it never kills the loop.
+# A failed tick is retried next interval and never kills the loop; failures are
+# logged once per streak, so a long Herdr outage is two lines, not thousands.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 log "loop started (interval ${BERTHIER_INTERVAL}s, session ${BERTHIER_HERDR_SESSION:-default})"
 trap 'log "loop stopped"; exit 0' TERM INT
+failing=
 while :; do
-  "$BERTHIER_ROOT/libexec/tick" || log "tick failed (exit $?)"
+  rc=0
+  "$BERTHIER_ROOT/libexec/tick" || rc=$?
+  if ((rc == 0)); then
+    [[ -n $failing ]] && log "loop recovered after: $failing"
+    failing=
+  else
+    why="tick failed (exit $rc)"
+    ((rc == 3)) && why="herdr unreachable"
+    [[ $why != "$failing" ]] && log "error: $why; retrying every ${BERTHIER_INTERVAL}s"
+    failing=$why
+  fi
   sleep "$BERTHIER_INTERVAL" &
   wait $!
 done

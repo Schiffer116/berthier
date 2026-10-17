@@ -24,6 +24,6 @@ inbox=$(json_dir "$BERTHIER_INBOX")
 jq -cn -L "$BERTHIER_ROOT/lib" \
   --argjson state "$(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}')" \
   --argjson reports "$reports" --argjson inbox "$inbox" \
-  --argjson log "$(tail -n 40 "$BERTHIER_LOG" 2>/dev/null | jq -Rcs 'split("\n") | map(select(. != ""))')" \
-  --argjson available "$available" --argjson now "$now" \
+  --argjson log "$(tail -n 2000 "$BERTHIER_LOG" 2>/dev/null | jq -Rcs 'split("\n") | map(select(. != ""))')" \
+  --argjson available "$available" --argjson now "$now" --argjson interval "$BERTHIER_INTERVAL" \
   -f "$BERTHIER_ROOT/lib/army.jq"

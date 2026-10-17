@@ -47,5 +47,11 @@ check "ask queued" "$(jq -c '[.from, .to, .text]' "$home"/inbox/*.json)" '["skip
 b HERDR_PANE_ID=b:p1 bin/berthier ask skipli "all done" >/dev/null
 check "berthier asks as berthier" "$(jq -r 'select(.to == "skipli") | .from' "$home"/inbox/*.json)" 'berthier'
 
+# --- loop: a Herdr outage logs once, not every tick.
+lh=$(mktemp -d)
+BERTHIER_HOME=$lh BERTHIER_INTERVAL=0.2 BERTHIER_HERDR_SESSION=berthier-no-such-session timeout 2 bin/berthier loop 2>/dev/null || true
+check "outage logged once" "$(grep -c 'herdr unreachable' "$lh/loop.log")" '1'
+rm -rf "$lh"
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))
