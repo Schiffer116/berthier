@@ -28,7 +28,7 @@ echo '{"line": "building offline sync"}' >"$home/reports/s-a.json"
 echo '{"line": "Needs you: push main?"}' >"$home/reports/s-c.json"
 echo '{"line": "watching the Army"}' >"$home/reports/s-b.json"
 echo '{"line": "an old session"}' >"$home/reports/s-gone.json"
-check "report" "$(counts | jq -r .report)" $'dotfiles: needs you - push main?\nberthier: idle - watching the Army\nskipli: working - building offline sync'
+check "report" "$(counts | jq -r .report)" $'dotfiles: needs you - push main?\nberthier: idle - watching the Army\nskipli: working - building offline sync\nskipli/dark-mode: blocked - no report yet'
 
 touch -d '-5 minutes' "$home/state.json"
 check "stale state" "$(counts | jq -c '[.available, .idle]')" '[false,2]'

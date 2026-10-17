@@ -2,7 +2,7 @@
 # Print how many Agents are in each status, as one JSON object for status bars.
 # Every status key is always present; "available" is false when the Main Loop
 # has not written state.json recently, so a bar can tell stale data apart.
-# "report" has one line per live Agent, "<corps>: <state> - <its own report>",
+# "report" has one line per live Agent (every Corps shows up), "<corps>: <state> - <its own report>",
 # needs-you lines first; <state> is "needs you" or the Agent's live status.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
@@ -27,8 +27,8 @@ jqn -cn --argjson available "$available" --argjson reports "${reports:-{\}}" \
   + ([["working","blocked","done","idle","unknown","gone"][] as $k
       | {($k): ($st | map(select(. == $k)) | length)}] | add)
   + {report: ([$agents | to_entries[]
-        | ($reports[.value.session_id // ""].line // null) as $line
-        | select($line != null)
+        | select(.value.status != "gone")
+        | ($reports[.value.session_id // ""].line // "no report yet") as $line
         | (if .key == $s[0].berthier then "berthier" else (.value.workspace_label | corps_name) end) as $who
         | ($line | test("^needs you:"; "i")) as $needs
         | {needs: $needs, who: $who,
