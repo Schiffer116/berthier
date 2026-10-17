@@ -269,9 +269,9 @@ function renderRows(rows) {
 const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
 
 function units(a) {
-  if (a.role === 'division') return { text: `division of ${a.parent}${a.unit.worktree ? ' · worktree' : ' · adopted'}`, color: C.muted };
+  if (a.role === 'division') return { label: 'division of', text: `${a.parent} · ${a.unit.worktree ? 'worktree' : 'adopted'}`, color: C.fg };
   const d = a.unit.divisions || [];
-  return d.length ? { text: d.map((x) => x.name).join(', '), color: C.fg } : { text: 'none split off', color: C.dim };
+  return { label: 'divisions', ...(d.length ? { text: d.map((x) => x.name).join(', '), color: C.fg } : { text: 'none split off', color: C.dim }) };
 }
 
 function renderDetail(a) {
@@ -306,7 +306,7 @@ function renderDetail(a) {
         <dt>cwd</dt><dd>${esc(home(a.cwd))}</dd>
         <dt>report</dt><dd>${report}</dd>
         <dt>revived</dt><dd style="color: ${revived ? C.purple : C.dim}">${revived ?? 'never'}</dd>
-        <dt>divisions</dt><dd style="color: ${u.color}">${esc(u.text)}</dd>
+        <dt>${u.label}</dt><dd style="color: ${u.color}">${esc(u.text)}</dd>
       </dl>
       ${cmd ? `<div>
         <div class="cap">IT ASKS YOU TO RUN</div>
