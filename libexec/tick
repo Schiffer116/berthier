@@ -29,7 +29,7 @@ inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
   | xargs -0r jq -c '. + {id: (input_filename | split("/") | last | rtrimstr(".json"))}' | jq -cs .)
 
 out=$(jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
-  --argjson inbox "$inbox" \
+  --argjson inbox "$inbox" --argjson divisions "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
   -L "$BERTHIER_ROOT/lib" -f "$BERTHIER_ROOT/lib/tick.jq")
 state=$(jq -c '.state' <<<"$out")
 

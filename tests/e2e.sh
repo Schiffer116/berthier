@@ -80,7 +80,7 @@ h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier a
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
 bin/berthier tick
-jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["demo/helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
+jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["󱎦 helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "helper not nested under demo"
 
 step "a deliberate /exit must not be Revived"

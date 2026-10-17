@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Make a workspace a Division of a Corps: relabel it "<corps>/<name>". Its
+# Make a workspace a Division of a Corps: relabel it "󱎦 <name>" and record its
+# Corps in state/divisions.json. Its
 # Agents keep running; the Corps's Main Agent now commands them, and the Main
 # Loop sends their trouble there instead of to Berthier.
 # shellcheck source=lib/common.sh
@@ -13,9 +14,15 @@ child_id=$(jq -r --arg l "$child" '.result.workspaces[] | select(.label == $l) |
 [[ -n $child_id ]] || die "no workspace labelled '$child'"
 jq -e --arg l "$corps" 'any(.result.workspaces[]; .label == $l)' <<<"$ws" >/dev/null || die "no Corps '$corps'"
 [[ $child != "$TASK_PREFIX"* && $child != */* ]] || die "'$child' is already a Task or a Division"
+[[ $child != berthier ]] || die "berthier answers to the user only"
 [[ $corps != "$TASK_PREFIX"* && $corps != */* ]] || die "'$corps' is a Task or a Division, not a Corps"
 
-label="$corps/${child#.}"
+name=${child#.}
+label="$TASK_PREFIX$name"
+divisions=$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')
+tmp=$(mktemp "$BERTHIER_HOME/.divisions.XXXXXX")
+jq --arg n "$(corps_name "$name")" --arg c "$corps" '.[$n] = $c' <<<"$divisions" >"$tmp"
+mv "$tmp" "$BERTHIER_DIVISIONS"
 hd workspace rename "$child_id" "$label" >/dev/null
 log "adopted $child as $label"
-echo "'$child' is now Division '$label'; brief $corps's Main Agent that it commands it"
+echo "'$child' is now Division '$label' of $corps; brief $corps's Main Agent that it commands it"

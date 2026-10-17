@@ -5,5 +5,5 @@ Nobody listed? Ask `berthier`. The user edits this file.
 
 - **dotfiles** (`~/.dotfiles`): the desktop and user environment. Hyprland, the eww bar, home-manager and Nix, systemd user units, the shell, global Claude Code config (`~/.claude`: CLAUDE.md, settings, hooks, skills).
 - **skipli** (`~/Documents/skipli`): the Skipli app (API, UI) and its AWS infrastructure.
-- **learning** (`~/Documents/learning`): the course site, its shared assets, and every course. Its principal commands the Divisions learning/tailscale, learning/kubernetes and learning/homemanager, one teacher each; ask learning, not a teacher.
+- **learning** (`~/Documents/learning`): the course site, its shared assets, and every course. Its principal commands the Divisions 󱎦 tailscale, 󱎦 kubernetes and 󱎦 homemanager, one teacher each; ask learning, not a teacher.
 - **berthier** (`~/Documents/berthier`): the Army itself. The Main Loop, `berthier` commands, Herdr workspaces, Corps and Tasks, and anything nobody else owns.

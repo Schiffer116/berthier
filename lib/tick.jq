@@ -7,6 +7,7 @@
 #   $cfg   {berthier_root, blocked_after, long_after, task_settle, revive_max,
 #           revive_backoff, revive_reset, escalation_ttl, speak_after,
 #           ask_stuck, pingpong_max}
+#   $divisions {division name: its Corps's label} (`berthier adopt`)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
 #
 # Output: {state, vanished: [...], revive: [...], escalate: [...], notify: [...],
@@ -121,7 +122,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     | "agent '\($v.name // "-")' in \($where) (pane \($pane))" as $who
     # A Division's trouble goes to its Corps's Main Agent, which commands it.
     | (if $v.workspace_label | is_division_label
-       then $main_of[$v.workspace_label | parent_corps] else null end) as $to
+       then $main_of[$divisions[$v.workspace_label | corps_name] // ""] else null end) as $to
     | if $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
         {key: "revive_failed:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
          text: "revive failed \($v.revive_attempts)x: \($who), session \($v.session_id)"}
@@ -157,7 +158,9 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 | ($agents | to_entries | map(
     .key as $pane | .value as $v
     | ($now - ($v.status_since // $now)) as $age
-    | ($v.workspace_label // $v.workspace_id | spoken) as $where
+    | ($divisions[$v.workspace_label | corps_name] // null) as $parent
+    | ($v.workspace_label // $v.workspace_id | spoken
+       + (if ($v.workspace_label | is_division_label) and $parent then " in \($parent | spoken)" else "" end)) as $where
     | if $v.status == "blocked" and $age >= $cfg.speak_after then
         {key: "speak_blocked:\($pane):\($v.status_since)", text: "\($where) is waiting on you"}
       elif $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
@@ -177,16 +180,17 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 | ($agents | to_entries | group_by(.value.workspace_id)
    | map({key: .[0].value.workspace_id, value: map(.key)}) | from_entries) as $by_ws
 | ($workspaces | map(select(.label | is_task_label))) as $task_ws
-| ($workspaces | map(select(.label | is_division_label))) as $division_ws
+| ($workspaces | map(select((.label | is_division_label) and $divisions[.label | corps_name] != null))) as $division_ws
 | ($workspaces
-   | map(select((.label | (is_task_label or is_division_label) | not)
+   | map(select((.label | is_task_label | not)
+                 and (.workspace_id as $id | $division_ws | any(.workspace_id == $id) | not)
                  and .workspace_id != $berthier_ws and .label != "berthier"))
    | map(. as $w | {
        name: $w.label,
        workspace_id: $w.workspace_id,
        repo_root: ($w.worktree.repo_root // null),
        agents: ($by_ws[$w.workspace_id] // []),
-       divisions: ($division_ws | map(select((.label | parent_corps) == $w.label) | {
+       divisions: ($division_ws | map(select($divisions[.label | corps_name] == $w.label) | {
                      name: .label, workspace_id: .workspace_id, agents: ($by_ws[.workspace_id] // [])})),
        tasks: ($task_ws | map(select(
                  (($w.worktree.repo_key // null) != null and .worktree.repo_key == $w.worktree.repo_key)
