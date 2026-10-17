@@ -9,11 +9,13 @@
 - Lint: `shellcheck bin/berthier libexec/* lib/common.sh tests/*.sh` (`.shellcheckrc` resolves sources)
 - Try against a scratch Herdr session: `BERTHIER_HERDR_SESSION=<name> BERTHIER_HOME=<tmpdir> bin/berthier <cmd>`
 - Loop service: `systemctl --user {status,restart} berthier-loop`; log in `state/loop.log`.
+- Console: `systemctl --user {status,restart} berthier-dashboard`, http://127.0.0.1:8430; Go tests: `cd dashboard && go test ./...`.
 
 ## Architecture
 
 - `bin/berthier` (linked into `~/.local/bin`) dispatches to `libexec/<cmd>`; every script sources `lib/common.sh` (paths, config env vars, the `hd` Herdr wrapper).
 - Main Loop = `libexec/loop` -> `libexec/tick` every 10s, run by `systemd/berthier-loop.service`. A tick: `herdr api snapshot` + previous `state/state.json` -> `lib/tick.jq` (pure decisions: Revives, escalations, Corps grouping) -> bash executes them -> atomic state write. Keep decisions in `tick.jq` so they stay unit-testable; `tick` is the only writer of `state.json`.
+- Console = `libexec/dashboard` (rebuilds `dashboard/.bin` when sources change) running `dashboard/main.go`, which polls `berthier army` (`lib/army.jq`, the pure view model) every 2s and pushes changes over SSE to `dashboard/index.html` (vanilla JS, read-only). Shaping data belongs in `army.jq`, not the page.
 - Spoken alerts: when the user is needed (blocked `BERTHIER_SPEAK_AFTER`s, Revive given up), `tick` runs the dotfiles' `notify-user` `speak.sh` itself, once per episode, without waiting on Berthier.
 - Coordination: `ask` drops a JSON file in `state/inbox/`; `tick` feeds the inbox to `tick.jq`, which picks deliveries (addressee idle, one per Agent per tick) and escalates asks stuck past `BERTHIER_ASK_STUCK` or flipping direction between two Agents `BERTHIER_PINGPONG_MAX`+ times an hour (one-way updates don't count). Addressing names (`corps_name`) live in `lib/names.jq`, shared with the commands through `jqn`. Ownership is `owners.md`.
 - Reports: `report` writes `state/reports/<claude session id>.json`; `counts` joins them with live Agents for the bar. `hook-stop` is a Claude Code Stop hook (wired globally by the dotfiles) that blocks a turn's end in a Herdr pane until the Agent has reported during it.

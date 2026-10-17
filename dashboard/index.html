@@ -1,4 +1,415 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>Army</title>
-<p>Berthier console: page not built yet.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Berthier console</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root {
+  --accent: #F2A93B; --bg: #0A0D11; --panel: #0E1217; --bar: #141A22; --head: #11161D;
+  --line: #263140; --rule: #1C242E; --field: #2E3A49; --sel: #1D2733;
+  --fg: #D6DCE4; --bright: #E6E9EE; --soft: #C9D0D9; --muted: #9AA5B4; --dim: #7C8796; --faint: #5B6573;
+  --blue: #7FB8F2; --sky: #A9C9EC; --green: #5FC48A; --red: #F06B6B; --purple: #B39DF0;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+a { color: var(--blue); } a:hover { color: #A9D0F7; }
+.app { font-variant-ligatures: none; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', 'Symbols Nerd Font Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 8px 16px; background: var(--bar); }
+header.bar { border-bottom: 1px solid var(--line); }
+footer.bar { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.brand { font-weight: 700; color: var(--accent); }
+.grow { flex-grow: 1; }
+.loop { display: inline-flex; align-items: center; gap: 6px; }
+.tally b { font-weight: 700; }
+.zero { color: var(--dim); }
+main { flex-grow: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+section { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
+.panel-col { display: flex; flex-direction: column; }
+.ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
+#army { flex: 999 1 640px; }
+#army .ph { gap: 8px 16px; }
+.controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.filter input { width: 140px; min-height: 32px; padding: 4px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+.filter input:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); cursor: pointer; }
+.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+#show-loop { accent-color: var(--blue); }
+.scroll { overflow-x: auto; }
+.table { min-width: 720px; }
+.grid { display: grid; grid-template-columns: 20px 120px 64px 92px 56px minmax(0, 1fr); gap: 12px; }
+.thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
+.agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
+.agent:hover { background: #121820; }
+.agent[aria-pressed="true"] { background: var(--sel); }
+.agent:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corps { font-weight: 700; }
+.muted { color: var(--muted); } .dim { color: var(--dim); }
+.empty { padding: 14px 12px; color: var(--dim); }
+#detail { flex: 1 1 340px; }
+#detail .ph { flex-wrap: nowrap; }
+#detail h2 span { color: var(--fg); }
+.body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.needs { border: 1px solid #5A4318; background: #1E1A12; padding: 8px 10px; }
+.needs div:first-child { color: var(--accent); font-weight: 700; }
+.needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
+dl { margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 2px 10px; }
+dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
+.cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
+.cmd { margin-top: 4px; padding: 6px 10px; background: #000; border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
+.cmd.run { color: var(--bright); }
+#escalations { flex: 1 1 520px; }
+#asks { flex: 1 1 320px; }
+ol { margin: 0; padding: 6px 12px; list-style: none; }
+.esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
+.esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
+@media (max-width: 480px) { .esc { grid-template-columns: 40px 64px minmax(0, 1fr); } }
+.ask { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 1px 0; }
+#log { background: #000; }
+#log .ph { padding: 0 12px; }
+#log h2 { padding: 6px 0; }
+#log ol { padding: 8px 12px; overflow-x: auto; }
+.log { display: grid; grid-template-columns: 72px 64px minmax(0, 1fr); gap: 12px; white-space: nowrap; }
+.log span:last-child { color: var(--soft); }
+.log.now span:last-child { color: var(--dim); }
+.log.now b { color: var(--fg); font-weight: 400; }
+.none { color: var(--dim); padding: 4px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">berthier</span>
+    <span class="dim">▸ army</span>
+    <span class="loop" id="loop"><span class="dim">connecting…</span></span>
+    <span class="muted" id="fresh"></span>
+    <span class="grow"></span>
+    <span id="tallies" style="display: contents"></span>
+  </header>
+
+  <main>
+    <div class="row">
+      <section id="army" class="panel-col" aria-labelledby="army-h">
+        <div class="ph">
+          <h2 id="army-h">ARMY <small id="army-sub"></small></h2>
+          <div class="controls">
+            <label class="filter">
+              <span aria-hidden="true">/</span>
+              <span class="sr">Filter agents</span>
+              <input type="text" id="q" placeholder="filter" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="needs-only">
+              needs you only
+            </label>
+          </div>
+        </div>
+        <div class="scroll">
+          <div class="table">
+            <div class="grid thead" aria-hidden="true"><span></span><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
+            <div id="rows"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="detail" class="panel-col" aria-labelledby="det-h" aria-live="polite"></section>
+    </div>
+
+    <div class="row">
+      <section id="escalations" aria-labelledby="esc-h">
+        <div class="ph">
+          <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
+          <span class="dim" id="esc-n"></span>
+        </div>
+        <ol id="esc"></ol>
+      </section>
+
+      <section id="asks" aria-labelledby="ask-h">
+        <div class="ph">
+          <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
+          <span id="inbox"></span>
+        </div>
+        <ol id="ask"></ol>
+      </section>
+    </div>
+
+    <section id="log" aria-labelledby="log-h">
+      <div class="ph">
+        <h2 id="log-h">MAIN LOOP <small>· state/loop.log</small></h2>
+        <label class="toggle">
+          <input type="checkbox" id="show-loop">
+          show loop restarts
+        </label>
+      </div>
+      <ol id="lines"></ol>
+    </section>
+  </main>
+
+  <footer class="bar">
+    <span>read-only · reads state/ only</span>
+    <span><span style="color: var(--accent)">●</span> needs you</span>
+    <span><span style="color: var(--blue)">▶</span> working</span>
+    <span><span style="color: var(--red)">■</span> blocked</span>
+    <span><span style="color: var(--green)">✓</span> done / idle</span>
+    <span><span style="color: var(--purple)">✕</span> gone</span>
+  </footer>
+</div>
+
+<script>
+'use strict';
+// Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
+// /api/events. Read-only: the only state here is what the viewer picked.
+
+const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9', muted: '#9AA5B4',
+  dim: '#7C8796', faint: '#5B6573', green: '#5FC48A', red: '#F06B6B', purple: '#B39DF0', bright: '#E6E9EE' };
+const LIVE = { working: ['▶', C.blue], blocked: ['■', C.red], done: ['✓', C.green], idle: ['✓', C.green],
+  gone: ['✕', C.purple], unknown: ['?', C.muted] };
+const TAG = { loop: C.faint, revive: C.purple, forget: C.purple, speak: C.accent, escal: C.accent,
+  ask: C.blue, army: C.green, error: C.red, other: C.muted };
+const LOG_LINES = 40;
+const KIND = { revive_failed: 'revive failed', division_stopped: 'stopped', long: 'long run', ask_stuck: 'ask stuck' };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) === '1'; localStorage.setItem(k, v ? '1' : '0'); } catch { return false; } };
+
+let army = null, connected = false;
+// The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
+const ui = { q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+$('needs-only').checked = ui.needsOnly;
+$('show-loop').checked = ui.showLoop;
+
+const now = () => Date.now() / 1000;
+const pad = (n) => String(n).padStart(2, '0');
+const clock = (t, secs = true) => {
+  if (t == null) return '-';
+  const d = new Date(t * 1000);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + (secs ? ':' + pad(d.getSeconds()) : '');
+};
+const sameDay = (t) => new Date(t * 1000).toDateString() === new Date().toDateString();
+const day = (t) => sameDay(t) ? clock(t, false) : new Date(t * 1000).toLocaleDateString('en', { weekday: 'short' });
+const ago = (t) => {
+  if (t == null) return '-';
+  const s = Math.max(0, Math.floor(now() - t));
+  return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm' : s < 86400 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
+};
+const home = (p) => (p || '-').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+
+// Every Agent once, with the unit it belongs to: Corps, their Divisions, Berthier, Berthier's Divisions.
+function agents() {
+  const out = [];
+  const add = (unit, role, parent) => unit.agents.forEach((a) => out.push({ ...a, unit, role, parent }));
+  for (const c of army.corps) {
+    add(c, 'corps');
+    for (const d of c.divisions) add(d, 'division', c.name);
+  }
+  if (army.berthier) out.push({ ...army.berthier, unit: { name: 'berthier', divisions: army.berthier_divisions }, role: 'corps' });
+  for (const d of army.berthier_divisions) add(d, 'division', 'berthier');
+  return out.map((a) => {
+    const [glyph, color] = a.needs_you ? ['●', C.accent] : LIVE[a.status] || LIVE.unknown;
+    // Waiting since the report that asked, or since the dialog appeared.
+    const waitFrom = a.status === 'blocked' || a.report_at == null ? a.status_since : a.report_at;
+    return { ...a, glyph, color, state: a.needs_you ? 'needs you' : a.status || 'unknown', from: a.needs_you ? waitFrom : a.status_since };
+  });
+}
+
+function visible(all) {
+  const q = ui.q.trim().toLowerCase();
+  return all
+    .filter((a) => !ui.needsOnly || a.needs_you)
+    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q))
+    .sort((x, y) => (y.needs_you - x.needs_you) || (x.needs_you ? (x.from ?? 0) - (y.from ?? 0) : 0));
+}
+
+const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</span>`;
+
+function renderHeader(all) {
+  const k = army.counts, fresh = army.available;
+  $('loop').innerHTML = fresh
+    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}`
+    : `<span style="color: ${C.red}" aria-hidden="true">■</span>main loop not writing state`;
+  const link = connected ? '' : ` · <span style="color: ${C.red}">console disconnected</span>`;
+  $('fresh').innerHTML = `army state ${clock(army.updated_at)} · ${fresh ? 'fresh' : `<span style="color: ${C.accent}">stale</span>`}${link}`;
+  const tally = (n, label, color) => n
+    ? `<span class="tally"><b style="color: ${color}">${n}</b> ${label}</span>`
+    : `<span class="tally zero"><b>0</b> ${label}</span>`;
+  $('tallies').innerHTML = tally(all.filter((a) => a.needs_you).length, 'need you', C.accent) + tally(k.working, 'working', C.blue)
+    + tally(k.blocked, 'blocked', C.red) + tally(k.done + k.idle, 'ready', C.green) + tally(k.gone, 'gone', C.purple);
+  const corps = army.corps.length, divs = army.corps.reduce((n, c) => n + c.divisions.length, 0) + army.berthier_divisions.length;
+  $('army-sub').textContent = `· ${all.length} agent${all.length === 1 ? '' : 's'} · ${corps} corps`
+    + (divs ? ` · ${divs} division${divs === 1 ? '' : 's'}` : '') + (army.berthier ? ' + berthier' : '');
+}
+
+function renderRows(rows) {
+  const focused = document.activeElement?.dataset?.pane;
+  $('rows').innerHTML = rows.map((a) => {
+    const on = a.pane_id === ui.sel;
+    return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
+      <span style="color: ${a.color}" aria-hidden="true">${a.glyph}</span>
+      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${esc(a.who)}</span>
+      <span class="muted">${esc(a.pane_id)}</span>
+      <span style="color: ${a.color}">${a.state}</span>
+      ${ageSpan(a.from)}
+      ${a.report == null && !a.needs_you ? '<span class="clip dim">no report yet</span>'
+        : `<span class="clip" style="color: ${a.needs_you ? C.bright : C.muted}">${esc(a.report ?? 'on an approval or question dialog')}</span>`}
+    </button>`;
+  }).join('') || `<div class="empty">${army.corps.length || army.berthier ? 'no agents match' : 'no agents'}</div>`;
+  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"]`)?.focus();
+}
+
+// A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
+const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
+
+function units(a) {
+  if (a.role === 'division') return { text: `division of ${a.parent}${a.unit.worktree ? ' · worktree' : ' · adopted'}`, color: C.muted };
+  const d = a.unit.divisions || [];
+  return d.length ? { text: d.map((x) => x.name).join(', '), color: C.fg } : { text: 'none split off', color: C.dim };
+}
+
+function renderDetail(a) {
+  if (!a) {
+    $('detail').innerHTML = `<div class="ph"><h2 id="det-h">AGENT</h2></div><div class="body"><span class="dim">no agent selected</span></div>`;
+    return;
+  }
+  const [lg, lc] = LIVE[a.status] || LIVE.unknown;
+  const cmd = a.needs_you ? askedCmd(a.report) : null;
+  const max = army.loop.revive_max ?? 3;
+  const revived = a.last_revive_at == null ? null : `${clock(a.last_revive_at)} · ${a.revive_attempts} of ${max} attempts used`;
+  const u = units(a);
+  const report = a.report == null ? '<span class="dim">none yet</span>'
+    : `<span class="muted">${clock(a.report_at)}</span> ${esc((a.needs_you && a.status !== 'blocked' ? 'needs you: ' : '') + a.report)}`;
+  $('detail').innerHTML = `
+    <div class="ph">
+      <h2 id="det-h">AGENT <span>${esc(a.who)}</span></h2>
+      <span style="color: ${a.color}; white-space: nowrap">${a.glyph} ${a.state}</span>
+    </div>
+    <div class="body">
+      ${a.needs_you ? `<div class="needs">
+        <div>needs you · waiting <span data-ago="${a.from ?? ''}">${ago(a.from)}</span></div>
+        <div>${esc(a.report ?? 'on an approval or question dialog')}</div>
+      </div>` : ''}
+      <dl>
+        <dt>agent</dt><dd>${esc(a.name ?? '(unnamed)')}</dd>
+        <dt>kind</dt><dd>${esc(a.kind ?? '-')}</dd>
+        <dt>pane · tab</dt><dd>${esc(a.pane_id)} · ${esc(a.tab_id ?? '-')}</dd>
+        <dt>status</dt><dd><span style="color: ${lc}">${esc(a.status ?? 'unknown')}</span> since ${clock(a.status_since)}${a.prev_status ? ` <span class="dim">(was ${esc(a.prev_status)})</span>` : ''}</dd>
+        <dt>session</dt><dd>${esc(a.session_id ?? '-')}</dd>
+        <dt>title</dt><dd>${esc(a.title ?? '-')}</dd>
+        <dt>cwd</dt><dd>${esc(home(a.cwd))}</dd>
+        <dt>report</dt><dd>${report}</dd>
+        <dt>revived</dt><dd style="color: ${revived ? C.purple : C.dim}">${revived ?? 'never'}</dd>
+        <dt>divisions</dt><dd style="color: ${u.color}">${esc(u.text)}</dd>
+      </dl>
+      ${cmd ? `<div>
+        <div class="cap">IT ASKS YOU TO RUN</div>
+        <div class="cmd run">${esc(cmd)}</div>
+      </div>` : ''}
+      <div>
+        <div class="cap">CHECK-IN</div>
+        <div class="cmd"><span style="color: ${C.green}">$</span> herdr agent read ${esc(a.pane_id)} --source recent-unwrapped --lines 80</div>
+      </div>
+    </div>`;
+}
+
+function renderEscalations() {
+  const list = army.escalations;
+  $('esc-n').textContent = list.length;
+  $('esc').innerHTML = list.map((e) => {
+    const to = e.kind === 'speak' ? ['→ you, aloud', C.accent] : ['→ ' + e.to, C.sky];
+    const why = e.kind === 'speak' ? `spoke “${e.why.replace(/\.$/, '')}”` : e.why;
+    const when = new Date(e.at * 1000).toLocaleString();
+    return `<li class="esc">
+      <span class="muted" title="${esc(when)}">${day(e.at)}</span>
+      <span style="color: ${C.accent}">${esc(KIND[e.kind] || e.kind)}</span>
+      <span>${e.who ? esc(e.who) + ' ' : ''}<span style="color: ${to[1]}">${esc(to[0])}</span></span>
+      <span class="why">${esc(why)}</span>
+    </li>`;
+  }).join('') || '<li class="none">none in 7 days</li>';
+}
+
+function renderAsks() {
+  const pending = army.asks.length;
+  $('inbox').innerHTML = `<span style="color: ${pending ? C.accent : C.green}">inbox ${pending}</span>`;
+  const since = now() - 3600;
+  const line = (at, from, to, extra, color) => `<li class="ask">
+      <span class="muted">${clock(at)}</span>
+      <span style="color: ${color}">${esc(from)} → ${esc(to)}${extra}</span>
+    </li>`;
+  const done = army.ask_log.filter((a) => a.at >= since).reverse()
+    .map((a) => line(a.at, a.from, a.to, '', a.from === 'berthier' ? C.sky : C.soft));
+  const queued = army.asks.map((a) => line(a.at, a.from, a.to, ' <span class="dim">· queued</span>', C.accent));
+  $('ask').innerHTML = done.concat(queued).join('') || '<li class="none">none in the last hour</li>';
+}
+
+function logText(t) {
+  return t.replace(/^delivered ask /, 'delivered ').replace(/ -> /g, ' → ');
+}
+
+function renderLog() {
+  const lines = army.activity.filter((l) => ui.showLoop || l.tag !== 'loop').slice(0, LOG_LINES).reverse();
+  $('lines').innerHTML = lines.map((l) => `<li class="log">
+      <span class="dim">${clock(l.at)}</span>
+      <span style="color: ${TAG[l.tag] || C.muted}">${l.tag === 'other' ? 'info' : esc(l.tag)}</span>
+      <span>${esc(logText(l.text))}</span>
+    </li>`).join('') + `<li class="log now" id="tick"></li>`;
+  renderTick();
+}
+
+function renderTick() {
+  const el = $('tick');
+  if (!el || !army) return;
+  const next = Math.max(0, Math.ceil(army.updated_at + army.loop.interval - now()));
+  el.innerHTML = army.available
+    ? `<span class="dim">${clock(army.updated_at)}</span><span style="color: ${C.green}">tick</span><span>watching · next tick in ${next}s <b>▍</b></span>`
+    : `<span class="dim">${clock(army.updated_at)}</span><span style="color: ${C.red}">tick</span><span>no tick since ${army.updated_at ? clock(army.updated_at) : 'ever'} · is berthier-loop running?</span>`;
+}
+
+function render() {
+  if (!army) return;
+  const all = agents();
+  const rows = visible(all);
+  if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
+  renderHeader(all);
+  renderRows(rows);
+  renderDetail(all.find((a) => a.pane_id === ui.sel));
+  renderEscalations();
+  renderAsks();
+  renderLog();
+}
+
+$('rows').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pane]');
+  if (!b) return;
+  ui.sel = b.dataset.pane;
+  history.replaceState(null, '', '#' + ui.sel);
+  render();
+});
+$('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });
+$('needs-only').addEventListener('change', (e) => { ui.needsOnly = e.target.checked; pref('needsOnly', ui.needsOnly); render(); });
+$('show-loop').addEventListener('change', (e) => { ui.showLoop = e.target.checked; pref('showLoop', ui.showLoop); render(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== $('q')) { e.preventDefault(); $('q').focus(); }
+  else if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; ui.q = ''; $('q').blur(); render(); }
+});
+
+// Ages and the next-tick countdown move every second without re-rendering.
+setInterval(() => {
+  document.querySelectorAll('[data-ago]').forEach((el) => { el.textContent = ago(el.dataset.ago === '' ? null : +el.dataset.ago); });
+  renderTick();
+}, 1000);
+
+const events = new EventSource('api/events');
+events.onmessage = (e) => { army = JSON.parse(e.data); connected = true; render(); };
+events.onopen = () => { connected = true; render(); };
+events.onerror = () => { connected = false; render(); };
+</script>
+</body>
+</html>
