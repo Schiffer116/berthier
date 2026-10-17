@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30}'
 pass=0 fail=0
 
 tick() { # prev snap now
@@ -53,7 +53,9 @@ check "revive after backoff" "$(jq -c '.revive | length' <<<"$o")" '1'
 prev=$(jq -c '.state | .agents["w1:p1"].revive_attempts = 3 | .agents["w1:p1"].last_revive_at = 1000' <<<"$o")
 o=$(tick "$prev" "$s2" 2000)
 check "revive exhausted" "$(jq -c '[(.revive | length), (.escalate | map(.key))]' <<<"$o")" '[0,["revive_failed:w1:p1:1010"]]'
+check "revive_failed speech" "$(jq -c '.speak | map(.text)' <<<"$o")" '["skipli crashed and could not be resumed"]'
 o=$(tick "$(jq -c .state <<<"$o")" "$s2" 2010)
+check "revive_failed spoken once" "$(jq -c '.speak' <<<"$o")" '[]'
 check "revive_failed escalates once" "$(jq -c '.escalate | length' <<<"$o")" '0'
 
 # --- Closed pane or no session: forgotten.
@@ -71,6 +73,11 @@ check "blocked under threshold" "$(jq -c '[(.escalate | length), (.notify | leng
 o=$(tick "$prev" "$sb" 1130)
 check "blocked escalates" "$(jq -c '.escalate | map(.key)' <<<"$o")" '["blocked:w1:p1:1000"]'
 check "berthier blocked notifies" "$(jq -c '.notify | map(.key)' <<<"$o")" '["blocked:w3:p1:1000"]'
+check "blocked speaks once" "$(jq -c '.speak' <<<"$(tick "$(jq -c .state <<<"$o")" "$sb" 1140)")" '[]'
+check "blocked speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$prev" "$sb" 1030)")" '["skipli is waiting on you","berthier is waiting on you"]'
+st=$(snap "$W" "[$(agent w2:p1 blocked sid-t)]" "[$(pane w2:p1)]")
+check "task speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$(jq -c .state <<<"$(tick '{}' "$st" 1000)")" "$st" 1030)")" '["skipli task dark mode is waiting on you"]'
+check "no speech under threshold" "$(jq -c '.speak' <<<"$(tick "$prev" "$sb" 1020)")" '[]'
 check "berthier recorded" "$(jq -r '.state.berthier' <<<"$o")" 'w3:p1'
 
 # --- Long working.

@@ -42,6 +42,7 @@ Remove items once resolved. On session start, read it and resume.
 
 ## Acting
 
+- Speak to the user (notification, chime, TTS) for anything important that needs them: `~/.claude/skills/notify-user/speak.sh "<project>: <what>"`. The Main Loop already speaks blocked Agents and failed Revives; don't repeat those.
 - Nudge an Agent: `herdr agent prompt <name-or-pane> "<text>"`.
 - Revive by hand: `herdr agent start <name> --kind claude --pane <pane> -- --resume <session_id>` (pane at a shell prompt; session id from state.json).
 - New Project: `berthier project-new <name> <dir> "<brief>"` (default dir `~/Documents/<name>`; the brief states the goal and what done looks like).

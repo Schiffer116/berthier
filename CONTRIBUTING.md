@@ -14,6 +14,7 @@
 
 - `bin/berthier` (linked into `~/.local/bin`) dispatches to `libexec/<cmd>`; every script sources `lib/common.sh` (paths, config env vars, the `hd` Herdr wrapper).
 - Main Loop = `libexec/loop` -> `libexec/tick` every 10s, run by `systemd/berthier-loop.service`. A tick: `herdr api snapshot` + previous `state/state.json` -> `lib/tick.jq` (pure decisions: Revives, escalations, Project grouping) -> bash executes them -> atomic state write. Keep decisions in `tick.jq` so they stay unit-testable; `tick` is the only writer of `state.json`.
+- Spoken alerts: when the user is needed (blocked `BERTHIER_SPEAK_AFTER`s, Revive given up), `tick` runs the dotfiles' `notify-user` `speak.sh` itself, once per episode, without waiting on Berthier.
 - Berthier = the agent whose cwd is this repo; the loop prompts escalations into its pane, and sends Berthier's own problems to `herdr notification show`.
 - Revive = `herdr agent start <name> --kind claude --pane <pane> -- --resume <session>`, only when the pane survived at a shell prompt. Deliberate stops are forgotten, never Revived: a closed pane, or a clean Claude exit (it prints `Resume this session with: claude --resume <id>`; a killed process does not), checked on the tick the agent vanishes and again before any Revive.
 - Tasks are worktree workspaces labelled `󱎦 <project>/<task>` (`herdr worktree create`, default `~/.herdr/worktrees/`), split by Main Agents via `task-split`/`task-done`.

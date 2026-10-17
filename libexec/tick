@@ -20,6 +20,7 @@ cfg=$(jq -cn \
   --argjson revive_backoff "$BERTHIER_REVIVE_BACKOFF" \
   --argjson revive_reset "$BERTHIER_REVIVE_RESET" \
   --argjson escalation_ttl "$BERTHIER_ESCALATION_TTL" \
+  --argjson speak_after "$BERTHIER_SPEAK_AFTER" \
   '$ARGS.named')
 
 out=$(jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
@@ -79,6 +80,17 @@ while IFS= read -r l; do
   hd notification show "Berthier needs you" --body "$l" --sound request >/dev/null 2>&1 || true
   log "notified user: $l"
 done < <(jq -r '.notify[].text' <<<"$out")
+
+# --- Say it out loud when the user is needed; one utterance per tick.
+mapfile -t spoken < <(jq -r '.speak[].text' <<<"$out")
+if ((${#spoken[@]})); then
+  msg=$(printf '%s. ' "${spoken[@]}")
+  if [[ -x $BERTHIER_SPEAK ]] && "$BERTHIER_SPEAK" "${msg% }" >/dev/null 2>&1; then
+    log "spoke: ${msg% }"
+  else
+    log "speak failed ($BERTHIER_SPEAK): ${msg% }"
+  fi
+fi
 
 tmp=$(mktemp "$BERTHIER_HOME/state.json.XXXXXX")
 jq . <<<"$state" >"$tmp"

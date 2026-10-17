@@ -5,15 +5,21 @@
 #   $snap  `herdr api snapshot` .result.snapshot
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, task_settle, revive_max,
-#           revive_backoff, revive_reset, escalation_ttl}
+#           revive_backoff, revive_reset, escalation_ttl, speak_after}
 #
-# Output: {state, vanished: [...], revive: [...], escalate: [...], notify: [...]}
+# Output: {state, vanished: [...], revive: [...], escalate: [...], notify: [...],
+#          speak: [...]}
 # The caller performs the actions; this program never touches the world.
 
 def task_prefix: "󱎦 ";
 def is_task_label: (. // "") | startswith(task_prefix);
 # Berthier is whichever agent runs in Berthier's own repository.
 def is_berthier_cwd: (. // "") as $c | $c == $cfg.berthier_root or ($c | startswith($cfg.berthier_root + "/"));
+
+# How a workspace label reads aloud: "󱎦 skipli/dark-mode" -> "skipli task dark-mode".
+def spoken: (. // "an agent")
+  | if is_task_label then ltrimstr(task_prefix) | sub("/"; " task ") else . end
+  | ltrimstr(".") | gsub("[-_]"; " ");
 
 # Herdr agent names must match [a-z][a-z0-9_-]{0,31}.
 def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"));
@@ -107,13 +113,26 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       else empty end
   ) | map(select($prev_escalated[.key] == null))) as $events
 
+# --- Spoken alerts: the user is needed. Faster than escalation, because they
+# skip Berthier's judgment; deduplicated per episode like escalations.
+| ($agents | to_entries | map(
+    .key as $pane | .value as $v
+    | ($now - ($v.status_since // $now)) as $age
+    | ($v.workspace_label // $v.workspace_id | spoken) as $where
+    | if $v.status == "blocked" and $age >= $cfg.speak_after then
+        {key: "speak_blocked:\($pane):\($v.status_since)", text: "\($where) is waiting on you"}
+      elif $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
+        {key: "speak_revive_failed:\($pane):\($v.status_since)", text: "\($where) crashed and could not be resumed"}
+      else empty end
+  ) | map(select($prev_escalated[.key] == null))) as $speak
+
 # Berthier cannot escalate to itself: its own events go to the user instead.
 | ($events | map(select(.pane_id != $berthier))) as $escalate
 | ($events | map(select(.pane_id == $berthier))) as $notify
 
 | ($prev_escalated
    | with_entries(select(.value > ($now - $cfg.escalation_ttl)))
-   | . + ($events | map({key: .key, value: $now}) | from_entries)) as $escalated
+   | . + ($events + $speak | map({key: .key, value: $now}) | from_entries)) as $escalated
 
 # --- Projects: every workspace that is not a Task and not Berthier's own.
 | ($agents | to_entries | group_by(.value.workspace_id)
@@ -149,5 +168,6 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     vanished: $vanished,
     revive: $revive,
     escalate: $escalate,
-    notify: $notify
+    notify: $notify,
+    speak: $speak
   }
