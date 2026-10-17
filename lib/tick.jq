@@ -89,7 +89,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
 | ($agents | to_entries
    | map(select(.value.status != "gone"
-                and (.value.workspace_label | is_division_label | not)))
+                and (.value.workspace_label | is_division($divisions) | not)))
    | group_by(.value.workspace_label) | map({key: .[0].value.workspace_label, value: .[0].key})
    | from_entries) as $main_of
 
@@ -121,7 +121,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     | ($v.workspace_label // $v.workspace_id) as $where
     | "agent '\($v.name // "-")' in \($where) (pane \($pane))" as $who
     # A Division's trouble goes to its Corps's Main Agent, which commands it.
-    | (if $v.workspace_label | is_division_label
+    | (if $v.workspace_label | is_division($divisions)
        then $main_of[$divisions[$v.workspace_label | corps_name].corps // ""] else null end) as $to
     | if $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
         {key: "revive_failed:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
@@ -161,7 +161,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     | ($now - ($v.status_since // $now)) as $age
     | ($divisions[$v.workspace_label | corps_name].corps // null) as $parent
     | ($v.workspace_label // $v.workspace_id | spoken
-       + (if ($v.workspace_label | is_division_label) and $parent then " in \($parent | spoken)" else "" end)) as $where
+       + (if $parent then " in \($parent | spoken)" else "" end)) as $where
     | if $v.status == "blocked" and $age >= $cfg.speak_after then
         {key: "speak_blocked:\($pane):\($v.status_since)", text: "\($where) is waiting on you"}
       elif $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
@@ -180,7 +180,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 # --- Corps: every workspace that is not a known Division and not Berthier's own.
 | ($agents | to_entries | group_by(.value.workspace_id)
    | map({key: .[0].value.workspace_id, value: map(.key)}) | from_entries) as $by_ws
-| ($workspaces | map(select((.label | is_division_label) and $divisions[.label | corps_name] != null))) as $division_ws
+| ($workspaces | map(select(.label | is_division($divisions)))) as $division_ws
 | ($workspaces
    | map(select((.workspace_id as $id | $division_ws | any(.workspace_id == $id) | not)
                  and .workspace_id != $berthier_ws and .label != "berthier"))

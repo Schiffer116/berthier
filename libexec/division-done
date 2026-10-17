@@ -16,7 +16,7 @@ entry=$(jq -c --arg n "$branch" '.[$n] // empty' "$BERTHIER_DIVISIONS" 2>/dev/nu
 [[ $(jq -r '.worktree // false' <<<"$entry") == true ]] \
   || die "'$branch' is an adopted workspace, not a spawned worktree; it stays until the user closes it"
 
-label="$DIVISION_PREFIX$branch"
+label=$branch
 IFS=$'\t' read -r div_ws path repo < <(hd workspace list | jq -r --arg l "$label" '
   [.result.workspaces[] | select(.label == $l)] | first // empty
   | [.workspace_id, .worktree.checkout_path, .worktree.repo_root] | @tsv')

@@ -25,7 +25,7 @@ pane() { jq -cn --arg p "$1" '{pane_id: $p}'; }
 snap() { # workspaces-json-array agents-json-array panes-json-array
   jq -cn --argjson w "$1" --argjson a "$2" --argjson p "$3" '{workspaces: $w, agents: $a, panes: $p}'; }
 
-W="[$(ws w1 skipli /r/skipli/.git /r/skipli),$(ws w2 '󱎦 dark-mode' /r/skipli/.git /h/dark-mode),$(ws w3 berthier),$(ws w4 notes)]"
+W="[$(ws w1 skipli /r/skipli/.git /r/skipli),$(ws w2 dark-mode /r/skipli/.git /h/dark-mode),$(ws w3 berthier),$(ws w4 notes)]"
 D0='{"dark-mode":{"corps":"skipli","worktree":true}}'
 DIVISIONS=$D0
 
@@ -113,11 +113,11 @@ check "adopted division stop is not escalated" "$(tick "$(jq -c '.agents["w6:p1"
 DIVISIONS=$D0
 
 # --- Berthier's own Divisions: listed apart, escalations go to Berthier.
-WB="[$(ws w1 skipli),$(ws w3 berthier),$(ws w7 '󱎦 console')]"
+WB="[$(ws w1 skipli),$(ws w3 berthier),$(ws w7 console)]"
 DIVISIONS='{"console":{"corps":"berthier","worktree":true}}'
 sbd=$(snap "$WB" "[$(agent w3:p1 idle sid-b "" /home/u/berthier),$(agent w7:p1 blocked sid-7)]" "[$(pane w3:p1),$(pane w7:p1)]")
 o=$(tick "$(jq -c .state <<<"$(tick '{}' "$sbd" 1000)")" "$sbd" 1130)
-check "berthier divisions" "$(jq -c '[(.state.corps | map(.name)), (.state.berthier_divisions | map(.name))]' <<<"$o")" '[["skipli"],["󱎦 console"]]'
+check "berthier divisions" "$(jq -c '[(.state.corps | map(.name)), (.state.berthier_divisions | map(.name))]' <<<"$o")" '[["skipli"],["console"]]'
 check "berthier division escalates to berthier" "$(jq -c '[(.escalate | map(.to)), (.notify | length)]' <<<"$o")" '[["w3:p1"],0]'
 DIVISIONS=$D0
 
@@ -137,7 +137,7 @@ check "division stopped" "$(jq -c '.escalate | map([.key, .to])' <<<"$(tick "$pr
 # --- Corps: Divisions nested under their Corps, Berthier excluded.
 o=$(tick '{}' "$si" 1000)
 check "corps" "$(jq -c '.state.corps | map({name, divisions: (.divisions | map([.name, .worktree, .path]))})' <<<"$o")" \
-  '[{"name":"skipli","divisions":[["󱎦 dark-mode",true,"/h/dark-mode"]]},{"name":"notes","divisions":[]}]'
+  '[{"name":"skipli","divisions":[["dark-mode",true,"/h/dark-mode"]]},{"name":"notes","divisions":[]}]'
 
 # --- Berthier is whoever runs in its repo (subdirs too), whatever the workspace label.
 Wh="[$(ws w1 skipli),$(ws w5 hq)]"

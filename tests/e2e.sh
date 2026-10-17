@@ -72,7 +72,7 @@ bin/berthier tick
 HERDR_PANE_ID=$helper bin/berthier ask demo "Reply with just: ack" >/dev/null
 h agent wait demo-main --until idle --timeout 60000 >/dev/null
 bin/berthier tick
-grep -q "delivered ask .* to $pane" "$BERTHIER_HOME/loop.log" || fail "ask not delivered"
+grep -qF "delivered ask helper -> demo ($pane)" "$BERTHIER_HOME/loop.log" || fail "ask not delivered"
 h agent wait demo-main --until idle --timeout 90000 >/dev/null
 h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier ask\] from helper' || fail "ask not in demo-main's pane"
 [[ -z $(ls "$BERTHIER_HOME/inbox") ]] || fail "delivered ask left in the inbox"
@@ -96,15 +96,15 @@ h agent get "$pane" >/dev/null 2>&1 && fail "deliberately exited agent was reviv
 grep -q "forgot demo-main in $pane: user exited it" "$BERTHIER_HOME/loop.log" || fail "deliberate exit not recognized"
 jq -e --arg p "$pane" '.agents[$p] == null' "$BERTHIER_HOME/state.json" >/dev/null || fail "exited agent still tracked"
 
-step "division-new spawns a 󱎦 worktree Division; division-done removes it"
+step "division-new spawns a worktree Division; division-done removes it"
 BERTHIER_WORKSPACE="$ws" \
   BERTHIER_START_TIMEOUT_MS=5000 bin/berthier division-new "Dark Mode" "Reply with just: hi"
-h workspace list | jq -e 'any(.result.workspaces[]; .label == "󱎦 dark-mode")' >/dev/null || fail "division workspace missing"
+h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode")' >/dev/null || fail "division workspace missing"
 bin/berthier tick
-jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "󱎦 dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \
+jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "state does not show the division under demo"
 BERTHIER_WORKSPACE="$ws" bin/berthier division-done "Dark Mode"
-h workspace list | jq -e 'any(.result.workspaces[]; .label == "󱎦 dark-mode") | not' >/dev/null || fail "division workspace not removed"
+h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode") | not' >/dev/null || fail "division workspace not removed"
 git -C "$repo" show-ref --verify --quiet refs/heads/dark-mode && fail "merged division branch not deleted"
 jq -e '.["dark-mode"] == null' "$BERTHIER_HOME/divisions.json" >/dev/null || fail "division still recorded"
 

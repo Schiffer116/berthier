@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run by a Corps's Main Agent from its own pane: spawn a Division for a side
-# feature, a worktree workspace labelled "󱎦 <name>" on branch <name>, with
+# feature, a worktree workspace labelled "<name>" on branch <name> (Herdr draws
+# it under its Corps, so it takes no 󱎦 prefix), with
 # its own Agent started on the Brief. The Corps commands it.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
@@ -13,7 +14,8 @@ ws_id=${BERTHIER_WORKSPACE:-${HERDR_WORKSPACE_ID:-}}
 [[ -n $ws_id ]] || die "run this from the Main Agent's Herdr pane (no HERDR_WORKSPACE_ID)"
 
 corps=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
-[[ $corps != "$DIVISION_PREFIX"* ]] || die "already inside a Division; spawn from the Corps's own workspace"
+[[ -z $(jq -r --arg n "$(corps_name "$corps")" '.[$n] // empty' "$BERTHIER_DIVISIONS" 2>/dev/null) ]] \
+  || die "already inside a Division; spawn from the Corps's own workspace"
 # Herdr fills in workspace git metadata lazily, so ask git from a pane's cwd.
 cwd=$(hd pane list --workspace "$ws_id" | jq -r '.result.panes[0].cwd')
 common=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
@@ -22,7 +24,7 @@ repo=$(dirname "$common")
 
 branch=$(slug "$name")
 [[ -n $branch ]] || die "division name must contain letters"
-label="$DIVISION_PREFIX$branch"
+label=$branch
 hd workspace list | jq -e --arg l "$label" 'any(.result.workspaces[]; .label == $l)' >/dev/null \
   && die "a workspace labelled '$label' already exists; pick another name"
 pane=$(hd worktree create --cwd "$repo" --branch "$branch" --label "$label" --no-focus \

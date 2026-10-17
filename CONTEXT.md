@@ -23,7 +23,7 @@ One Herdr workspace, whatever it contains; it need not be a git repository. Same
 _Avoid_: project, herdr session, campaign, repo, folder
 
 **Division**:
-A sub-unit of a Corps, labelled `󱎦 <name>` (the Corps is recorded by Berthier, not in the label), with its own Agent: either a worktree the Main Agent spawns for a side feature, which ends once the user has reviewed it, or an existing workspace the Corps adopted, which lasts. The Corps's Main Agent commands it: assigns and reviews its work, and receives its Escalations.
+A sub-unit of a Corps, with its own Agent; Berthier records which Corps it belongs to. A spawned one is labelled `<name>` (Herdr nests worktrees under their Corps), an adopted one `󱎦 <name>`. It is either a worktree the Main Agent spawns for a side feature, which ends once the user has reviewed it, or an existing workspace the Corps adopted, which lasts. The Corps's Main Agent commands it: assigns and reviews its work, and receives its Escalations.
 _Avoid_: task, sub-project, child, team
 
 **Agent**:

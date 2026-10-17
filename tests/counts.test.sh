@@ -16,13 +16,13 @@ check "no state" "$(counts)" '{"available":false,"working":0,"blocked":0,"done":
 
 cat >"$home/state.json" <<'JSON'
 {"berthier": "b:p1",
- "corps": [{"name": "skipli", "agents": ["a:p1"], "divisions": [{"name": "󱎦 dark-mode", "worktree": true, "agents": ["d:p1"]}]},
+ "corps": [{"name": "skipli", "agents": ["a:p1"], "divisions": [{"name": "dark-mode", "worktree": true, "agents": ["d:p1"]}]},
            {"name": ".dotfiles", "agents": ["c:p1"], "divisions": []}],
  "agents": {
   "a:p1": {"status": "working", "session_id": "s-a", "workspace_label": "skipli"},
   "b:p1": {"status": "idle", "session_id": "s-b", "workspace_label": "berthier"},
   "c:p1": {"status": "idle", "session_id": "s-c", "workspace_label": ".dotfiles"},
-  "d:p1": {"status": "blocked", "session_id": "s-d", "workspace_label": "󱎦 dark-mode"}}}
+  "d:p1": {"status": "blocked", "session_id": "s-d", "workspace_label": "dark-mode"}}}
 JSON
 check "fresh counts" "$(counts | jq -c 'del(.report)')" '{"available":true,"working":1,"blocked":1,"done":0,"idle":2,"unknown":0,"gone":0}'
 
