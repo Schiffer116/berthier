@@ -5,21 +5,17 @@
 #   $snap  `herdr api snapshot` .result.snapshot
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, task_settle, revive_max,
-#           revive_backoff, revive_reset, escalation_ttl, speak_after}
+#           revive_backoff, revive_reset, escalation_ttl, speak_after,
+#           ask_stuck, pingpong_max}
+#   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
 #
 # Output: {state, vanished: [...], revive: [...], escalate: [...], notify: [...],
-#          speak: [...]}
+#          speak: [...], deliver: [...]}
 # The caller performs the actions; this program never touches the world.
 
-def task_prefix: "󱎦 ";
-def is_task_label: (. // "") | startswith(task_prefix);
+include "names";
 # Berthier is whichever agent runs in Berthier's own repository.
 def is_berthier_cwd: (. // "") as $c | $c == $cfg.berthier_root or ($c | startswith($cfg.berthier_root + "/"));
-
-# How a workspace label reads aloud: "󱎦 skipli/dark-mode" -> "skipli task dark-mode".
-def spoken: (. // "an agent")
-  | if is_task_label then ltrimstr(task_prefix) | sub("/"; " task ") else . end
-  | ltrimstr(".") | gsub("[-_]"; " ");
 
 # Herdr agent names must match [a-z][a-z0-9_-]{0,31}.
 def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"));
@@ -89,6 +85,26 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
        session_id: .value.session_id}
   )) as $revive
 
+# --- Asks: deliver each to its addressee's Agent once it is ready for input,
+# at most one per Agent per tick, oldest first.
+| ($agents | to_entries | map(select(.value.status != "gone") | {
+    pane_id: .key, status: .value.status,
+    name: (if .key == $berthier then "berthier" else (.value.workspace_label | corps_name) end)
+  })) as $addressable
+| (reduce ($inbox | sort_by(.at))[] as $m ({used: [], deliver: []};
+    . as $acc
+    | ($m.to | corps_name) as $to
+    | ([$addressable[] | select(.name == $to and (.status == "idle" or .status == "done"))
+        | select(.pane_id as $p | $acc.used | any(. == $p) | not)] | first) as $o
+    | if $o == null then . else
+        .used += [$o.pane_id]
+        | .deliver += [{id: $m.id, pane_id: $o.pane_id, from: $m.from, to: $to,
+            text: "[berthier ask] from \($m.from): \($m.text) (Reply or report back with: berthier ask \($m.from) \"...\")"}]
+      end
+  ) | .deliver) as $deliver
+| ((($prev.ask_log // []) | map(select(.at > $now - 3600)))
+   + ($deliver | map({from, to, at: $now}))) as $ask_log
+
 # --- Escalation candidates. Keys embed status_since so a new episode of the
 # same condition escalates again, but one episode escalates only once.
 | ($agents | to_entries | map(
@@ -111,7 +127,17 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
         {key: "task_stopped:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name,
          text: "task agent stopped working (finished or stalled): \($who)"}
       else empty end
-  ) | map(select($prev_escalated[.key] == null))) as $events
+  )
+  + ($inbox | map(
+      select(($now - .at) >= $cfg.ask_stuck)
+      | select(.id as $id | $deliver | any(.id == $id) | not)
+      | {key: "ask_stuck:\(.id)", pane_id: null,
+         text: "ask from \(.from) to \(.to) undelivered \(($now - .at) / 60 | floor)m: \(.text)"}))
+  + ($ask_log | map([.from, .to] | sort | join(" and ")) | group_by(.)
+     | map(select(length >= $cfg.pingpong_max)
+       | {key: "pingpong:\(.[0]):\($now / 3600 | floor)", pane_id: null,
+          text: "asks bouncing between \(.[0]): \(length) in the last hour"}))
+  | map(select($prev_escalated[.key] == null))) as $events
 
 # --- Spoken alerts: the user is needed. Faster than escalation, because they
 # skip Berthier's judgment; deduplicated per episode like escalations.
@@ -163,11 +189,13 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       berthier: $berthier,
       projects: $projects,
       agents: $agents,
-      escalated: $escalated
+      escalated: $escalated,
+      ask_log: $ask_log
     },
     vanished: $vanished,
     revive: $revive,
     escalate: $escalate,
     notify: $notify,
-    speak: $speak
+    speak: $speak,
+    deliver: $deliver
   }

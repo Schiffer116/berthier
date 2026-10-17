@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Unit tests for report, hook-stop and ask: fake state and transcripts, no Herdr.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+pass=0 fail=0
+check() { # name actual expected
+  if [[ $2 == "$3" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL %s\n  got:  %s\n  want: %s\n' "$1" "$2" "$3"; fi
+}
+
+home=$(mktemp -d)
+trap 'rm -rf "$home"' EXIT
+b() { env -u HERDR_PANE_ID -u CLAUDE_CODE_SESSION_ID BERTHIER_HOME="$home" "$@"; }
+cat >"$home/state.json" <<'JSON'
+{"berthier": "b:p1", "agents": {
+  "a:p1": {"status": "idle", "workspace_label": "skipli"},
+  "b:p1": {"status": "working", "workspace_label": "berthier"},
+  "c:p1": {"status": "idle", "workspace_label": ".dotfiles"},
+  "d:p1": {"status": "gone", "workspace_label": "old"}}}
+JSON
+
+# --- report
+b bin/berthier report "outside herdr"
+check "report no-op outside herdr" "$(find "$home/reports" -name '*.json' | wc -l)" '0'
+b HERDR_PANE_ID=a:p1 CLAUDE_CODE_SESSION_ID=s-a bin/berthier report $'needs you:\tpush main?\n'
+check "report written" "$(jq -c '[.line, .pane]' "$home/reports/s-a.json")" '["needs you: push main?","a:p1"]'
+
+# --- hook-stop
+tr="$home/t.jsonl"
+cat >"$tr" <<'JSONL'
+{"type":"user","timestamp":"2020-01-01T00:00:00.000Z","message":{"content":"old prompt"}}
+{"type":"user","timestamp":"2099-01-01T00:00:00.000Z","message":{"content":"do the thing"}}
+{"type":"user","timestamp":"2099-01-01T00:00:05.000Z","message":{"content":[{"type":"tool_result"}]}}
+JSONL
+hook() { b HERDR_PANE_ID=a:p1 bin/berthier hook-stop <<<"$1"; }
+check "hook blocks unreported turn" "$(hook "{\"session_id\":\"s-a\",\"transcript_path\":\"$tr\"}" | jq -r .decision)" 'block'
+check "hook lets a retry stop" "$(hook "{\"session_id\":\"s-a\",\"transcript_path\":\"$tr\",\"stop_hook_active\":true}")" ''
+check "hook ignores non-herdr" "$(b bin/berthier hook-stop <<<"{\"session_id\":\"s-a\",\"transcript_path\":\"$tr\"}")" ''
+sed -i 's/2099-01-01T00:00:0[05]/2020-01-02T00:00:00/' "$tr"
+check "hook passes reported turn" "$(hook "{\"session_id\":\"s-a\",\"transcript_path\":\"$tr\"}")" ''
+
+# --- ask
+check "ask needs a pane" "$(b bin/berthier ask skipli hi 2>&1)" 'berthier: run this from an Agent'"'"'s Herdr pane (no HERDR_PANE_ID)'
+check "ask unknown corps" "$(b HERDR_PANE_ID=a:p1 bin/berthier ask old hi 2>&1)" "berthier: no Corps 'old'; known: berthier dotfiles skipli "
+b HERDR_PANE_ID=a:p1 bin/berthier ask .Dotfiles $'add a\nunit' >/dev/null
+check "ask queued" "$(jq -c '[.from, .to, .text]' "$home"/inbox/*.json)" '["skipli","dotfiles","add a unit"]'
+b HERDR_PANE_ID=b:p1 bin/berthier ask skipli "all done" >/dev/null
+check "berthier asks as berthier" "$(jq -r 'select(.to == "skipli") | .from' "$home"/inbox/*.json)" 'berthier'
+
+printf '%d passed, %d failed\n' "$pass" "$fail"
+((fail == 0))

@@ -24,11 +24,25 @@ BERTHIER_ESCALATION_TTL=${BERTHIER_ESCALATION_TTL:-604800}
 BERTHIER_SPEAK_AFTER=${BERTHIER_SPEAK_AFTER:-30}
 # Desktop notification + chime + TTS, from the dotfiles' notify-user skill.
 BERTHIER_SPEAK=${BERTHIER_SPEAK:-$HOME/.claude/skills/notify-user/speak.sh}
+BERTHIER_ASK_STUCK=${BERTHIER_ASK_STUCK:-1800}
+BERTHIER_PINGPONG_MAX=${BERTHIER_PINGPONG_MAX:-6}
+BERTHIER_INBOX=$BERTHIER_HOME/inbox
+BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
 
 TASK_PREFIX="󱎦 "
 
-mkdir -p "$BERTHIER_HOME"
+mkdir -p "$BERTHIER_HOME" "$BERTHIER_INBOX" "$BERTHIER_REPORTS"
+
+# jq with lib/names.jq available: jqn [jq args] '<program>' (include is added).
+jqn() { local prog=${*: -1}; jq -L "$BERTHIER_ROOT/lib" "${@:1:$#-1}" "include \"names\"; $prog"; }
+corps_name() { jqn -rn --arg s "$1" '$s | corps_name'; }
+
+# How the Agent in a pane is addressed: berthier, its Corps, or its Task.
+caller_name() {
+  jqn -r --arg p "$1" 'if .berthier == $p then "berthier"
+    else (.agents[$p].workspace_label // empty | corps_name) end' <"$BERTHIER_STATE"
+}
 
 die() { printf 'berthier: %s\n' "$*" >&2; exit 1; }
 

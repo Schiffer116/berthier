@@ -2,7 +2,8 @@
 # Print how many Agents are in each status, as one JSON object for status bars.
 # Every status key is always present; "available" is false when the Main Loop
 # has not written state.json recently, so a bar can tell stale data apart.
-# "report" is Berthier's plain-text Fleet report (state/report.txt), for tooltips.
+# "report" has one line per live Agent, "<corps>: <state> - <its own report>",
+# needs-you lines first; <state> is "needs you" or the Agent's live status.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -14,11 +15,22 @@ mtime=$(stat -c %Y "$BERTHIER_STATE" 2>/dev/null || echo 0)
 available=false
 ((now - mtime <= stale_after)) && available=true
 
-report=$(cat "$BERTHIER_HOME/report.txt" 2>/dev/null || true)
+reports=$(find "$BERTHIER_REPORTS" -maxdepth 1 -name '*.json' -print0 \
+  | xargs -0r jq -c '{key: (input_filename | split("/") | last | rtrimstr(".json")), value: .}' \
+  | jq -cs 'from_entries')
 
-jq -cn --argjson available "$available" --arg report "$report" --slurpfile s <(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}') '
-  ($s[0].agents // {} | [.[].status]) as $st
+jqn -cn --argjson available "$available" --argjson reports "${reports:-{\}}" \
+  --slurpfile s <(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}') '
+  ($s[0].agents // {}) as $agents
+  | ($agents | [.[].status]) as $st
   | {available: $available}
   + ([["working","blocked","done","idle","unknown","gone"][] as $k
       | {($k): ($st | map(select(. == $k)) | length)}] | add)
-  + {report: $report}'
+  + {report: ([$agents | to_entries[]
+        | ($reports[.value.session_id // ""].line // null) as $line
+        | select($line != null)
+        | (if .key == $s[0].berthier then "berthier" else (.value.workspace_label | corps_name) end) as $who
+        | ($line | test("^needs you:"; "i")) as $needs
+        | {needs: $needs, who: $who,
+           text: "\($who): \(if $needs then "needs you" else .value.status end) - \($line | sub("^needs you: *"; ""; "i"))"}]
+      | sort_by((.needs | not), .who) | map(.text) | join("\n"))}'

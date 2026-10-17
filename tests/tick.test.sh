@@ -3,11 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"task_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":6}'
 pass=0 fail=0
 
 tick() { # prev snap now
-  jq -cn --argjson prev "$1" --argjson snap "$2" --argjson now "$3" --argjson cfg "$CFG" -f lib/tick.jq
+  jq -cn --argjson prev "$1" --argjson snap "$2" --argjson now "$3" --argjson cfg "$CFG" --argjson inbox "${INBOX:-[]}" -L lib -f lib/tick.jq
 }
 check() { # name actual expected
   if [[ $2 == "$3" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL %s\n  got:  %s\n  want: %s\n' "$1" "$2" "$3"; fi
@@ -79,6 +79,19 @@ st=$(snap "$W" "[$(agent w2:p1 blocked sid-t)]" "[$(pane w2:p1)]")
 check "task speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$(jq -c .state <<<"$(tick '{}' "$st" 1000)")" "$st" 1030)")" '["skipli task dark mode is waiting on you"]'
 check "no speech under threshold" "$(jq -c '.speak' <<<"$(tick "$prev" "$sb" 1020)")" '[]'
 check "berthier recorded" "$(jq -r '.state.berthier' <<<"$o")" 'w3:p1'
+
+# --- Asks: oldest first, one per idle Agent per tick; a busy one waits.
+sa=$(snap "$W" "[$(agent w1:p1 idle sid-1),$(agent w4:p1 working sid-4),$(agent w3:p1 idle sid-b "" /home/u/berthier)]" "[$(pane w1:p1),$(pane w4:p1),$(pane w3:p1)]")
+prev=$(jq -c .state <<<"$(tick '{}' "$sa" 1000)")
+INBOX='[{"id":"2","from":"notes","to":"Skipli","text":"again","at":950},{"id":"1","from":"notes","to":"skipli","text":"hi","at":900},{"id":"3","from":"skipli","to":"notes","text":"x","at":100},{"id":"4","from":"notes","to":"berthier","text":"who owns dns?","at":990}]'
+o=$(INBOX=$INBOX tick "$prev" "$sa" 2000)
+check "ask delivery" "$(jq -c '.deliver | map([.id, .pane_id])' <<<"$o")" '[["1","w1:p1"],["4","w3:p1"]]'
+check "ask text" "$(jq -r '.deliver[0].text' <<<"$o")" '[berthier ask] from notes: hi (Reply or report back with: berthier ask notes "...")'
+check "ask stuck escalates" "$(jq -c '.escalate | map(.key)' <<<"$o")" '["ask_stuck:3"]'
+check "ask logged" "$(jq -c '.state.ask_log | map(.to)' <<<"$o")" '["skipli","berthier"]'
+log5=$(jq -c '[range(5) | {from: "skipli", to: "notes", at: 1990}]' <<<null)
+o=$(INBOX='[{"id":"1","from":"notes","to":"skipli","text":"hi","at":1990}]' tick "$(jq -c --argjson l "$log5" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
+check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 6 in the last hour"]'
 
 # --- Long working.
 sw=$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")

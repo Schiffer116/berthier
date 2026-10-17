@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Send a request to another Corps (or a Task, or berthier). The Main Loop
+# delivers it to that Corps's Agent once the Agent is ready for input.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+[[ $# -eq 2 && -n $2 ]] || die 'usage: berthier ask <corps> "<what you need and why>"'
+pane=${HERDR_PANE_ID:-}
+[[ -n $pane ]] || die "run this from an Agent's Herdr pane (no HERDR_PANE_ID)"
+[[ -s $BERTHIER_STATE ]] || die "no Army state yet; is berthier-loop running?"
+
+to=$(corps_name "$1")
+names=$(jqn -r '.berthier as $b | [.agents | to_entries[] | select(.value.status != "gone")
+  | if .key == $b then "berthier" else (.value.workspace_label | corps_name) end] | unique | .[]' <"$BERTHIER_STATE")
+grep -qxF "$to" <<<"$names" || die "no Corps '$to'; known: $(tr '\n' ' ' <<<"$names")"
+from=$(caller_name "$pane")
+[[ -n $from ]] || die "pane $pane is not a known Agent yet; try again in a few seconds"
+
+id="$(date +%s%N)-$from"
+id=${id//\//-}
+tmp=$(mktemp "$BERTHIER_INBOX/.ask.XXXXXX")
+jq -cn --arg from "$from" --arg to "$to" --arg text "$2" --argjson at "$(date +%s)" \
+  '{from: $from, to: $to, text: ($text | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ")), at: $at}' >"$tmp"
+mv "$tmp" "$BERTHIER_INBOX/$id.json"
+echo "asked $to; delivered when its Agent is ready for input"

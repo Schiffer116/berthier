@@ -21,10 +21,16 @@ cfg=$(jq -cn \
   --argjson revive_reset "$BERTHIER_REVIVE_RESET" \
   --argjson escalation_ttl "$BERTHIER_ESCALATION_TTL" \
   --argjson speak_after "$BERTHIER_SPEAK_AFTER" \
+  --argjson ask_stuck "$BERTHIER_ASK_STUCK" \
+  --argjson pingpong_max "$BERTHIER_PINGPONG_MAX" \
   '$ARGS.named')
 
+inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
+  | xargs -0r jq -c '. + {id: (input_filename | split("/") | last | rtrimstr(".json"))}' | jq -cs .)
+
 out=$(jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
-  -f "$BERTHIER_ROOT/lib/tick.jq")
+  --argjson inbox "$inbox" \
+  -L "$BERTHIER_ROOT/lib" -f "$BERTHIER_ROOT/lib/tick.jq")
 state=$(jq -c '.state' <<<"$out")
 
 # --- A clean exit is the user's choice: forget the agent instead of Reviving.
@@ -58,6 +64,17 @@ while IFS=$'\t' read -r pane name sid; do
     log "revive failed: $name in $pane (session $sid)"
   fi
 done < <(jq -r '.revive[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+
+# --- Deliver asks; a delivered ask leaves the inbox.
+while IFS=$'\t' read -r id pane text; do
+  [[ -n $id ]] || continue
+  if hd agent prompt "$pane" "$text" >/dev/null 2>&1; then
+    rm -f "$BERTHIER_INBOX/$id.json"
+    log "delivered ask $id to $pane"
+  else
+    log "ask delivery failed: $id to $pane"
+  fi
+done < <(jq -r '.deliver[] | [.id, .pane_id, .text] | @tsv' <<<"$out")
 
 # --- Escalate to Berthier in one prompt; fall back to the user if Berthier
 # cannot take it (gone or blocked).

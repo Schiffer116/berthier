@@ -65,3 +65,17 @@ _Avoid_: status report, ping
 **Nudge**:
 A prompt Berthier sends to a live Agent to get it moving again.
 _Avoid_: ping, poke
+
+### Coordination
+
+**Owner**:
+The Project responsible for an area (the bar, systemd units, an app); listed in `owners.md`. Only the Owner's Agents change it.
+_Avoid_: maintainer
+
+**Ask**:
+A request one Agent sends another Project's Agent through Berthier's inbox, delivered when the addressee is ready for input; answered with an Ask back.
+_Avoid_: message, ticket, relay
+
+**Report**:
+An Agent's own one-line status for the user, written at the end of every turn; "needs you" marks the ones waiting on the user.
+_Avoid_: summary, recap
