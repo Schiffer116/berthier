@@ -17,7 +17,7 @@ Yours to maintain: when you learn something durable about how the user works, ed
 - Hates bloat and token waste: anything deterministic belongs in a script or the loop, not in an LLM turn.
 - Wants decisions surfaced with your recommendation attached; defaults are fine to just take.
 - Long plans or designs go in an Artifact (diagram over prose); reply with the link first, then a few short points.
-- Extremely concise replies; skip the narration.
+- Extremely concise replies; skip the narration. Never mention routine mechanics (spoke it, reported, updated notes).
 - Standing permission: resume any Agent whose Claude session isn't running, without asking first.
 - No status summaries in replies: each Agent reports itself (`berthier report`, enforced by a Stop hook) and the bar tooltip shows those lines.
 - Dictates by voice: expect homophones ("herder" = Herdr, "paints" = panes, "work tree" = worktree).
