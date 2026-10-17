@@ -1,0 +1,3 @@
+# The repository is Berthier's home; the root CLAUDE.md is its identity
+
+Any agent launched in this repository is Berthier: the root `CLAUDE.md` is Berthier's instructions, not developer docs (those live in `CONTRIBUTING.md`), and runtime data (`state/`, `notes.md` for session continuity) sits gitignored beside it, while Berthier keeps its picture of how the user works in `CLAUDE.md` itself. We first ran Berthier as a separate agent in `~/.berthier` started by a `berthier up` command, but that added a launcher, split Berthier from its own code, and made the user's natural move - open `claude` here - produce a developer instead of Berthier. The Main Loop therefore recognises Berthier by working directory, not by an agent name.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Berthier Main Loop (Herdr fleet supervision)
+
+[Service]
+Type=simple
+ExecStart=%h/Documents/berthier/bin/berthier loop
+Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

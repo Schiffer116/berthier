@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Run by a Main Agent once the user has reviewed a Task: remove the Task's
+# worktree workspace, and delete its branch only if it is already merged.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+[[ $# -eq 1 ]] || die "usage: berthier task-done <task>"
+branch=$(slug "$1")
+ws_id=${BERTHIER_WORKSPACE:-${HERDR_WORKSPACE_ID:-}}
+[[ -n $ws_id ]] || die "run this from the Main Agent's Herdr pane (no HERDR_WORKSPACE_ID)"
+
+project=$(hd workspace get "$ws_id" | jq -r '.result.workspace.label')
+label="$TASK_PREFIX$project/$branch"
+IFS=$'\t' read -r task_ws path repo < <(hd workspace list | jq -r --arg l "$label" '
+  [.result.workspaces[] | select(.label == $l)] | first // empty
+  | [.workspace_id, .worktree.checkout_path, .worktree.repo_root] | @tsv')
+[[ -n ${task_ws:-} ]] || die "no Task workspace labelled '$label'"
+
+hd worktree remove --workspace "$task_ws" >/dev/null \
+  || die "could not remove '$label' (uncommitted changes in $path?)"
+
+if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then
+  echo "task '$label' done: worktree removed, merged branch $branch deleted"
+else
+  echo "task '$label' done: worktree removed; branch $branch kept because it is not merged"
+fi
