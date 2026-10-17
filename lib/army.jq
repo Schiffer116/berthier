@@ -45,8 +45,10 @@ def log_entry:
 ($state.agents // {}) as $agents
 | [($state.corps // [])[] | unit_view
    + {divisions: [.divisions[]? | unit_view + {worktree: (.worktree // false)}]}] as $corps
+| [($state.berthier_divisions // [])[] | unit_view + {worktree: (.worktree // false)}] as $bdivs
 | [$corps[] | ., .divisions[] | .agents[]]
-  + (if $state.berthier then [agent_view($state.berthier)] else [] end) as $all
+  + (if $state.berthier then [agent_view($state.berthier)] else [] end)
+  + [$bdivs[] | .agents[]] as $all
 | [$log[] | log_entry] as $entries
 | {
     available: $available,
@@ -58,6 +60,7 @@ def log_entry:
     needs_you: [$all[] | select(.needs_you)] | sort_by(.status_since // 0, .who),
     berthier: (if $state.berthier then agent_view($state.berthier) else null end),
     corps: $corps,
+    berthier_divisions: $bdivs,
     asks: ($inbox | sort_by(.at)),
     ask_log: (($state.ask_log // []) | sort_by(.at) | reverse),
     escalations: [$entries[]

@@ -9,7 +9,7 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 "$BERTHIER_ROOT/libexec/army" | jq -c '
   {available} + .counts
-  + {report: ([.corps[] | ., .divisions[] | .agents[]] + [.berthier // empty]
+  + {report: ([.corps[] | ., .divisions[] | .agents[]] + [.berthier // empty] + [.berthier_divisions[] | .agents[]]
       | map(select(.status != "gone"))
       | sort_by((.needs_you | not), .who)
       | map("\(.who): \(if .needs_you then "needs you" else .status end) - \(.report // "no report yet")")

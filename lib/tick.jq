@@ -195,6 +195,13 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
                      path: (.worktree.checkout_path // null),
                      agents: ($by_ws[.workspace_id] // [])}))
      })) as $corps
+# Berthier's own Divisions (e.g. one coding Berthier itself) hang off Berthier.
+| ($workspaces | map(select(.workspace_id == $berthier_ws)) | first | .label // null) as $berthier_label
+| ($division_ws | map(select($berthier_label != null and $divisions[.label | corps_name].corps == $berthier_label) | {
+    name: .label, workspace_id: .workspace_id,
+    worktree: $divisions[.label | corps_name].worktree,
+    path: (.worktree.checkout_path // null),
+    agents: ($by_ws[.workspace_id] // [])})) as $berthier_divisions
 
 | {
     state: {
@@ -202,6 +209,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       updated_at: $now,
       berthier: $berthier,
       corps: $corps,
+      berthier_divisions: $berthier_divisions,
       agents: $agents,
       escalated: $escalated,
       ask_log: $ask_log

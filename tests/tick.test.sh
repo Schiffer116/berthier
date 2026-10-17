@@ -112,6 +112,15 @@ check "division addressable" "$(INBOX='[{"id":"9","from":"skipli","to":"tailscal
 check "adopted division stop is not escalated" "$(tick "$(jq -c '.agents["w6:p1"] += {status: "working", prev_status: "idle"}' <<<"$prev")" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.escalate')" '[]'
 DIVISIONS=$D0
 
+# --- Berthier's own Divisions: listed apart, escalations go to Berthier.
+WB="[$(ws w1 skipli),$(ws w3 berthier),$(ws w7 '󱎦 console')]"
+DIVISIONS='{"console":{"corps":"berthier","worktree":true}}'
+sbd=$(snap "$WB" "[$(agent w3:p1 idle sid-b "" /home/u/berthier),$(agent w7:p1 blocked sid-7)]" "[$(pane w3:p1),$(pane w7:p1)]")
+o=$(tick "$(jq -c .state <<<"$(tick '{}' "$sbd" 1000)")" "$sbd" 1130)
+check "berthier divisions" "$(jq -c '[(.state.corps | map(.name)), (.state.berthier_divisions | map(.name))]' <<<"$o")" '[["skipli"],["󱎦 console"]]'
+check "berthier division escalates to berthier" "$(jq -c '[(.escalate | map(.to)), (.notify | length)]' <<<"$o")" '[["w3:p1"],0]'
+DIVISIONS=$D0
+
 # --- Long working.
 sw=$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
