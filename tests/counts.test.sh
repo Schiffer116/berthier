@@ -12,10 +12,13 @@ home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 counts() { BERTHIER_HOME=$home bin/berthier counts; }
 
-check "no state" "$(counts)" '{"available":false,"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0}'
+check "no state" "$(counts)" '{"available":false,"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0,"report":""}'
 
 echo '{"agents":{"a:p1":{"status":"working"},"b:p1":{"status":"idle"},"c:p1":{"status":"idle"},"d:p1":{"status":"blocked"}}}' >"$home/state.json"
-check "fresh counts" "$(counts)" '{"available":true,"working":1,"blocked":1,"done":0,"idle":2,"unknown":0,"gone":0}'
+check "fresh counts" "$(counts)" '{"available":true,"working":1,"blocked":1,"done":0,"idle":2,"unknown":0,"gone":0,"report":""}'
+
+printf 'skipli: waiting on you\nlearning: working\n' >"$home/report.txt"
+check "report" "$(counts | jq -r .report)" $'skipli: waiting on you\nlearning: working'
 
 touch -d '-5 minutes' "$home/state.json"
 check "stale state" "$(counts | jq -c '[.available, .idle]')" '[false,2]'

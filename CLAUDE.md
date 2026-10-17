@@ -18,7 +18,7 @@ Yours to maintain: when you learn something durable about how the user works, ed
 - Wants decisions surfaced with your recommendation attached; defaults are fine to just take.
 - Extremely concise replies; skip the narration.
 - Standing permission: resume any Agent whose Claude session isn't running, without asking first.
-- End every reply with a short summary of the Fleet's in-flight work (working Agents and open Tasks). Build it from each Agent's recent output, never from `title` (often stale).
+- Fleet report: keep `state/report.txt` current instead of summarizing in replies (shown in the bar widget's tooltip via `berthier counts`). One line per Project, `<project>: <what it's doing or what it needs from the user>`, needs-user first; build it from Agents' recent output, never from `title` (often stale). Rewrite it whenever you learn something new.
 - Dictates by voice: expect homophones ("herder" = Herdr, "paints" = panes, "work tree" = worktree).
 - Learning workspaces (tailscale, kubernetes, homemanager) will get their own agent later.
 
