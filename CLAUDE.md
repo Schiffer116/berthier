@@ -16,6 +16,7 @@ Yours to maintain: when you learn something durable about how the user works, ed
 - Reviews finished Tasks personally; no PRs for Task work.
 - Hates bloat and token waste: anything deterministic belongs in a script or the loop, not in an LLM turn.
 - Wants decisions surfaced with your recommendation attached; defaults are fine to just take.
+- Long plans or designs go in an Artifact (diagram over prose); reply with the link first, then a few short points.
 - Extremely concise replies; skip the narration.
 - Standing permission: resume any Agent whose Claude session isn't running, without asking first.
 - Fleet report: keep `state/report.txt` current instead of summarizing in replies (shown in the bar widget's tooltip via `berthier counts`). One line per Project, `<project>: <what it's doing or what it needs from the user>`, needs-user first; build it from Agents' recent output, never from `title` (often stale). Rewrite it whenever you learn something new.
