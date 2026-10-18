@@ -23,10 +23,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+attach() {
+  # Agents inherit BERTHIER_HOME from Herdr, so their berthier commands use the test state.
+  tmux new-session -d -s "$session" -x 200 -y 50 "${clean_env[*]} BERTHIER_HOME=$BERTHIER_HOME herdr session attach $session"
+  for _ in $(seq 50); do h workspace list >/dev/null 2>&1 && break; sleep 0.2; done
+}
+
 step "start isolated Herdr session"
-# Agents inherit BERTHIER_HOME from Herdr, so their berthier commands use the test state.
-tmux new-session -d -s "$session" -x 200 -y 50 "${clean_env[*]} BERTHIER_HOME=$BERTHIER_HOME herdr session attach $session"
-for _ in $(seq 50); do h workspace list >/dev/null 2>&1 && break; sleep 0.2; done
+attach
 
 mkdir -p "$repo" && git -C "$repo" init -q && git -C "$repo" commit -q --allow-empty -m init
 pane=$(h workspace create --cwd "$repo" --label demo --no-focus | jq -re '.result.root_pane.pane_id')
@@ -82,6 +86,28 @@ bin/berthier adopt helper demo >/dev/null
 bin/berthier tick
 jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["󱎦 helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "helper not nested under demo"
+
+step "a Herdr restart keeps every name and Revives nothing"
+# Herdr resumes Claude sessions itself after a restart, but forgets names it did
+# not assign at agent start (e.g. agent rename) and briefly lists those panes
+# without an agent.
+typed=$(h workspace create --cwd "$repo" --label typed --no-focus | jq -re '.result.root_pane.pane_id')
+h pane run "$typed" "claude --model haiku" >/dev/null
+for _ in $(seq 30); do h agent get "$typed" >/dev/null 2>&1 && break; sleep 1; done
+h agent wait "$typed" --until idle --timeout 60000 >/dev/null
+h agent prompt "$typed" "Reply with just: pong" --wait --timeout 90000 >/dev/null
+h agent rename "$typed" typed >/dev/null
+bin/berthier tick
+names() { h api snapshot | jq -c '[.result.snapshot.agents[] | [.pane_id, .name, .agent_session.value]] | sort'; }
+before=$(names) mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+h server stop >/dev/null
+tmux kill-session -t "$session" 2>/dev/null || true
+attach
+for _ in $(seq 20); do bin/berthier tick; sleep 1; done
+[[ $(names) == "$before" ]] || fail "names or sessions changed across restart: $before -> $(names)"
+since=$(tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log")
+grep -q revive <<<"$since" && fail "Revive attempted after restart: $since"
+grep -q "restored name typed in $typed" <<<"$since" || fail "name restore not logged"
 
 step "a deliberate /exit must not be Revived"
 h agent wait "$pane" --timeout 60000 >/dev/null

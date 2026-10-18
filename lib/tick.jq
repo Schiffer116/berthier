@@ -10,7 +10,7 @@
 #   $divisions {division name: {corps: label, worktree: bool}} (division-new, adopt)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
 #
-# Output: {state, vanished: [...], revive: [...], escalate: [...], notify: [...],
+# Output: {state, vanished: [...], revive: [...], rename: [...], escalate: [...], notify: [...],
 #          speak: [...], deliver: [...]}
 # The caller performs the actions; this program never touches the world.
 
@@ -28,17 +28,23 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 | ($prev.escalated // {}) as $prev_escalated
 
 # --- Live agents: carry over memory (session id, timers, revive bookkeeping).
-| ($snap.agents // [] | map(
+# A pane that still holds a Claude session with no agent listed is Herdr
+# resuming it after a restart (a crash clears the pane's session): it is live.
+| ($snap.agents // [] | map(.pane_id)) as $agent_panes
+| (($snap.agents // []) + ($snap.panes // [] | map(
+    select(.agent_session.value != null and (.pane_id as $p | $agent_panes | index($p) | not)))) | map(
     . as $a
     | ($prev_agents[$a.pane_id] // {}) as $p
     | ($p.status == $a.agent_status) as $same
+    | ($a.agent_session.value // $p.session_id) as $sid
     | {key: $a.pane_id, value: {
-        name: ($a.name // $p.name),
-        kind: $a.agent,
+        # Herdr forgets names across restarts; the name stays with its session.
+        name: ($a.name // (if $sid == $p.session_id then $p.name else null end)),
+        kind: ($a.agent // $p.kind),
         status: $a.agent_status,
         status_since: (if $same then $p.status_since else $now end),
         prev_status: (if $same then $p.prev_status else $p.status end),
-        session_id: ($a.agent_session.value // $p.session_id),
+        session_id: $sid,
         workspace_id: $a.workspace_id,
         workspace_label: $ws[$a.workspace_id].label,
         tab_id: $a.tab_id,
@@ -85,6 +91,17 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
        name: (.value.name // fallback_name(.key)),
        session_id: .value.session_id}
   )) as $revive
+
+# --- Names Herdr lost: give each listed agent back its session's name, unless
+# another agent took it meanwhile.
+| ($snap.agents // [] | map(.name // empty)) as $taken
+| ($snap.agents // [] | map(
+    select(.name == null)
+    | $live[.pane_id] as $v
+    | select($v.name != null and .agent_session.value == $v.session_id)
+    | select($v.name as $n | $taken | index($n) | not)
+    | {pane_id, name: $v.name, session_id: $v.session_id}
+  )) as $rename
 
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
 | ($agents | to_entries
@@ -216,6 +233,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     },
     vanished: $vanished,
     revive: $revive,
+    rename: $rename,
     escalate: $escalate,
     notify: $notify,
     speak: $speak,

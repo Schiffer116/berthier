@@ -66,6 +66,16 @@ while IFS=$'\t' read -r pane name sid; do
   fi
 done < <(jq -r '.revive[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
 
+# --- Give agents back the names Herdr forgot (e.g. across a restart).
+while IFS=$'\t' read -r pane name sid; do
+  [[ -n $pane ]] || continue
+  if hd agent rename "$pane" "$name" >/dev/null 2>&1; then
+    log "restored name $name in $pane (session $sid)"
+  else
+    log "name restore failed: $name in $pane (session $sid)"
+  fi
+done < <(jq -r '.rename[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+
 # --- Deliver asks; a delivered ask leaves the inbox.
 while IFS=$'\t' read -r id pane from to text; do
   [[ -n $id ]] || continue
