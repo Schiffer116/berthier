@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-session=berthier-e2e
+session=berthier-e2e-$$
 work=$(mktemp -d)
 repo=$work/berthier-e2e-$$
 export BERTHIER_HERDR_SESSION=$session BERTHIER_HOME=$work/home BERTHIER_START_TIMEOUT_MS=60000
@@ -80,7 +80,7 @@ h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier a
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
 bin/berthier tick
-jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["󱎦 helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
+jq -e '.corps[] | select(.name == "demo") | .divisions | map(.name) == ["helper"]' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "helper not nested under demo"
 
 step "a deliberate /exit must not be Revived"
@@ -97,8 +97,12 @@ grep -q "forgot demo-main in $pane: user exited it" "$BERTHIER_HOME/loop.log" ||
 jq -e --arg p "$pane" '.agents[$p] == null' "$BERTHIER_HOME/state.json" >/dev/null || fail "exited agent still tracked"
 
 step "division-new spawns a worktree Division; division-done removes it"
-BERTHIER_WORKSPACE="$ws" \
-  BERTHIER_START_TIMEOUT_MS=5000 bin/berthier division-new "Dark Mode" "Reply with just: hi"
+# A Brief whose first turn outlasts the start timeout must still read as started and named.
+out=$(BERTHIER_WORKSPACE="$ws" BERTHIER_START_TIMEOUT_MS=20000 bin/berthier division-new "Dark Mode" \
+  "Run this one bash command in the foreground with timeout 120000ms: for i in \$(seq 40); do echo \$i; sleep 1; done")
+echo "$out"
+[[ $out == *" started: "* ]] || fail "division-new misreported its start"
+h agent get demo-dark-mode >/dev/null 2>&1 || fail "division agent left unnamed"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode")' >/dev/null || fail "division workspace missing"
 bin/berthier tick
 jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \

@@ -99,15 +99,15 @@ o=$(INBOX='[]' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "
 check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
 
 # --- Divisions: nested under their Corps; their trouble goes to the Corps's Main Agent.
-WD="[$(ws w1 learning),$(ws w6 '󱎦 tailscale'),$(ws w3 berthier)]"
+WD="[$(ws w1 learning),$(ws w6 tailscale),$(ws w3 berthier)]"
 DIVISIONS='{"tailscale":{"corps":"learning","worktree":false}}'
 sd=$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 blocked sid-6),$(agent w3:p1 idle sid-b "" /home/u/berthier)]" "[$(pane w1:p1),$(pane w6:p1),$(pane w3:p1)]")
 prev=$(jq -c .state <<<"$(INBOX='[]' tick '{}' "$sd" 1000)")
 o=$(INBOX='[]' tick "$prev" "$sd" 1130)
-check "division nested" "$(jq -c '.state.corps | map({name, divisions: (.divisions | map(.name))})' <<<"$o")" '[{"name":"learning","divisions":["󱎦 tailscale"]}]'
+check "division nested" "$(jq -c '.state.corps | map({name, divisions: (.divisions | map(.name))})' <<<"$o")" '[{"name":"learning","divisions":["tailscale"]}]'
 check "division escalates to its corps" "$(jq -c '.escalate | map([.key, .to])' <<<"$o")" '[["blocked:w6:p1:1000","w1:p1"]]'
 check "division speech" "$(jq -c '.speak | map(.text)' <<<"$o")" '["tailscale in learning is waiting on you"]'
-check "orphan division stays a corps" "$(DIVISIONS='{}' tick "$prev" "$sd" 1130 | jq -c '.state.corps | map(.name)')" '["learning","󱎦 tailscale"]'
+check "orphan division stays a corps" "$(DIVISIONS='{}' tick "$prev" "$sd" 1130 | jq -c '.state.corps | map(.name)')" '["learning","tailscale"]'
 check "division addressable" "$(INBOX='[{"id":"9","from":"skipli","to":"tailscale","text":"t","at":1100}]' tick "$prev" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.deliver | map(.pane_id)')" '["w6:p1"]'
 check "adopted division stop is not escalated" "$(tick "$(jq -c '.agents["w6:p1"] += {status: "working", prev_status: "idle"}' <<<"$prev")" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.escalate')" '[]'
 DIVISIONS=$D0

@@ -31,8 +31,6 @@ BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
 
-DIVISION_PREFIX="󱎦 "
-
 mkdir -p "$BERTHIER_HOME" "$BERTHIER_INBOX" "$BERTHIER_REPORTS"
 
 # jq with lib/names.jq available: jqn [jq args] '<program>' (include is added).
@@ -84,6 +82,20 @@ exited_deliberately() {
   local tail
   tail=$(hd pane read "$1" --source recent-unwrapped --lines 20 | grep -v '^[[:space:]]*$' | tail -6)
   grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $2" <<<"$tail"
+}
+
+# Start Claude as Agent <name> in <pane>, the Brief riding along as its first
+# prompt so it is delivered even past a folder trust dialog. Herdr's start waits
+# out that whole first turn, so a long Brief times out a healthy start and
+# leaves the Agent unnamed: name it then. Prints ready, blocked or failed.
+start_claude() { # name pane [brief]
+  hd agent start "$1" --kind claude --pane "$2" --timeout "$BERTHIER_START_TIMEOUT_MS" \
+    -- ${3:+"$3"} >/dev/null 2>&1 && { echo ready; return; }
+  case $(hd agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_status // ""') in
+    blocked) echo blocked ;;
+    working | idle | done | unknown) hd agent rename "$2" "$1" >/dev/null 2>&1 && echo ready || echo failed ;;
+    *) echo failed ;;
+  esac
 }
 
 # Is the pane sitting at a bare interactive shell, ready for `agent start`?

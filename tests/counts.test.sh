@@ -36,7 +36,7 @@ check "report" "$(counts | jq -r .report)" $'dark-mode: needs you - no report ye
 # --- army: the full view model behind counts and the dashboard.
 army() { BERTHIER_HOME=$home bin/berthier army; }
 now=$(date +%s); ts() { date -d "@$((now - $1))" -Is; }
-printf '%s escalated long to berthier: too old\n%s loop started (interval 10s, session default)\n%s delivered ask skipli -> dotfiles (c:p1)\n%s spoke: skipli is waiting on you.\n%s escalated blocked to berthier: blocked 2m on an approval or question: x\n%s escalated blocked to a:p1: blocked 3m on an approval or question: agent '\''-'\'' in 󱎦 dark-mode (pane d:p1)\n%s escalated pingpong to berthier: asks bouncing between dotfiles and skipli: 10 back-and-forths in the last hour\n' \
+printf '%s escalated long to berthier: too old\n%s loop started (interval 10s, session default)\n%s delivered ask skipli -> dotfiles (c:p1)\n%s spoke: skipli is waiting on you.\n%s escalated blocked to berthier: blocked 2m on an approval or question: x\n%s escalated blocked to a:p1: blocked 3m on an approval or question: agent '\''-'\'' in dark-mode (pane d:p1)\n%s escalated pingpong to berthier: asks bouncing between dotfiles and skipli: 10 back-and-forths in the last hour\n' \
   "$(ts $((8 * 86400)))" "$(ts 600)" "$(ts 300)" "$(ts 200)" "$(ts 100)" "$(ts 100)" "$(ts 100)" >"$home/loop.log"
 mkdir -p "$home/inbox"; echo '{"from":"skipli","to":"dotfiles","text":"unit","at":5}' >"$home/inbox/7-skipli.json"
 check "army needs you" "$(army | jq -c '.needs_you | map(.who)')" '["dark-mode","dotfiles"]'

@@ -7,7 +7,7 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 [[ $# -ge 2 ]] || die "usage: berthier corps-new <name> <dir> [brief]"
 name=$1 dir=$2 brief=${3:-}
-[[ $name != "$DIVISION_PREFIX"* && $name != berthier ]] || die "reserved corps name: $name"
+[[ $name != berthier ]] || die "reserved corps name: $name"
 hd workspace list | jq -e --arg l "$name" 'any(.result.workspaces[]; .label == $l)' >/dev/null \
   && die "a workspace labelled '$name' already exists"
 
@@ -20,11 +20,8 @@ fi
 
 pane=$(hd workspace create --cwd "$dir" --label "$name" --no-focus | jq -re '.result.root_pane.pane_id')
 agent=$(slug "$name")
-# The Brief rides along as Claude's initial prompt, so it is delivered even
-# when Claude first stops at a folder trust dialog for a new directory.
-if hd agent start "$agent" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
-     -- ${brief:+"$brief"} >/dev/null 2>&1; then
-  echo "corps '$name' ready: workspace pane $pane, Main Agent '$agent'"
-else
-  echo "corps '$name' created: pane $pane, Main Agent '$agent' is waiting on a startup dialog (likely folder trust) - the user must answer it in Herdr"
-fi
+case $(start_claude "$agent" "$pane" "$brief") in
+  ready) echo "corps '$name' ready: workspace pane $pane, Main Agent '$agent'" ;;
+  blocked) echo "corps '$name' created: pane $pane, Main Agent '$agent' is waiting on a startup dialog (likely folder trust) - the user must answer it in Herdr" ;;
+  *) die "corps '$name' created (pane $pane) but its Main Agent did not start" ;;
+esac

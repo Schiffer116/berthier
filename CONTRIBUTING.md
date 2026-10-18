@@ -5,7 +5,7 @@
 ## Commands
 
 - Unit tests (pure, instant): `tests/tick.test.sh`, `tests/counts.test.sh`, `tests/commands.test.sh`
-- E2E (real Herdr + Claude haiku, isolated `berthier-e2e` session, ~1 min): `tests/e2e.sh`
+- E2E (real Herdr + Claude haiku, isolated `berthier-e2e-<pid>` session, so runs can overlap, ~1 min): `tests/e2e.sh`
 - Lint: `shellcheck bin/berthier libexec/* lib/common.sh tests/*.sh` (`.shellcheckrc` resolves sources)
 - Try against a scratch Herdr session: `BERTHIER_HERDR_SESSION=<name> BERTHIER_HOME=<tmpdir> bin/berthier <cmd>`
 - Loop service: `systemctl --user {status,restart} berthier-loop`; log in `state/loop.log`.
@@ -21,7 +21,7 @@
 - Reports: `report` writes `state/reports/<claude session id>.json`; `counts` joins them with live Agents for the bar. `hook-stop` is a Claude Code Stop hook (wired globally by the dotfiles) that blocks a turn's end in a Herdr pane until the Agent has reported during it.
 - Berthier = the agent whose cwd is this repo; the loop prompts escalations into its pane, and sends Berthier's own problems to `herdr notification show`.
 - Revive = `herdr agent start <name> --kind claude --pane <pane> -- --resume <session>`, only when the pane survived at a shell prompt. Deliberate stops are forgotten, never Revived: a closed pane, or a clean Claude exit (it prints `Resume this session with: claude --resume <id>`; a killed process does not), checked on the tick the agent vanishes and again before any Revive.
-- Divisions are the workspaces `state/divisions.json` (`division_set`) records, as `{corps, worktree}`; that record, not the label, makes one a Division (`is_division`). Spawned ones are labelled `<name>`, adopted ones `󱎦 <name>`. `division-new`/`division-done` create and remove worktree Divisions (`herdr worktree create`, default `~/.herdr/worktrees/`); `adopt` relabels an existing workspace. `tick.jq` nests Divisions under their Corps and routes their escalations (`to`) to the Corps's Main Agent; only a spawned Division's stop escalates.
+- Divisions are the workspaces `state/divisions.json` (`division_set`) records, as `{corps, worktree}`; that record, not the label, makes one a Division (`is_division`). `division-new`/`division-done` create and remove worktree Divisions (`herdr worktree create`, default `~/.herdr/worktrees/`); `adopt` records an existing workspace. `tick.jq` nests Divisions under their Corps and routes their escalations (`to`) to the Corps's Main Agent; only a spawned Division's stop escalates.
 - Runtime data is gitignored: `state/` (loop) and `notes.md` (Berthier's Notes for session continuity, imported by `CLAUDE.md`; Berthier edits the "How the user works" section of `CLAUDE.md` itself). Berthier's skills go in `.claude/skills/`.
 
 ## Gotchas

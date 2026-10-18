@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run by a Corps's Main Agent from its own pane: spawn a Division for a side
 # feature, a worktree workspace labelled "<name>" on branch <name> (Herdr draws
-# it under its Corps, so it takes no 󱎦 prefix), with
-# its own Agent started on the Brief. The Corps commands it.
+# it under its Corps), with its own Agent started on the Brief. The Corps commands it.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -32,9 +31,8 @@ pane=$(hd worktree create --cwd "$repo" --branch "$branch" --label "$label" --no
 division_set "$branch" "$(jq -cn --arg c "$corps" '{corps: $c, worktree: true}')"
 
 agent=$(slug "$corps-$branch")
-if hd agent start "$agent" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
-     -- ${brief:+"$brief"} >/dev/null 2>&1; then
-  echo "division '$label' of $corps started: branch $branch, pane $pane, agent '$agent'"
-else
-  echo "division '$label' of $corps created: pane $pane, agent '$agent' is waiting on a startup dialog - the user must answer it in Herdr"
-fi
+case $(start_claude "$agent" "$pane" "$brief") in
+  ready) echo "division '$label' of $corps started: branch $branch, pane $pane, agent '$agent'" ;;
+  blocked) echo "division '$label' of $corps created: pane $pane, agent '$agent' is waiting on a startup dialog - the user must answer it in Herdr" ;;
+  *) die "division '$label' created (pane $pane) but its agent did not start" ;;
+esac
