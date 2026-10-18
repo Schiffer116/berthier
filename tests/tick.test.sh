@@ -60,6 +60,23 @@ o=$(tick "$(jq -c .state <<<"$o")" "$s2" 2010)
 check "revive_failed spoken once" "$(jq -c '.speak' <<<"$o")" '[]'
 check "revive_failed escalates once" "$(jq -c '.escalate | length' <<<"$o")" '0'
 
+# --- Herdr restart: it resumes sessions itself, briefly listing a pane that
+# holds a session with no agent, and forgets names it did not assign at start.
+held() { jq -cn --arg p "$1" --arg sid "$2" '{pane_id: $p, workspace_id: ($p | split(":")[0]), tab_id: (($p | split(":")[0]) + ":t1"),
+  agent: null, agent_status: "unknown", agent_session: {value: $sid}, cwd: "/x", terminal_title_stripped: "t"}'; }
+prev=$(jq -c .state <<<"$(tick '{}' "$(snap "$W" "[$(agent w1:p1 idle sid-1 principal)]" "[$(pane w1:p1)]")" 1000)")
+o=$(tick "$prev" "$(snap "$W" '[]' "[$(held w1:p1 sid-1)]")" 1010)
+check "restoring pane not revived" "$(jq -c '[(.revive | length), (.vanished | length)]' <<<"$o")" '[0,0]'
+check "restoring pane kept" "$(jq -c '.state.agents["w1:p1"] | [.name, .kind, .status, .session_id]' <<<"$o")" '["principal","claude","unknown","sid-1"]'
+o=$(tick "$(jq -c .state <<<"$o")" "$(snap "$W" "[$(agent w1:p1 idle sid-1)]" "[$(pane w1:p1)]")" 1020)
+check "lost name restored" "$(jq -c '.rename' <<<"$o")" '[{"pane_id":"w1:p1","name":"principal","session_id":"sid-1"}]'
+check "lost name kept in state" "$(jq -r '.state.agents["w1:p1"].name' <<<"$o")" 'principal'
+check "named agent left alone" "$(jq -c '.rename' <<<"$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-1 principal)]" "[$(pane w1:p1)]")" 1020)")" '[]'
+o=$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-2)]" "[$(pane w1:p1)]")" 1020)
+check "new session keeps no name" "$(jq -c '[.rename, .state.agents["w1:p1"].name]' <<<"$o")" '[[],null]'
+o=$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-1),$(agent w4:p1 idle sid-4 principal)]" "[$(pane w1:p1),$(pane w4:p1)]")" 1020)
+check "taken name not restored" "$(jq -c '.rename' <<<"$o")" '[]'
+
 # --- Closed pane or no session: forgotten.
 o=$(tick "$prev" "$(snap "$W" '[]' '[]')" 2000)
 check "closed pane forgotten" "$(jq -c '.state.agents | length' <<<"$o")" '0'
