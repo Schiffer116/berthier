@@ -1,0 +1,12 @@
+[Unit]
+Description=Userspace tailscaled publishing the Berthier console as "console"
+After=network-online.target
+
+[Service]
+StateDirectory=tailscale-console
+ExecStart=/usr/bin/tailscaled --tun=userspace-networking \
+  --statedir=%S/tailscale-console --socket=%t/tailscale-console.sock --port=0
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
