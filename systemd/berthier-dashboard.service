@@ -1,0 +1,12 @@
+[Unit]
+Description=Berthier console (live read-only Army page on 127.0.0.1:8430)
+
+[Service]
+Type=simple
+ExecStart=%h/Documents/berthier/bin/berthier dashboard
+Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

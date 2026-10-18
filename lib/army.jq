@@ -3,7 +3,7 @@
 #
 # Inputs (--argjson): $state (state.json or {}), $reports {session_id: {line, at}},
 #   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log],
-#   $available, $now, $interval (Main Loop seconds)
+#   $available, $now, $interval (Main Loop seconds), $revive_max
 include "names";
 
 def agent_view($pane):
@@ -38,9 +38,17 @@ def log_entry:
                     elif test("^(escalated|notified|.* unreachable)") then "escal"
                     elif test("^(delivered ask|ask )") then "ask"
                     elif test("^(adopted|relabelled)") then "army"
-                    elif test("^error") then "error"
+                    elif test("^(error|tick failed)") then "error"
                     else "other" end)
   | del(.ts);
+
+# An escalation line's subject, split off its reason, as the dashboard shows it:
+# {who: "learning wR:p1", why: "blocked 3m on an approval or question"}.
+def escalation_who:
+  (capture("^(?<why>.*): agent '[^']*' in (?<w>.*) \\(pane (?<p>[^)]+)\\)$") | {who: "\(.w | corps_name) \(.p)", why})
+  // (capture("^asks bouncing between (?<a>\\S+) and (?<b>\\S+): (?<why>.*)$") | {who: "\(.a) ⇄ \(.b)", why})
+  // (capture("^ask from (?<a>\\S+) to (?<b>\\S+) (?<why>undelivered .*)$") | {who: "\(.a) → \(.b)", why})
+  // {who: null, why: .};
 
 ($state.agents // {}) as $agents
 | [($state.corps // [])[] | unit_view
@@ -53,7 +61,7 @@ def log_entry:
 | {
     available: $available,
     updated_at: ($state.updated_at // null),
-    loop: {interval: $interval,
+    loop: {interval: $interval, revive_max: $revive_max,
            started_at: ([$entries[] | select(.text | test("^loop started"))] | last | .at // null)},
     counts: ([["working","blocked","done","idle","unknown","gone"][] as $k
               | {($k): ([$agents[].status] | map(select(. == $k)) | length)}] | add),
@@ -66,8 +74,12 @@ def log_entry:
     escalations: [$entries[]
       | select(.at >= $now - 7 * 86400) | .at as $at
       | (.text | (capture("^escalated (?<kind>\\S+) to (?<to>\\S+): (?<why>.*)$")
-                  // (capture("^spoke: (?<why>.*)$") | . + {kind: "speak", to: "you"}))?)
-      | {at: $at, kind, to, why}
+                  | . + (.why | escalation_who)
+                  | .to = (if $agents[.to] then agent_view(.to).who else .to end))
+                 // (capture("^spoke: (?<why>.*)$")
+                     | {kind: "speak", to: "you", why,
+                        who: (.why | capture("^(?<w>.+?) (is waiting|crashed)").w)})?)
+      | {at: $at, kind, to, who, why}
       ] | reverse,
     activity: ($entries[-200:] | reverse)
   }
