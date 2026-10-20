@@ -110,6 +110,21 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .msg.user { align-self: flex-end; max-width: 88%; padding: 4px 8px; background: var(--sel); border: 1px solid var(--field); }
 .msg.user .who { color: var(--dim); font-size: 11px; }
 .msg.bot { color: var(--bright); }
+.md { overflow-wrap: anywhere; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md blockquote, .md .tbl { margin: 0 0 6px; }
+.md ul, .md ol { padding: 0 0 0 20px; list-style: disc; }
+.md ol { list-style: decimal; }
+.md .mh { margin: 8px 0 4px; font-weight: 700; color: var(--accent); }
+.md code { padding: 0 3px; background: #000; color: var(--sky); }
+.md pre { padding: 6px 8px; background: #000; border: 1px solid var(--rule); overflow-x: auto; font-size: 12px; }
+.md pre code { padding: 0; color: var(--soft); }
+.md blockquote { padding-left: 8px; border-left: 2px solid var(--field); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 8px 0; }
+.md .tbl { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: 12px; }
+.md th, .md td { padding: 2px 8px; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.md th { color: var(--muted); }
 .tool summary { display: block; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; list-style: none; }
 .tool summary::-webkit-details-marker { display: none; }
 .tool summary::before { content: '▸ '; color: var(--dim); }
@@ -457,6 +472,71 @@ async function pollChat() {
   }
 }
 
+// Markdown for Agent replies. Safe by construction: every piece of source text
+// goes through esc(), the only tags are the ones written here, and links must
+// be http(s).
+function mdInline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+  s = esc(s)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`)
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+    .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+    .replace(/\n/g, '<br>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, n) => `<code>${esc(codes[n])}</code>`);
+}
+function md(src) {
+  const lines = String(src).replace(/\r/g, '').split('\n'), out = [];
+  let para = [], list = null, i = 0;
+  const flush = () => {
+    if (para.length) out.push(`<p>${mdInline(para.join('\n'))}</p>`);
+    if (list) out.push(`<${list.tag}>${list.items.map((x) => `<li>${mdInline(x)}</li>`).join('')}</${list.tag}>`);
+    para = []; list = null;
+  };
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if ((m = l.match(/^\s*(```|~~~)/))) {
+      flush();
+      const code = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(m[1]); i++) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      i++;
+    } else if ((m = l.match(/^#{1,6}\s+(.*)$/))) {
+      flush(); out.push(`<div class="mh">${mdInline(m[1])}</div>`); i++;
+    } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) {
+      flush(); out.push('<hr>'); i++;
+    } else if ((m = l.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/))) {
+      const tag = /\d/.test(m[1]) ? 'ol' : 'ul';
+      if (para.length || (list && list.tag !== tag)) flush();
+      list ??= { tag, items: [] };
+      list.items.push(m[2]); i++;
+    } else if (list && /^\s{2,}\S/.test(l)) {
+      list.items[list.items.length - 1] += '\n' + l.trim(); i++;
+    } else if (/^\s*>/.test(l)) {
+      flush();
+      const q = [];
+      for (; i < lines.length && /^\s*>/.test(lines[i]); i++) q.push(lines[i].replace(/^\s*>\s?/, ''));
+      out.push(`<blockquote>${mdInline(q.join('\n'))}</blockquote>`);
+    } else if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] ?? '') && lines[i + 1].includes('-')) {
+      flush();
+      const head = cells(l), rows = [];
+      for (i += 2; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]); i++) rows.push(cells(lines[i]));
+      out.push(`<div class="tbl"><table><tr>${head.map((c) => `<th>${mdInline(c)}</th>`).join('')}</tr>`
+        + rows.map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join('')}</tr>`).join('') + '</table></div>');
+    } else if (!l.trim()) {
+      flush(); i++;
+    } else {
+      if (list) flush();
+      para.push(l); i++;
+    }
+  }
+  flush();
+  return out.join('');
+}
+
 const STATE_TEXT = { working: 'working…', blocked: 'blocked on a dialog in its pane', done: 'done · your turn', idle: 'idle · your turn' };
 function renderChat(v) {
   const [glyph, color] = LIVE[v.status] || LIVE.unknown;
@@ -469,7 +549,7 @@ function renderChat(v) {
   box.innerHTML = v.source === 'terminal' ? `<pre class="term">${esc(v.text)}</pre>`
     : v.items.map((it) => {
       if (it.role === 'user') return `<div class="msg user"><div class="who">you${it.at ? ' · ' + clock(Date.parse(it.at) / 1000, false) : ''}</div><div class="txt">${esc(it.text)}</div></div>`;
-      if (it.role === 'assistant') return `<div class="msg bot"><div class="txt">${esc(it.text)}</div></div>`;
+      if (it.role === 'assistant') return `<div class="msg bot md">${md(it.text)}</div>`;
       const key = `${it.at}|${it.tool}|${it.input}`;
       return `<details class="tool${it.error ? ' err' : ''}" data-k="${esc(key)}"${chat.open.has(key) ? ' open' : ''}>
         <summary><span class="tn" title="${esc(it.tool)}">${esc(it.tool.replace(/^mcp__.+?__/, ''))}</span> <span>${esc(it.input)}</span>${it.result == null ? ' <span class="dim">· running</span>' : ''}</summary>
