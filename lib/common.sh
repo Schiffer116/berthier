@@ -30,8 +30,32 @@ BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
+# Claude Code's own directory: live sessions (sessions/<pid>.json) and transcripts.
+CLAUDE_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 
 mkdir -p "$BERTHIER_HOME" "$BERTHIER_INBOX" "$BERTHIER_REPORTS"
+
+# The sessions a backgrounded ("bg") Claude session <sid> was forked from,
+# nearest first, found by walking up the process tree from this process. Herdr
+# knows a pane by the session it started with, so a fork's Report is filed
+# under those too; the Console's chat follows the same chain the other way.
+claude_forked_from() {
+  local sid=$1 pid=$PPID kind="" f s k hops=0
+  while ((pid > 1 && hops++ < 64)); do
+    f=$CLAUDE_DIR/sessions/$pid.json
+    if [[ -f $f ]] && IFS=$'\t' read -r s k < <(jq -r '[.sessionId, .kind] | @tsv' "$f"); then
+      if [[ -z $kind ]]; then
+        [[ $s == "$sid" ]] && kind=$k
+      else
+        [[ $kind == bg ]] || break
+        echo "$s"
+        kind=$k
+      fi
+    fi
+    pid=$(ps -o ppid= -p "$pid" | tr -d ' ') || break
+    [[ -n $pid ]] || break
+  done
+}
 
 # jq with lib/names.jq available: jqn [jq args] '<program>' (include is added).
 jqn() { local prog=${*: -1}; jq -L "$BERTHIER_ROOT/lib" "${@:1:$#-1}" "include \"names\"; $prog"; }

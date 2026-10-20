@@ -52,14 +52,15 @@ func NewTranscripts(claudeDir string) *Transcripts {
 }
 
 // Path finds the transcript a pane shows for session id. A pane's session can
-// hand its conversation to a newer session in a descendant process (a
-// backgrounded or forked turn), so the most recently updated session running
-// under the given one wins.
+// hand its conversation to a backgrounded ("bg") fork running in a descendant
+// process, so the most recently updated such fork wins (lib/common.sh's
+// claude_forked_from files the fork's Reports the same way).
 func (t *Transcripts) Path(session string) string {
 	type live struct {
 		Pid       int    `json:"pid"`
 		SessionID string `json:"sessionId"`
 		UpdatedAt int64  `json:"updatedAt"`
+		Kind      string `json:"kind"`
 	}
 	var all []live
 	files, _ := filepath.Glob(filepath.Join(t.dir, "sessions", "*.json"))
@@ -75,7 +76,7 @@ func (t *Transcripts) Path(session string) string {
 			continue
 		}
 		for _, s := range all {
-			if s.SessionID != session && s.UpdatedAt > bestAt && descends(s.Pid, root.Pid) {
+			if s.Kind == "bg" && s.SessionID != session && s.UpdatedAt > bestAt && descends(s.Pid, root.Pid) {
 				best, bestAt = s.SessionID, s.UpdatedAt
 			}
 		}

@@ -69,18 +69,19 @@ func TestTranscriptPathFollowsTheLiveDescendantSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer child.Process.Kill()
-	session := func(pid int, id string, at int64) {
-		b, _ := json.Marshal(map[string]any{"pid": pid, "sessionId": id, "updatedAt": at})
+	session := func(pid int, id, kind string, at int64) {
+		b, _ := json.Marshal(map[string]any{"pid": pid, "sessionId": id, "kind": kind, "updatedAt": at})
 		os.WriteFile(filepath.Join(dir, "sessions", fmt.Sprint(pid)+".json"), b, 0o644)
 		os.WriteFile(filepath.Join(dir, "projects", "-some-cwd", id+".jsonl"), nil, 0o644)
 	}
 	tr := NewTranscripts(dir)
-	session(os.Getpid(), "pane", 1)
-	session(1, "unrelated", 99)
+	session(os.Getpid(), "pane", "interactive", 1)
+	session(1, "unrelated", "bg", 99)
+	session(child.Process.Pid, "nested", "print", 3)
 	if got := tr.Path("pane"); filepath.Base(got) != "pane.jsonl" {
-		t.Fatalf("no descendant: %q", got)
+		t.Fatalf("no forked descendant: %q", got)
 	}
-	session(child.Process.Pid, "fork", 2)
+	session(child.Process.Pid, "fork", "bg", 2)
 	if got := tr.Path("pane"); filepath.Base(got) != "fork.jsonl" {
 		t.Fatalf("with a forked session: %q", got)
 	}

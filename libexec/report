@@ -12,4 +12,7 @@ sid=${CLAUDE_CODE_SESSION_ID:-}
 tmp=$(mktemp "$BERTHIER_REPORTS/.report.XXXXXX")
 jq -cn --arg line "$1" --arg pane "$HERDR_PANE_ID" --argjson at "$(date +%s)" \
   '{line: ($line | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ") | .[:200]), pane: $pane, at: $at}' >"$tmp"
+for id in $(claude_forked_from "$sid"); do
+  cp "$tmp" "$tmp.fork" && mv "$tmp.fork" "$BERTHIER_REPORTS/$id.json"
+done
 mv "$tmp" "$BERTHIER_REPORTS/$sid.json"

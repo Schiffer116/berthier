@@ -270,8 +270,12 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8430", "listen address")
 	berthier := flag.String("berthier", "berthier", "path to the berthier command")
 	herdr := flag.String("herdr", "herdr", "path to the herdr command")
-	home, _ := os.UserHomeDir()
-	claude := flag.String("claude-dir", filepath.Join(home, ".claude"), "Claude Code's directory (session transcripts)")
+	claudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if claudeDir == "" {
+		home, _ := os.UserHomeDir()
+		claudeDir = filepath.Join(home, ".claude")
+	}
+	claude := flag.String("claude-dir", claudeDir, "Claude Code's directory (sessions and transcripts)")
 	every := flag.Duration("every", 2*time.Second, "how often to refresh the view model")
 	flag.Parse()
 
