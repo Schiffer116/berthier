@@ -2,9 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Berthier console</title>
-<link rel="icon" href="data:,">
+<meta name="theme-color" content="#141A22">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Berthier">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
 :root {
@@ -12,20 +20,23 @@
   --line: #263140; --rule: #1C242E; --field: #2E3A49; --sel: #1D2733;
   --fg: #D6DCE4; --bright: #E6E9EE; --soft: #C9D0D9; --muted: #9AA5B4; --dim: #7C8796; --faint: #5B6573;
   --blue: #7FB8F2; --sky: #A9C9EC; --green: #5FC48A; --red: #F06B6B; --purple: #B39DF0;
+  /* Installed on a phone the page runs edge to edge, under notch and home bar. */
+  --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
 a { color: var(--blue); } a:hover { color: #A9D0F7; }
 .app { font-variant-ligatures: none; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', 'Symbols Nerd Font Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 8px 16px; background: var(--bar); }
-header.bar { border-bottom: 1px solid var(--line); }
-footer.bar { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+header.bar { padding: calc(8px + var(--sat)) calc(16px + var(--sar)) 8px calc(16px + var(--sal)); border-bottom: 1px solid var(--line); }
+footer.bar { padding: 6px calc(16px + var(--sar)) calc(6px + var(--sab)) calc(16px + var(--sal)); border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
 .brand { font-weight: 700; color: var(--accent); }
 .grow { flex-grow: 1; }
 .loop { display: inline-flex; align-items: center; gap: 6px; }
 .tally b { font-weight: 700; }
 .zero { color: var(--dim); }
-main { flex-grow: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+main { flex-grow: 1; padding: 12px calc(16px + var(--sar)) 12px calc(16px + var(--sal)); display: flex; flex-direction: column; gap: 12px; }
 section { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
 .panel-col { display: flex; flex-direction: column; }
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
@@ -51,6 +62,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .badge.hot { background: var(--accent); color: var(--bg); }
 .badge.bad { background: var(--red); color: var(--bg); }
 .drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
+.drawer { padding: 0 var(--sar) var(--sab) 0; background: var(--panel); }
 .drawer.open { transform: none; visibility: visible; transition: transform 0.15s ease-out; }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer.open { transition: none; } }
 .drawer > section { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border: 0; }
@@ -139,7 +151,7 @@ pre.term { margin: 0; border: 0; background: transparent; }
 /* Narrow screens keep the top bar to the essentials. */
 @media (max-width: 699px) {
   .wide, .tally.zero, header .brand + .dim { display: none; }
-  header.bar { gap: 4px 12px; padding: 6px 12px; }
+  header.bar { gap: 4px 12px; padding: calc(6px + var(--sat)) calc(12px + var(--sar)) 6px calc(12px + var(--sal)); }
   .logbtn { padding: 2px 6px; }
 }
 .needs { border: 1px solid #5A4318; background: #1E1A12; padding: 6px 10px; }
@@ -173,6 +185,8 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 #send button:disabled { opacity: 0.5; cursor: default; }
 #send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
 #send-status { overflow-wrap: anywhere; }
+/* iOS zooms into any field under 16px when it takes focus. */
+@media (pointer: coarse) { .filter input, #send textarea { font-size: 16px; } }
 </style>
 </head>
 <body>
@@ -718,6 +732,9 @@ const events = new EventSource('api/events');
 events.onmessage = (e) => { army = JSON.parse(e.data); connected = true; render(); };
 events.onopen = () => { connected = true; render(); };
 events.onerror = () => { connected = false; render(); };
+
+// Installable: the worker keeps the page itself for opening offline (sw.js).
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker:', err));
 </script>
 </body>
 </html>

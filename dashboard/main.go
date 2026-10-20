@@ -2,7 +2,8 @@
 // console page. It holds no state and no logic of its own: it polls the command
 // and pushes each change to open pages over server-sent events. The one write
 // is POST /api/prompt, which sends the user's text to a known Agent; GET
-// /api/chat shows that Agent's conversation (chat.go).
+// /api/chat shows that Agent's conversation (chat.go). app.go makes the page
+// an installable app.
 package main
 
 import (
@@ -149,6 +150,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)
 	})
+	appRoutes(mux)
 	mux.HandleFunc("GET /api/army", func(w http.ResponseWriter, r *http.Request) {
 		v := a.Latest()
 		if v == nil {
