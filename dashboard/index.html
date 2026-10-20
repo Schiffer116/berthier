@@ -26,17 +26,39 @@ footer.bar { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--
 .tally b { font-weight: 700; }
 .zero { color: var(--dim); }
 main { flex-grow: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
-.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
 section { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
 .panel-col { display: flex; flex-direction: column; }
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
-/* Army | Agent split: the selected Agent gets most of the room. Fixed heights,
-   scrolling inside, keep the panels below in place when the selection changes. */
-.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); height: clamp(460px, 66vh, 820px); }
+/* Army | Agent split: the selected Agent gets most of the room. Wide screens
+   fill the viewport and scroll inside the panels; narrow ones stack them. */
+.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .top > section { min-height: 0; }
-@media (max-width: 1099px) { .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 34vh) 600px; height: auto; } }
+@media (min-width: 1100px) {
+  .app { height: 100vh; }
+  main { min-height: 0; }
+  .top { flex: 1 1 0; min-height: 420px; }
+}
+@media (max-width: 1099px) { .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 34vh) 600px; } }
+/* Logs open from the top bar in a drawer over the page, never moving it. */
+.logs { display: flex; gap: 6px; }
+.logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.logbtn:hover { color: var(--fg); }
+.logbtn[aria-expanded="true"] { background: var(--sel); color: var(--bright); border-color: var(--blue); }
+.logbtn:focus-visible, .x:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.badge { min-width: 20px; padding: 0 5px; background: var(--field); color: var(--fg); font-size: 11px; font-weight: 700; text-align: center; }
+.badge.hot { background: var(--accent); color: var(--bg); }
+.badge.bad { background: var(--red); color: var(--bg); }
+.drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
+.drawer.open { transform: none; visibility: visible; transition: transform 0.15s ease-out; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer.open { transition: none; } }
+.drawer > section { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border: 0; }
+.drawer > section[hidden] { display: none; }
+.drawer ol { flex: 1 1 0; min-height: 0; overflow: auto; }
+.ph .end { display: inline-flex; align-items: center; gap: 12px; }
+.x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.x:hover { color: var(--bright); }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 #army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
@@ -78,9 +100,6 @@ dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .cmd { margin-top: 4px; padding: 6px 10px; background: #000; border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
 .cmd.run { color: var(--bright); }
-#escalations { flex: 1 1 520px; height: 360px; }
-#asks { flex: 1 1 320px; height: 360px; }
-#escalations ol, #asks ol { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 ol { margin: 0; padding: 6px 12px; list-style: none; }
 .esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
 .esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
@@ -89,7 +108,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 #log { background: #000; }
 #log .ph { padding: 0 12px; }
 #log h2 { padding: 6px 0; }
-#log ol { padding: 8px 12px; overflow-x: auto; }
+#log ol { padding: 8px 12px; }
 .log { display: grid; grid-template-columns: 72px 64px minmax(0, 1fr); gap: 12px; white-space: nowrap; }
 .log span:last-child { color: var(--soft); }
 .log.now span:last-child { color: var(--dim); }
@@ -115,6 +134,11 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
     <span class="muted" id="fresh"></span>
     <span class="grow"></span>
     <span id="tallies" style="display: contents"></span>
+    <span class="logs">
+      <button type="button" class="logbtn" data-log="escalations" aria-controls="drawer" aria-expanded="false">escalations <span class="badge" id="esc-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="asks" aria-controls="drawer" aria-expanded="false">asks <span class="badge" id="ask-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="log" aria-controls="drawer" aria-expanded="false">main loop <span class="badge" id="log-badge">0</span></button>
+    </span>
   </header>
 
   <main>
@@ -156,35 +180,37 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
       </section>
     </div>
 
-    <div class="row">
-      <section id="escalations" class="panel-col" aria-labelledby="esc-h">
-        <div class="ph">
-          <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
-          <span class="dim" id="esc-n"></span>
-        </div>
-        <ol id="esc"></ol>
-      </section>
+  </main>
 
-      <section id="asks" class="panel-col" aria-labelledby="ask-h">
-        <div class="ph">
-          <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
-          <span id="inbox"></span>
-        </div>
-        <ol id="ask"></ol>
-      </section>
-    </div>
-
-    <section id="log" aria-labelledby="log-h">
+  <aside id="drawer" class="drawer" aria-label="logs">
+    <section id="escalations" aria-labelledby="esc-h" hidden>
+      <div class="ph">
+        <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
+        <span class="end"><span class="dim" id="esc-n"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="esc"></ol>
+    </section>
+    <section id="asks" aria-labelledby="ask-h" hidden>
+      <div class="ph">
+        <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
+        <span class="end"><span id="inbox"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="ask"></ol>
+    </section>
+    <section id="log" aria-labelledby="log-h" hidden>
       <div class="ph">
         <h2 id="log-h">MAIN LOOP <small>· state/loop.log</small></h2>
-        <label class="toggle">
-          <input type="checkbox" id="show-loop">
-          show loop restarts
-        </label>
+        <span class="end">
+          <label class="toggle">
+            <input type="checkbox" id="show-loop">
+            show loop restarts
+          </label>
+          <button type="button" class="x" aria-label="close">✕</button>
+        </span>
       </div>
       <ol id="lines"></ol>
     </section>
-  </main>
+  </aside>
 
   <footer class="bar">
     <span>reads state/ · sends only what you type</span>
@@ -218,7 +244,7 @@ const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(
 let army = null, connected = false;
 const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
-const ui = { q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+const ui = { log: null, q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
 $('show-loop').checked = ui.showLoop;
 
@@ -391,9 +417,16 @@ async function send() {
   }
 }
 
+// A top-bar log button's count; `level` colors it: hot needs a look, bad is an error.
+function badge(id, n, level) {
+  $(id).textContent = n;
+  $(id).className = 'badge' + (level ? ' ' + level : '');
+}
+
 function renderEscalations() {
   const list = army.escalations;
   $('esc-n').textContent = list.length;
+  badge('esc-badge', list.length, list.some((e) => e.at >= now() - 3600) && 'hot');
   $('esc').innerHTML = list.map((e) => {
     const to = e.kind === 'speak' ? ['→ you, aloud', C.accent] : ['→ ' + e.to, C.sky];
     const why = e.kind === 'speak' ? `spoke “${e.why.replace(/\.$/, '')}”` : e.why;
@@ -419,6 +452,7 @@ function renderAsks() {
     .map((a) => line(a.at, a.from, a.to, '', a.from === 'berthier' ? C.sky : C.soft));
   const queued = army.asks.map((a) => line(a.at, a.from, a.to, ' <span class="dim">· queued</span>', C.accent));
   $('ask').innerHTML = done.concat(queued).join('') || '<li class="none">none in the last hour</li>';
+  badge('ask-badge', done.length + queued.length, pending && 'hot');
 }
 
 function logText(t) {
@@ -427,12 +461,16 @@ function logText(t) {
 
 function renderLog() {
   const lines = army.activity.filter((l) => ui.showLoop || l.tag !== 'loop').slice(0, LOG_LINES).reverse();
-  $('lines').innerHTML = lines.map((l) => `<li class="log">
+  const hour = lines.filter((l) => l.at >= now() - 3600);
+  badge('log-badge', hour.length, hour.some((l) => l.tag === 'error') && 'bad');
+  const ol = $('lines'), atEnd = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 8;
+  ol.innerHTML = lines.map((l) => `<li class="log">
       <span class="dim">${clock(l.at)}</span>
       <span style="color: ${TAG[l.tag] || C.muted}">${l.tag === 'other' ? 'info' : esc(l.tag)}</span>
       <span>${esc(logText(l.text))}</span>
     </li>`).join('') + `<li class="log now" id="tick"></li>`;
   renderTick();
+  if (atEnd) ol.scrollTop = ol.scrollHeight; // follow the newest line
 }
 
 function renderTick() {
@@ -464,6 +502,27 @@ $('rows').addEventListener('click', (e) => {
   history.replaceState(null, '', '#' + ui.sel);
   render();
 });
+// One log open at a time in the drawer, under the top bar.
+function openLog(id) {
+  const open = id && ui.log !== id ? id : null;
+  ui.log = open;
+  document.querySelectorAll('.logbtn').forEach((b) => b.setAttribute('aria-expanded', b.dataset.log === open));
+  document.querySelectorAll('#drawer > section').forEach((sec) => { sec.hidden = sec.id !== open; });
+  $('drawer').classList.toggle('open', !!open);
+  if (open === 'log') $('lines').scrollTop = $('lines').scrollHeight;
+}
+const placeDrawer = () => document.documentElement.style.setProperty('--drawer-top', document.querySelector('header').getBoundingClientRect().bottom + 'px');
+placeDrawer();
+addEventListener('resize', placeDrawer);
+document.querySelectorAll('.logbtn').forEach((b) => b.addEventListener('click', () => { placeDrawer(); openLog(b.dataset.log); }));
+// Closing hands focus back to the log's button.
+function closeLog() {
+  const was = ui.log;
+  openLog(null);
+  document.querySelector(`.logbtn[data-log="${was}"]`)?.focus();
+}
+document.querySelectorAll('#drawer .x').forEach((b) => b.addEventListener('click', closeLog));
+
 $('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
 $('msg').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
@@ -474,6 +533,7 @@ $('show-loop').addEventListener('change', (e) => { ui.showLoop = e.target.checke
 document.addEventListener('keydown', (e) => {
   if (e.key === '/' && !e.target.matches('input, textarea')) { e.preventDefault(); $('q').focus(); }
   else if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; ui.q = ''; $('q').blur(); render(); }
+  else if (e.key === 'Escape' && ui.log) closeLog();
 });
 
 // Ages and the next-tick countdown move every second without re-rendering.
