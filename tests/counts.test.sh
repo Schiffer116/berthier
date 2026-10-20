@@ -48,6 +48,12 @@ check "army escalations 7d" "$(army | jq -c '.escalations | map([.kind, .to, .wh
 check "army revive max" "$(army | jq -c .loop.revive_max)" '3'
 check "army asks" "$(army | jq -c '.asks | map([.id, .to])')" '[["7-skipli","dotfiles"]]'
 check "army berthier" "$(army | jq -c '.berthier | [.who, .report]')" '["berthier","watching the Army"]'
+check "army units without an order" "$(army | jq -c '.units | map([.kind, .name])')" '[["corps","skipli"],["corps","dotfiles"],["berthier","berthier"]]'
+# Herdr's order: Berthier's workspace first here, Divisions sorted under their Corps.
+jq '.order = ["wb", "wc", "wa", "we", "wd"] | .corps[0].workspace_id = "wa" | .corps[1].workspace_id = "wc"
+    | .corps[0].divisions = [{"name": "z-div", "workspace_id": "we", "agents": []}] + (.corps[0].divisions | map(.workspace_id = "wd"))
+    | .agents["b:p1"].workspace_id = "wb"' "$home/state.json" >"$home/s" && mv "$home/s" "$home/state.json"
+check "army units in herdr order" "$(army | jq -c '.units | map([.name, (.divisions | map(.name))])')" '[["berthier",[]],["dotfiles",[]],["skipli",["z-div","dark-mode"]]]'
 
 touch -d '-5 minutes' "$home/state.json"
 check "stale state" "$(counts | jq -c '[.available, .idle]')" '[false,2]'

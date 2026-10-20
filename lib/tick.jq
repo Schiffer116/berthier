@@ -21,7 +21,8 @@ def is_berthier_cwd: (. // "") as $c | $c == $cfg.berthier_root or ($c | startsw
 # Herdr agent names must match [a-z][a-z0-9_-]{0,31}.
 def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"));
 
-($snap.workspaces // []) as $workspaces
+# Herdr's own workspace order, which every view of the Army follows.
+($snap.workspaces // [] | sort_by(.number // 0)) as $workspaces
 | ($workspaces | map({key: .workspace_id, value: .}) | from_entries) as $ws
 | ($snap.panes // [] | map(.pane_id)) as $pane_ids
 | ($prev.agents // {}) as $prev_agents
@@ -231,6 +232,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       berthier: $berthier,
       corps: $corps,
       berthier_divisions: $berthier_divisions,
+      order: [$workspaces[].workspace_id],
       agents: $agents,
       escalated: $escalated,
       ask_log: $ask_log

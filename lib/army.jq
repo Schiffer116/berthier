@@ -54,6 +54,16 @@ def escalation_who:
 | [($state.corps // [])[] | unit_view
    + {divisions: [.divisions[]? | unit_view + {worktree: (.worktree // false)}]}] as $corps
 | [($state.berthier_divisions // [])[] | unit_view + {worktree: (.worktree // false)}] as $bdivs
+# Herdr's workspace order: Corps and Berthier as Herdr lists them, each
+# unit's Divisions under it in the same order.
+| ($state.order // [] | to_entries | map({key: .value, value: .key}) | from_entries) as $pos
+| def herdr_order: sort_by($pos[.workspace_id // ""] // 1e9);
+  ($corps | map(.divisions |= herdr_order)) as $corps
+| ($bdivs | herdr_order) as $bdivs
+| ($corps | map({kind: "corps"} + .)
+   + (if $state.berthier then [{kind: "berthier", name: "berthier", workspace_id: $agents[$state.berthier].workspace_id,
+                                agents: [agent_view($state.berthier)], divisions: $bdivs}] else [] end)
+   | herdr_order) as $units
 | [$corps[] | ., .divisions[] | .agents[]]
   + (if $state.berthier then [agent_view($state.berthier)] else [] end)
   + [$bdivs[] | .agents[]] as $all
@@ -69,6 +79,7 @@ def escalation_who:
     berthier: (if $state.berthier then agent_view($state.berthier) else null end),
     corps: $corps,
     berthier_divisions: $bdivs,
+    units: $units,
     asks: ($inbox | sort_by(.at)),
     ask_log: (($state.ask_log // []) | sort_by(.at) | reverse),
     escalations: [$entries[]

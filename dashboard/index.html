@@ -316,16 +316,15 @@ const ago = (t) => {
 };
 const home = (p) => (p || '-').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
 
-// Every Agent once, with the unit it belongs to: Corps, their Divisions, Berthier, Berthier's Divisions.
+// Every Agent once, in Herdr's workspace order (army.jq's units), with the unit
+// it belongs to: a Corps or Berthier, each followed by its Divisions.
 function agents() {
   const out = [];
   const add = (unit, role, parent) => unit.agents.forEach((a) => out.push({ ...a, unit, role, parent }));
-  for (const c of army.corps) {
-    add(c, 'corps');
-    for (const d of c.divisions) add(d, 'division', c.name);
+  for (const u of army.units) {
+    add(u, 'corps');
+    for (const d of u.divisions) add(d, 'division', u.name);
   }
-  if (army.berthier) add({ name: 'berthier', agents: [army.berthier], divisions: army.berthier_divisions }, 'corps');
-  for (const d of army.berthier_divisions) add(d, 'division', 'berthier');
   return out.map((a) => {
     const [glyph, color] = a.needs_you ? ['●', C.accent] : LIVE[a.status] || LIVE.unknown;
     // Waiting since the report that asked, or since the dialog appeared.
@@ -338,8 +337,7 @@ function visible(all) {
   const q = ui.q.trim().toLowerCase();
   return all
     .filter((a) => !ui.needsOnly || a.needs_you)
-    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q))
-    .sort((x, y) => (y.needs_you - x.needs_you) || (x.needs_you ? (x.from ?? 0) - (y.from ?? 0) : 0));
+    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q));
 }
 
 const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</span>`;
@@ -368,7 +366,7 @@ function renderRows(rows) {
     const on = a.pane_id === ui.sel;
     return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
       <span style="color: ${a.color}" aria-hidden="true">${a.glyph}</span>
-      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${esc(a.who)}</span>
+      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${a.parent ? '<span class="dim" aria-hidden="true">└ </span>' : ''}${esc(a.who)}</span>
       <span class="muted">${esc(a.pane_id)}</span>
       <span style="color: ${a.color}">${a.state}</span>
       ${ageSpan(a.from)}
