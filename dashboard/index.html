@@ -82,6 +82,15 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 .log.now span:last-child { color: var(--dim); }
 .log.now b { color: var(--fg); font-weight: 400; }
 .none { color: var(--dim); padding: 4px 0; }
+#send { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+#send[hidden] { display: none; }
+#send textarea { width: 100%; min-height: 64px; resize: vertical; padding: 6px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+#send textarea:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+#send .acts { display: flex; align-items: center; gap: 12px; }
+#send button { min-height: 32px; padding: 4px 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 0; font: inherit; font-weight: 700; cursor: pointer; }
+#send button:disabled { opacity: 0.5; cursor: default; }
+#send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
+#send-status { overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -120,7 +129,18 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         </div>
       </section>
 
-      <section id="detail" class="panel-col" aria-labelledby="det-h" aria-live="polite"></section>
+      <section id="detail" class="panel-col" aria-labelledby="det-h">
+        <div id="det" aria-live="polite"></div>
+        <!-- Outside #det so re-renders keep what the user is typing. -->
+        <form id="send" hidden>
+          <label class="cap" for="msg">MESSAGE <span id="send-to"></span></label>
+          <textarea id="msg" placeholder="type to this agent · enter sends, shift+enter for a new line" spellcheck="false"></textarea>
+          <div class="acts">
+            <button type="submit" id="send-btn">send</button>
+            <span class="dim" id="send-status" role="status"></span>
+          </div>
+        </form>
+      </section>
     </div>
 
     <div class="row">
@@ -154,7 +174,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
   </main>
 
   <footer class="bar">
-    <span>read-only · reads state/ only</span>
+    <span>reads state/ · sends only what you type</span>
     <span><span style="color: var(--accent)">●</span> needs you</span>
     <span><span style="color: var(--blue)">▶</span> working</span>
     <span><span style="color: var(--red)">■</span> blocked</span>
@@ -166,7 +186,8 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 <script>
 'use strict';
 // Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
-// /api/events. Read-only: the only state here is what the viewer picked.
+// /api/events. The only state here is what the viewer picked and is typing;
+// the one write is a message to an Agent (POST api/prompt).
 
 const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9', muted: '#9AA5B4',
   dim: '#7C8796', faint: '#5B6573', green: '#5FC48A', red: '#F06B6B', purple: '#B39DF0', bright: '#E6E9EE' };
@@ -182,6 +203,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(
 const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) === '1'; localStorage.setItem(k, v ? '1' : '0'); } catch { return false; } };
 
 let army = null, connected = false;
+const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
 const ui = { q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
@@ -275,8 +297,9 @@ function units(a) {
 }
 
 function renderDetail(a) {
+  renderSend(a);
   if (!a) {
-    $('detail').innerHTML = `<div class="ph"><h2 id="det-h">AGENT</h2></div><div class="body"><span class="dim">no agent selected</span></div>`;
+    $('det').innerHTML = `<div class="ph"><h2 id="det-h">AGENT</h2></div><div class="body"><span class="dim">no agent selected</span></div>`;
     return;
   }
   const [lg, lc] = LIVE[a.status] || LIVE.unknown;
@@ -286,7 +309,7 @@ function renderDetail(a) {
   const u = units(a);
   const report = a.report == null ? '<span class="dim">none yet</span>'
     : `<span class="muted">${clock(a.report_at)}</span> ${esc((a.needs_you && a.status !== 'blocked' ? 'needs you: ' : '') + a.report)}`;
-  $('detail').innerHTML = `
+  $('det').innerHTML = `
     <div class="ph">
       <h2 id="det-h">AGENT <span>${esc(a.who)}</span></h2>
       <span style="color: ${a.color}; white-space: nowrap">${a.glyph} ${a.state}</span>
@@ -317,6 +340,42 @@ function renderDetail(a) {
         <div class="cmd"><span style="color: ${C.green}">$</span> herdr agent read ${esc(a.pane_id)} --source recent-unwrapped --lines 80</div>
       </div>
     </div>`;
+}
+
+// The message box follows the selected Agent, keeping each pane's draft.
+let sendPane = null;
+function renderSend(a) {
+  $('send').hidden = !a;
+  if (!a || a.pane_id === sendPane) return;
+  if (sendPane != null) drafts[sendPane] = $('msg').value;
+  sendPane = a.pane_id;
+  $('msg').value = drafts[sendPane] ?? '';
+  $('send-to').textContent = `→ ${a.who} · ${a.pane_id}`;
+  $('send-status').textContent = '';
+}
+
+async function send() {
+  const pane = sendPane, text = $('msg').value;
+  if (!pane || !text.trim() || $('send-btn').disabled) return;
+  $('send-btn').disabled = true;
+  $('send-status').style.color = '';
+  $('send-status').textContent = 'sending…';
+  try {
+    const res = await fetch('api/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane, text }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    drafts[pane] = '';
+    if (sendPane === pane) {
+      $('msg').value = '';
+      $('send-status').textContent = `sent ${clock(now())}`;
+    }
+  } catch (err) {
+    if (sendPane === pane) {
+      $('send-status').style.color = C.red;
+      $('send-status').textContent = 'not sent: ' + err.message;
+    }
+  } finally {
+    $('send-btn').disabled = false;
+  }
 }
 
 function renderEscalations() {
@@ -392,11 +451,15 @@ $('rows').addEventListener('click', (e) => {
   history.replaceState(null, '', '#' + ui.sel);
   render();
 });
+$('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+$('msg').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
 $('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });
 $('needs-only').addEventListener('change', (e) => { ui.needsOnly = e.target.checked; pref('needsOnly', ui.needsOnly); render(); });
 $('show-loop').addEventListener('change', (e) => { ui.showLoop = e.target.checked; pref('showLoop', ui.showLoop); render(); });
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement !== $('q')) { e.preventDefault(); $('q').focus(); }
+  if (e.key === '/' && !e.target.matches('input, textarea')) { e.preventDefault(); $('q').focus(); }
   else if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; ui.q = ''; $('q').blur(); render(); }
 });
 

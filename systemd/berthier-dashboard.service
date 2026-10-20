@@ -1,5 +1,5 @@
 [Unit]
-Description=Berthier console (live read-only Army page on 127.0.0.1:8430)
+Description=Berthier console (live Army page on 127.0.0.1:8430)
 
 [Service]
 Type=simple
