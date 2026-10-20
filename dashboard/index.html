@@ -32,7 +32,13 @@ section { min-width: 0; border: 1px solid var(--line); background: var(--panel);
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
-#army { flex: 999 1 640px; }
+/* Army | Agent split: the selected Agent gets most of the room. Fixed heights,
+   scrolling inside, keep the panels below in place when the selection changes. */
+.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); height: clamp(460px, 66vh, 820px); }
+.top > section { min-height: 0; }
+@media (max-width: 1099px) { .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 34vh) 600px; height: auto; } }
+#army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
+#army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
 .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -42,9 +48,15 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); cursor: pointer; }
 .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 #show-loop { accent-color: var(--blue); }
-.scroll { overflow-x: auto; }
-.table { min-width: 720px; }
-.grid { display: grid; grid-template-columns: 20px 120px 64px 92px 56px minmax(0, 1fr); gap: 12px; }
+.table { min-width: 480px; }
+.grid { display: grid; grid-template-columns: 14px minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
+/* A narrow Army panel drops the PANE and FOR columns instead of scrolling. */
+#army { container-type: inline-size; }
+@container (max-width: 559px) {
+  .table { min-width: 0; }
+  .grid { grid-template-columns: 14px minmax(64px, 96px) 76px minmax(0, 1fr); }
+  .grid > :nth-child(3), .grid > :nth-child(5) { display: none; }
+}
 .thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
 .agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
 .agent:hover { background: #121820; }
@@ -54,7 +66,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .corps { font-weight: 700; }
 .muted { color: var(--muted); } .dim { color: var(--dim); }
 .empty { padding: 14px 12px; color: var(--dim); }
-#detail { flex: 1 1 340px; }
+#det { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 #detail .ph { flex-wrap: nowrap; }
 #detail h2 span { color: var(--fg); }
 .body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -66,8 +78,9 @@ dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .cmd { margin-top: 4px; padding: 6px 10px; background: #000; border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
 .cmd.run { color: var(--bright); }
-#escalations { flex: 1 1 520px; }
-#asks { flex: 1 1 320px; }
+#escalations { flex: 1 1 520px; height: 360px; }
+#asks { flex: 1 1 320px; height: 360px; }
+#escalations ol, #asks ol { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 ol { margin: 0; padding: 6px 12px; list-style: none; }
 .esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
 .esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
@@ -82,9 +95,9 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 .log.now span:last-child { color: var(--dim); }
 .log.now b { color: var(--fg); font-weight: 400; }
 .none { color: var(--dim); padding: 4px 0; }
-#send { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+#send { padding: 10px 12px 12px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; }
 #send[hidden] { display: none; }
-#send textarea { width: 100%; min-height: 64px; resize: vertical; padding: 6px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+#send textarea { width: 100%; min-height: 96px; resize: vertical; padding: 6px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
 #send textarea:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
 #send .acts { display: flex; align-items: center; gap: 12px; }
 #send button { min-height: 32px; padding: 4px 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 0; font: inherit; font-weight: 700; cursor: pointer; }
@@ -105,7 +118,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
   </header>
 
   <main>
-    <div class="row">
+    <div class="top">
       <section id="army" class="panel-col" aria-labelledby="army-h">
         <div class="ph">
           <h2 id="army-h">ARMY <small id="army-sub"></small></h2>
@@ -144,7 +157,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
     </div>
 
     <div class="row">
-      <section id="escalations" aria-labelledby="esc-h">
+      <section id="escalations" class="panel-col" aria-labelledby="esc-h">
         <div class="ph">
           <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
           <span class="dim" id="esc-n"></span>
@@ -152,7 +165,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         <ol id="esc"></ol>
       </section>
 
-      <section id="asks" aria-labelledby="ask-h">
+      <section id="asks" class="panel-col" aria-labelledby="ask-h">
         <div class="ph">
           <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
           <span id="inbox"></span>
