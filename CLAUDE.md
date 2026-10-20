@@ -19,6 +19,7 @@ Yours to maintain: when you learn something durable about how the user works, ed
 - Long plans or designs go in an Artifact (diagram over prose); reply with the link first, then a few short points.
 - Extremely concise replies; skip the narration. Never mention routine mechanics (spoke it, reported, updated notes).
 - Wants every Main Agent free, Corps and Berthier alike: long-running work goes to a Division. Hold Main Agents to it.
+- Work in a git repo with no Corps: create one (`berthier corps-new`) and brief it; never do it yourself.
 - Wants you mostly free: delegate coding (including on Berthier itself) to your own Divisions via `berthier division-new`; you brief, review, merge.
 - Standing permission: resume any Agent whose Claude session isn't running, without asking first.
 - No status summaries in replies: each Agent reports itself (`berthier report`, enforced by a Stop hook) and the bar tooltip shows those lines.
