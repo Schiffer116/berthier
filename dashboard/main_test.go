@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +32,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go Poll(ctx, a, script, 20*time.Millisecond)
-	srv := httptest.NewServer(Handler(a))
+	srv := httptest.NewServer(Handler(a, "herdr", nil))
 	defer srv.Close()
 
 	for a.Latest() == nil {
@@ -68,7 +71,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 }
 
 func TestServesPage(t *testing.T) {
-	srv := httptest.NewServer(Handler(NewArmy()))
+	srv := httptest.NewServer(Handler(NewArmy(), "herdr", nil))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/")
 	if err != nil {
@@ -79,5 +82,103 @@ func TestServesPage(t *testing.T) {
 	}
 	if res, _ := http.Get(srv.URL + "/api/army"); res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("api/army before data = %d", res.StatusCode)
+	}
+}
+
+// fakeHerdr writes a script that logs its args one per line and exits with
+// the given status.
+func fakeHerdr(t *testing.T, status int) (script, log string) {
+	dir := t.TempDir()
+	log = filepath.Join(dir, "args")
+	script = filepath.Join(dir, "herdr")
+	os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" >%s\necho herdr says no >&2\nexit %d\n", log, status)), 0o755)
+	return script, log
+}
+
+const promptArmy = `{"corps":[{"agents":[{"pane_id":"wA:p1"}],"divisions":[{"agents":[{"pane_id":"wB:p1"}]}]}],
+	"berthier":{"pane_id":"wC:p1"},"berthier_divisions":[{"agents":[{"pane_id":"wD:p1"}]}]}`
+
+func postPrompt(t *testing.T, url, ctype, body string) *http.Response {
+	res, err := http.Post(url+"/api/prompt", ctype, bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestPromptSendsToKnownAgents(t *testing.T) {
+	herdr, args := fakeHerdr(t, 0)
+	a := NewArmy()
+	a.Set([]byte(promptArmy))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
+	defer srv.Close()
+	t.Setenv("BERTHIER_HERDR_SESSION", "")
+
+	for _, pane := range []string{"wA:p1", "wB:p1", "wC:p1", "wD:p1"} {
+		text := "hi " + pane + "; $(touch /tmp/x) 'quoted'\nsecond line"
+		body, _ := json.Marshal(map[string]string{"pane": pane, "text": text})
+		if res := postPrompt(t, srv.URL, "application/json", string(body)); res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: status %d", pane, res.StatusCode)
+		}
+		got, _ := os.ReadFile(args)
+		if want := "agent\nprompt\n" + pane + "\n" + text + "\n"; string(got) != want {
+			t.Fatalf("%s: herdr args %q, want %q", pane, got, want)
+		}
+	}
+}
+
+func TestPromptUsesBerthierSession(t *testing.T) {
+	herdr, args := fakeHerdr(t, 0)
+	a := NewArmy()
+	a.Set([]byte(promptArmy))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
+	defer srv.Close()
+	t.Setenv("BERTHIER_HERDR_SESSION", "scratch")
+
+	if res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"go"}`); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	if got, _ := os.ReadFile(args); string(got) != "--session\nscratch\nagent\nprompt\nwA:p1\ngo\n" {
+		t.Fatalf("herdr args %q", got)
+	}
+}
+
+func TestPromptRejects(t *testing.T) {
+	herdr, args := fakeHerdr(t, 0)
+	a := NewArmy()
+	a.Set([]byte(promptArmy))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
+	defer srv.Close()
+
+	for _, c := range []struct {
+		name, ctype, body string
+		status            int
+	}{
+		{"unknown pane", "application/json", `{"pane":"wZ:p9","text":"hi"}`, http.StatusNotFound},
+		{"flag as pane", "application/json", `{"pane":"--help","text":"hi"}`, http.StatusNotFound},
+		{"empty text", "application/json", `{"pane":"wA:p1","text":"  "}`, http.StatusBadRequest},
+		{"bad json", "application/json", `{"pane":`, http.StatusBadRequest},
+		{"form post", "application/x-www-form-urlencoded", `pane=wA:p1&text=hi`, http.StatusUnsupportedMediaType},
+	} {
+		if res := postPrompt(t, srv.URL, c.ctype, c.body); res.StatusCode != c.status {
+			t.Errorf("%s: status %d, want %d", c.name, res.StatusCode, c.status)
+		}
+	}
+	if _, err := os.Stat(args); err == nil {
+		t.Fatal("herdr ran for a rejected prompt")
+	}
+}
+
+func TestPromptReportsHerdrFailure(t *testing.T) {
+	herdr, _ := fakeHerdr(t, 1)
+	a := NewArmy()
+	a.Set([]byte(promptArmy))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
+	defer srv.Close()
+
+	res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"hi"}`)
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "herdr says no") {
+		t.Fatalf("status %d body %q", res.StatusCode, body)
 	}
 }

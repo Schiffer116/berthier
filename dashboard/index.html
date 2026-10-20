@@ -26,13 +26,41 @@ footer.bar { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--
 .tally b { font-weight: 700; }
 .zero { color: var(--dim); }
 main { flex-grow: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
-.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
 section { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
 .panel-col { display: flex; flex-direction: column; }
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
-#army { flex: 999 1 640px; }
+/* The Army list takes the room; the selected unit and its chat sit beside it.
+   Wide screens fill the viewport and scroll inside the panels; narrow ones stack. */
+.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 680px); }
+.top > section { min-height: 0; max-height: 100%; }
+@media (min-width: 1100px) {
+  .app { height: 100vh; }
+  main { min-height: 0; }
+  .top { flex: 1 1 0; min-height: 420px; }
+}
+@media (max-width: 1099px) { .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 40vh) 85vh; } #det { max-height: 35%; } }
+/* Logs open from the top bar in a drawer over the page, never moving it. */
+.logs { display: flex; gap: 6px; }
+.logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.logbtn:hover { color: var(--fg); }
+.logbtn[aria-expanded="true"] { background: var(--sel); color: var(--bright); border-color: var(--blue); }
+.logbtn:focus-visible, .x:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.badge { min-width: 20px; padding: 0 5px; background: var(--field); color: var(--fg); font-size: 11px; font-weight: 700; text-align: center; }
+.badge.hot { background: var(--accent); color: var(--bg); }
+.badge.bad { background: var(--red); color: var(--bg); }
+.drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
+.drawer.open { transform: none; visibility: visible; transition: transform 0.15s ease-out; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer.open { transition: none; } }
+.drawer > section { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border: 0; }
+.drawer > section[hidden] { display: none; }
+.drawer ol { flex: 1 1 0; min-height: 0; overflow: auto; }
+.ph .end { display: inline-flex; align-items: center; gap: 12px; }
+.x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.x:hover { color: var(--bright); }
+#army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
+#army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
 .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -42,9 +70,15 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); cursor: pointer; }
 .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 #show-loop { accent-color: var(--blue); }
-.scroll { overflow-x: auto; }
-.table { min-width: 720px; }
-.grid { display: grid; grid-template-columns: 20px 120px 64px 92px 56px minmax(0, 1fr); gap: 12px; }
+.table { min-width: 480px; }
+.grid { display: grid; grid-template-columns: 14px minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
+/* A narrow Army panel drops the PANE and FOR columns instead of scrolling. */
+#army { container-type: inline-size; }
+@container (max-width: 559px) {
+  .table { min-width: 0; }
+  .grid { grid-template-columns: 14px minmax(64px, 96px) 76px minmax(0, 1fr); }
+  .grid > :nth-child(3), .grid > :nth-child(5) { display: none; }
+}
 .thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
 .agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
 .agent:hover { background: #121820; }
@@ -54,20 +88,68 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .corps { font-weight: 700; }
 .muted { color: var(--muted); } .dim { color: var(--dim); }
 .empty { padding: 14px 12px; color: var(--dim); }
-#detail { flex: 1 1 340px; }
+#det { flex: 0 1 auto; max-height: 45%; min-height: 0; overflow-y: auto; }
 #detail .ph { flex-wrap: nowrap; }
 #detail h2 span { color: var(--fg); }
-.body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
-.needs { border: 1px solid #5A4318; background: #1E1A12; padding: 8px 10px; }
+.body { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.link { padding: 0; margin-right: 8px; background: none; border: 0; color: var(--blue); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: #A9D0F7; }
+.mates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.mate { display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 5px 6px; text-align: left; font: inherit; color: var(--fg); background: transparent; border: 0; border-bottom: 1px solid var(--rule); cursor: pointer; }
+.mate:hover { background: #121820; }
+.mate[aria-pressed="true"] { background: var(--sel); }
+.mate:focus-visible, .link:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.mate-l { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.mate-l b { font-weight: 700; min-width: 0; }
+.mate-r { color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.mate-m { font-size: 11px; }
+/* Chat with the selected Agent: its transcript (or terminal), newest at the bottom. */
+#chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); background: var(--bg); }
+#chat[hidden] { display: none; }
+.msg .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; max-width: 88%; padding: 4px 8px; background: var(--sel); border: 1px solid var(--field); }
+.msg.user .who { color: var(--dim); font-size: 11px; }
+.msg.bot { color: var(--bright); }
+.md { overflow-wrap: anywhere; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md blockquote, .md .tbl { margin: 0 0 6px; }
+.md ul, .md ol { padding: 0 0 0 20px; list-style: disc; }
+.md ol { list-style: decimal; }
+.md .mh { margin: 8px 0 4px; font-weight: 700; color: var(--accent); }
+.md code { padding: 0 3px; background: #000; color: var(--sky); }
+.md pre { padding: 6px 8px; background: #000; border: 1px solid var(--rule); overflow-x: auto; font-size: 12px; }
+.md pre code { padding: 0; color: var(--soft); }
+.md blockquote { padding-left: 8px; border-left: 2px solid var(--field); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 8px 0; }
+.md .tbl { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: 12px; }
+.md th, .md td { padding: 2px 8px; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.md th { color: var(--muted); }
+.tool summary { display: block; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; list-style: none; }
+.tool summary::-webkit-details-marker { display: none; }
+.tool summary::before { content: '▸ '; color: var(--dim); }
+.tool[open] summary::before { content: '▾ '; }
+.tool summary:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.tool .tn { color: var(--purple); }
+.tool.err .tn { color: var(--red); }
+.tool pre, pre.term { margin: 4px 0 0; padding: 6px 8px; background: #000; border: 1px solid var(--rule); font: inherit; font-size: 11px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool pre { max-height: 280px; overflow: auto; }
+pre.term { margin: 0; border: 0; background: transparent; }
+#chat-state { font-size: 12px; }
+/* Narrow screens keep the top bar to the essentials. */
+@media (max-width: 699px) {
+  .wide, .tally.zero, header .brand + .dim { display: none; }
+  header.bar { gap: 4px 12px; padding: 6px 12px; }
+  .logbtn { padding: 2px 6px; }
+}
+.needs { border: 1px solid #5A4318; background: #1E1A12; padding: 6px 10px; }
 .needs div:first-child { color: var(--accent); font-weight: 700; }
 .needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
-dl { margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 2px 10px; }
+dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
 dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .cmd { margin-top: 4px; padding: 6px 10px; background: #000; border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
 .cmd.run { color: var(--bright); }
-#escalations { flex: 1 1 520px; }
-#asks { flex: 1 1 320px; }
 ol { margin: 0; padding: 6px 12px; list-style: none; }
 .esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
 .esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
@@ -76,12 +158,21 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 #log { background: #000; }
 #log .ph { padding: 0 12px; }
 #log h2 { padding: 6px 0; }
-#log ol { padding: 8px 12px; overflow-x: auto; }
+#log ol { padding: 8px 12px; }
 .log { display: grid; grid-template-columns: 72px 64px minmax(0, 1fr); gap: 12px; white-space: nowrap; }
 .log span:last-child { color: var(--soft); }
 .log.now span:last-child { color: var(--dim); }
 .log.now b { color: var(--fg); font-weight: 400; }
 .none { color: var(--dim); padding: 4px 0; }
+#send { padding: 8px 12px 10px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; }
+#send[hidden] { display: none; }
+#send textarea { width: 100%; min-height: 56px; height: 56px; resize: vertical; padding: 6px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+#send textarea:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+#send .acts { display: flex; align-items: center; gap: 12px; }
+#send button { min-height: 32px; padding: 4px 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 0; font: inherit; font-weight: 700; cursor: pointer; }
+#send button:disabled { opacity: 0.5; cursor: default; }
+#send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
+#send-status { overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -93,10 +184,15 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
     <span class="muted" id="fresh"></span>
     <span class="grow"></span>
     <span id="tallies" style="display: contents"></span>
+    <span class="logs">
+      <button type="button" class="logbtn" data-log="escalations" aria-controls="drawer" aria-expanded="false">escalations <span class="badge" id="esc-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="asks" aria-controls="drawer" aria-expanded="false">asks <span class="badge" id="ask-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="log" aria-controls="drawer" aria-expanded="false">main loop <span class="badge" id="log-badge">0</span></button>
+    </span>
   </header>
 
   <main>
-    <div class="row">
+    <div class="top">
       <section id="army" class="panel-col" aria-labelledby="army-h">
         <div class="ph">
           <h2 id="army-h">ARMY <small id="army-sub"></small></h2>
@@ -120,41 +216,56 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         </div>
       </section>
 
-      <section id="detail" class="panel-col" aria-labelledby="det-h" aria-live="polite"></section>
-    </div>
-
-    <div class="row">
-      <section id="escalations" aria-labelledby="esc-h">
-        <div class="ph">
-          <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
-          <span class="dim" id="esc-n"></span>
-        </div>
-        <ol id="esc"></ol>
-      </section>
-
-      <section id="asks" aria-labelledby="ask-h">
-        <div class="ph">
-          <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
-          <span id="inbox"></span>
-        </div>
-        <ol id="ask"></ol>
+      <section id="detail" class="panel-col" aria-labelledby="det-h">
+        <div id="det" aria-live="polite"></div>
+        <div id="chat" aria-label="conversation" hidden></div>
+        <!-- Outside #det so re-renders keep what the user is typing. -->
+        <form id="send" hidden>
+          <div id="chat-state" role="status"></div>
+          <label class="sr" for="msg">message <span id="send-to"></span></label>
+          <textarea id="msg" placeholder="message this agent · enter sends, shift+enter for a new line" spellcheck="false"></textarea>
+          <div class="acts">
+            <button type="submit" id="send-btn">send</button>
+            <span class="dim" id="send-status" role="status"></span>
+          </div>
+        </form>
       </section>
     </div>
 
-    <section id="log" aria-labelledby="log-h">
+  </main>
+
+  <aside id="drawer" class="drawer" aria-label="logs">
+    <section id="escalations" aria-labelledby="esc-h" hidden>
+      <div class="ph">
+        <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
+        <span class="end"><span class="dim" id="esc-n"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="esc"></ol>
+    </section>
+    <section id="asks" aria-labelledby="ask-h" hidden>
+      <div class="ph">
+        <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
+        <span class="end"><span id="inbox"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="ask"></ol>
+    </section>
+    <section id="log" aria-labelledby="log-h" hidden>
       <div class="ph">
         <h2 id="log-h">MAIN LOOP <small>· state/loop.log</small></h2>
-        <label class="toggle">
-          <input type="checkbox" id="show-loop">
-          show loop restarts
-        </label>
+        <span class="end">
+          <label class="toggle">
+            <input type="checkbox" id="show-loop">
+            show loop restarts
+          </label>
+          <button type="button" class="x" aria-label="close">✕</button>
+        </span>
       </div>
       <ol id="lines"></ol>
     </section>
-  </main>
+  </aside>
 
   <footer class="bar">
-    <span>read-only · reads state/ only</span>
+    <span>reads state/ · sends only what you type</span>
     <span><span style="color: var(--accent)">●</span> needs you</span>
     <span><span style="color: var(--blue)">▶</span> working</span>
     <span><span style="color: var(--red)">■</span> blocked</span>
@@ -166,7 +277,8 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 <script>
 'use strict';
 // Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
-// /api/events. Read-only: the only state here is what the viewer picked.
+// /api/events. The only state here is what the viewer picked and is typing;
+// the one write is a message to an Agent (POST api/prompt).
 
 const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9', muted: '#9AA5B4',
   dim: '#7C8796', faint: '#5B6573', green: '#5FC48A', red: '#F06B6B', purple: '#B39DF0', bright: '#E6E9EE' };
@@ -182,8 +294,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(
 const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) === '1'; localStorage.setItem(k, v ? '1' : '0'); } catch { return false; } };
 
 let army = null, connected = false;
+const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
-const ui = { q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+const ui = { log: null, q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
 $('show-loop').checked = ui.showLoop;
 
@@ -203,16 +316,15 @@ const ago = (t) => {
 };
 const home = (p) => (p || '-').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
 
-// Every Agent once, with the unit it belongs to: Corps, their Divisions, Berthier, Berthier's Divisions.
+// Every Agent once, in Herdr's workspace order (army.jq's units), with the unit
+// it belongs to: a Corps or Berthier, each followed by its Divisions.
 function agents() {
   const out = [];
   const add = (unit, role, parent) => unit.agents.forEach((a) => out.push({ ...a, unit, role, parent }));
-  for (const c of army.corps) {
-    add(c, 'corps');
-    for (const d of c.divisions) add(d, 'division', c.name);
+  for (const u of army.units) {
+    add(u, 'corps');
+    for (const d of u.divisions) add(d, 'division', u.name);
   }
-  if (army.berthier) out.push({ ...army.berthier, unit: { name: 'berthier', divisions: army.berthier_divisions }, role: 'corps' });
-  for (const d of army.berthier_divisions) add(d, 'division', 'berthier');
   return out.map((a) => {
     const [glyph, color] = a.needs_you ? ['●', C.accent] : LIVE[a.status] || LIVE.unknown;
     // Waiting since the report that asked, or since the dialog appeared.
@@ -225,8 +337,7 @@ function visible(all) {
   const q = ui.q.trim().toLowerCase();
   return all
     .filter((a) => !ui.needsOnly || a.needs_you)
-    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q))
-    .sort((x, y) => (y.needs_you - x.needs_you) || (x.needs_you ? (x.from ?? 0) - (y.from ?? 0) : 0));
+    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q));
 }
 
 const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</span>`;
@@ -234,9 +345,10 @@ const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</spa
 function renderHeader(all) {
   const k = army.counts, fresh = army.available;
   $('loop').innerHTML = fresh
-    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}`
+    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running<span class="wide"> · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}</span>`
     : `<span style="color: ${C.red}" aria-hidden="true">■</span>main loop not writing state`;
   const link = connected ? '' : ` · <span style="color: ${C.red}">console disconnected</span>`;
+  $('fresh').classList.toggle('wide', fresh && connected); // narrow screens show it only when something is wrong
   $('fresh').innerHTML = `army state ${clock(army.updated_at)} · ${fresh ? 'fresh' : `<span style="color: ${C.accent}">stale</span>`}${link}`;
   const tally = (n, label, color) => n
     ? `<span class="tally"><b style="color: ${color}">${n}</b> ${label}</span>`
@@ -254,7 +366,7 @@ function renderRows(rows) {
     const on = a.pane_id === ui.sel;
     return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
       <span style="color: ${a.color}" aria-hidden="true">${a.glyph}</span>
-      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${esc(a.who)}</span>
+      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${a.parent ? '<span class="dim" aria-hidden="true">└ </span>' : ''}${esc(a.who)}</span>
       <span class="muted">${esc(a.pane_id)}</span>
       <span style="color: ${a.color}">${a.state}</span>
       ${ageSpan(a.from)}
@@ -268,60 +380,223 @@ function renderRows(rows) {
 // A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
 const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
 
-function units(a) {
-  if (a.role === 'division') return { label: 'division of', text: `${a.parent} · ${a.unit.worktree ? 'worktree' : 'adopted'}`, color: C.fg };
-  const d = a.unit.divisions || [];
-  return { label: 'divisions', ...(d.length ? { text: d.map((x) => x.name).join(', '), color: C.fg } : { text: 'none split off', color: C.dim }) };
-}
-
-function renderDetail(a) {
+// The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
+function renderDetail(a, all) {
+  renderSend(a);
   if (!a) {
-    $('detail').innerHTML = `<div class="ph"><h2 id="det-h">AGENT</h2></div><div class="body"><span class="dim">no agent selected</span></div>`;
+    $('det').innerHTML = `<div class="ph"><h2 id="det-h">SELECTED</h2></div><div class="body"><span class="dim">nothing selected</span></div>`;
     return;
   }
-  const [lg, lc] = LIVE[a.status] || LIVE.unknown;
+  const u = a.unit, mates = all.filter((x) => x.unit === u);
+  const kind = a.role === 'division' ? 'DIVISION' : u.name === 'berthier' ? 'BERTHIER' : 'CORPS';
+  // Selecting a unit means selecting its first Agent's row.
+  const link = (name, unit) => {
+    const pane = unit?.agents?.[0]?.pane_id ?? all.find((x) => x.unit === unit)?.pane_id;
+    return pane ? `<button type="button" class="link" data-pane="${esc(pane)}">${esc(name)}</button>` : esc(name);
+  };
+  const facts = [];
+  if (a.role === 'division') {
+    const corps = all.find((x) => x.role === 'corps' && x.unit.name === a.parent)?.unit;
+    facts.push(['corps', link(a.parent, corps)], ['kind', a.unit.worktree ? 'worktree · ends on review' : 'adopted workspace']);
+  } else {
+    const d = u.divisions || [];
+    facts.push(['divisions', d.length ? d.map((x) => link(x.name, x)).join(' ') : '<span class="dim">none</span>']);
+  }
+  facts.push(['where', esc(home(a.cwd))]);
+  if (u.workspace_id) facts.push(['workspace', esc(u.workspace_id)]);
   const cmd = a.needs_you ? askedCmd(a.report) : null;
   const max = army.loop.revive_max ?? 3;
-  const revived = a.last_revive_at == null ? null : `${clock(a.last_revive_at)} · ${a.revive_attempts} of ${max} attempts used`;
-  const u = units(a);
-  const report = a.report == null ? '<span class="dim">none yet</span>'
-    : `<span class="muted">${clock(a.report_at)}</span> ${esc((a.needs_you && a.status !== 'blocked' ? 'needs you: ' : '') + a.report)}`;
-  $('detail').innerHTML = `
+  const mate = (m) => {
+    const on = m.pane_id === a.pane_id;
+    const revived = m.last_revive_at == null ? '' : ` · <span style="color: ${C.purple}">revived ${clock(m.last_revive_at, false)} (${m.revive_attempts}/${max})</span>`;
+    return `<li><button type="button" class="mate" data-pane="${esc(m.pane_id)}" aria-pressed="${on}">
+        <span class="mate-l"><span style="color: ${m.color}" aria-hidden="true">${m.glyph}</span>
+          <b class="clip">${esc(m.name ?? '(unnamed)')}</b>
+          <span class="muted">${esc(m.pane_id)}</span>
+          <span style="color: ${m.color}">${m.state}</span>
+          ${ageSpan(m.from)}</span>
+        ${on && m.needs_you ? '' : `<span class="mate-r ${m.report == null ? 'dim' : ''}">${m.report == null ? 'no report yet' : `<span class="dim">${clock(m.report_at, false)}</span> ${esc(m.report)}`}</span>`}
+        ${on ? `<span class="mate-m dim">${esc(m.kind ?? '-')} · session ${esc((m.session_id ?? '-').slice(0, 8))}${revived}</span>` : ''}
+      </button></li>`;
+  };
+  $('det').innerHTML = `
     <div class="ph">
-      <h2 id="det-h">AGENT <span>${esc(a.who)}</span></h2>
-      <span style="color: ${a.color}; white-space: nowrap">${a.glyph} ${a.state}</span>
+      <h2 id="det-h">${kind} <span>${esc(u.name)}</span></h2>
+      <span class="dim">${mates.length} agent${mates.length === 1 ? '' : 's'}</span>
     </div>
     <div class="body">
       ${a.needs_you ? `<div class="needs">
         <div>needs you · waiting <span data-ago="${a.from ?? ''}">${ago(a.from)}</span></div>
         <div>${esc(a.report ?? 'on an approval or question dialog')}</div>
       </div>` : ''}
-      <dl>
-        <dt>agent</dt><dd>${esc(a.name ?? '(unnamed)')}</dd>
-        <dt>kind</dt><dd>${esc(a.kind ?? '-')}</dd>
-        <dt>pane · tab</dt><dd>${esc(a.pane_id)} · ${esc(a.tab_id ?? '-')}</dd>
-        <dt>status</dt><dd><span style="color: ${lc}">${esc(a.status ?? 'unknown')}</span> since ${clock(a.status_since)}${a.prev_status ? ` <span class="dim">(was ${esc(a.prev_status)})</span>` : ''}</dd>
-        <dt>session</dt><dd>${esc(a.session_id ?? '-')}</dd>
-        <dt>title</dt><dd>${esc(a.title ?? '-')}</dd>
-        <dt>cwd</dt><dd>${esc(home(a.cwd))}</dd>
-        <dt>report</dt><dd>${report}</dd>
-        <dt>revived</dt><dd style="color: ${revived ? C.purple : C.dim}">${revived ?? 'never'}</dd>
-        <dt>${u.label}</dt><dd style="color: ${u.color}">${esc(u.text)}</dd>
-      </dl>
-      ${cmd ? `<div>
-        <div class="cap">IT ASKS YOU TO RUN</div>
-        <div class="cmd run">${esc(cmd)}</div>
-      </div>` : ''}
-      <div>
-        <div class="cap">CHECK-IN</div>
-        <div class="cmd"><span style="color: ${C.green}">$</span> herdr agent read ${esc(a.pane_id)} --source recent-unwrapped --lines 80</div>
-      </div>
+      ${cmd ? `<div class="cmd run" title="it asks you to run">${esc(cmd)}</div>` : ''}
+      <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>
     </div>`;
+}
+
+// The message box follows the selected Agent, keeping each pane's draft.
+let sendPane = null;
+function renderSend(a) {
+  $('send').hidden = $('chat').hidden = !a;
+  if (!a || a.pane_id === sendPane) return;
+  if (sendPane != null) drafts[sendPane] = $('msg').value;
+  sendPane = a.pane_id;
+  $('msg').value = drafts[sendPane] ?? '';
+  $('send-to').textContent = `→ ${a.name ?? a.who} · ${a.pane_id}`;
+  $('send-status').textContent = '';
+  chat.rev = null;
+  $('chat').innerHTML = '<div class="dim">loading…</div>';
+  $('chat-state').textContent = '';
+  pollChat();
+}
+
+// The conversation of the selected Agent, polled while the page is visible.
+// Tool calls stay collapsed unless the viewer opened them.
+const chat = { rev: null, open: new Set(), busy: false };
+async function pollChat() {
+  const pane = sendPane;
+  if (!pane || document.hidden || chat.busy) return;
+  chat.busy = true;
+  try {
+    const res = await fetch('api/chat?pane=' + encodeURIComponent(pane));
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    const v = await res.json();
+    if (pane === sendPane) renderChat(v);
+  } catch (err) {
+    if (pane === sendPane) $('chat-state').innerHTML = `<span style="color: ${C.red}">chat unavailable: ${esc(err.message)}</span>`;
+  } finally {
+    chat.busy = false;
+  }
+}
+
+// Markdown for Agent replies. Safe by construction: every piece of source text
+// goes through esc(), the only tags are the ones written here, and links must
+// be http(s).
+function mdInline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+  s = esc(s)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`)
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+    .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+    .replace(/\n/g, '<br>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, n) => `<code>${esc(codes[n])}</code>`);
+}
+function md(src) {
+  const lines = String(src).replace(/\r/g, '').split('\n'), out = [];
+  let para = [], list = null, i = 0;
+  const flush = () => {
+    if (para.length) out.push(`<p>${mdInline(para.join('\n'))}</p>`);
+    if (list) out.push(`<${list.tag}>${list.items.map((x) => `<li>${mdInline(x)}</li>`).join('')}</${list.tag}>`);
+    para = []; list = null;
+  };
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if ((m = l.match(/^\s*(```|~~~)/))) {
+      flush();
+      const code = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(m[1]); i++) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      i++;
+    } else if ((m = l.match(/^#{1,6}\s+(.*)$/))) {
+      flush(); out.push(`<div class="mh">${mdInline(m[1])}</div>`); i++;
+    } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) {
+      flush(); out.push('<hr>'); i++;
+    } else if ((m = l.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/))) {
+      const tag = /\d/.test(m[1]) ? 'ol' : 'ul';
+      if (para.length || (list && list.tag !== tag)) flush();
+      list ??= { tag, items: [] };
+      list.items.push(m[2]); i++;
+    } else if (list && /^\s{2,}\S/.test(l)) {
+      list.items[list.items.length - 1] += '\n' + l.trim(); i++;
+    } else if (/^\s*>/.test(l)) {
+      flush();
+      const q = [];
+      for (; i < lines.length && /^\s*>/.test(lines[i]); i++) q.push(lines[i].replace(/^\s*>\s?/, ''));
+      out.push(`<blockquote>${mdInline(q.join('\n'))}</blockquote>`);
+    } else if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] ?? '') && lines[i + 1].includes('-')) {
+      flush();
+      const head = cells(l), rows = [];
+      for (i += 2; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]); i++) rows.push(cells(lines[i]));
+      out.push(`<div class="tbl"><table><tr>${head.map((c) => `<th>${mdInline(c)}</th>`).join('')}</tr>`
+        + rows.map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join('')}</tr>`).join('') + '</table></div>');
+    } else if (!l.trim()) {
+      flush(); i++;
+    } else {
+      if (list) flush();
+      para.push(l); i++;
+    }
+  }
+  flush();
+  return out.join('');
+}
+
+const STATE_TEXT = { working: 'working…', blocked: 'blocked on a dialog in its pane', done: 'done · your turn', idle: 'idle · your turn' };
+function renderChat(v) {
+  const [glyph, color] = LIVE[v.status] || LIVE.unknown;
+  const src = v.source === 'transcript' ? `transcript ${esc((v.session || '').slice(0, 8))}` : 'terminal';
+  $('chat-state').innerHTML = `<span style="color: ${color}">${glyph} ${esc(STATE_TEXT[v.status] || v.status || 'unknown')}</span> <span class="dim">· ${src}</span>`;
+  if (v.rev === chat.rev) return;
+  const first = chat.rev === null, box = $('chat');
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  chat.rev = v.rev;
+  box.innerHTML = v.source === 'terminal' ? `<pre class="term">${esc(v.text)}</pre>`
+    : v.items.map((it) => {
+      if (it.role === 'user') return `<div class="msg user"><div class="who">you${it.at ? ' · ' + clock(Date.parse(it.at) / 1000, false) : ''}</div><div class="txt">${esc(it.text)}</div></div>`;
+      if (it.role === 'assistant') return `<div class="msg bot md">${md(it.text)}</div>`;
+      const key = `${it.at}|${it.tool}|${it.input}`;
+      return `<details class="tool${it.error ? ' err' : ''}" data-k="${esc(key)}"${chat.open.has(key) ? ' open' : ''}>
+        <summary><span class="tn" title="${esc(it.tool)}">${esc(it.tool.replace(/^mcp__.+?__/, ''))}</span> <span>${esc(it.input)}</span>${it.result == null ? ' <span class="dim">· running</span>' : ''}</summary>
+        <pre>${it.result == null ? '…' : esc(it.result) || '(no output)'}</pre></details>`;
+    }).join('') || '<div class="dim">no conversation yet</div>';
+  if (first || atEnd) box.scrollTop = box.scrollHeight;
+}
+$('chat').addEventListener('toggle', (e) => {
+  const k = e.target.dataset?.k;
+  if (k != null) e.target.open ? chat.open.add(k) : chat.open.delete(k);
+}, true);
+setInterval(pollChat, 2000);
+document.addEventListener('visibilitychange', pollChat);
+
+async function send() {
+  const pane = sendPane, text = $('msg').value;
+  if (!pane || !text.trim() || $('send-btn').disabled) return;
+  $('send-btn').disabled = true;
+  $('send-status').style.color = '';
+  $('send-status').textContent = 'sending…';
+  try {
+    const res = await fetch('api/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane, text }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    drafts[pane] = '';
+    if (sendPane === pane) {
+      $('msg').value = '';
+      $('send-status').textContent = `sent ${clock(now())}`;
+      setTimeout(pollChat, 400);
+    }
+  } catch (err) {
+    if (sendPane === pane) {
+      $('send-status').style.color = C.red;
+      $('send-status').textContent = 'not sent: ' + err.message;
+    }
+  } finally {
+    $('send-btn').disabled = false;
+  }
+}
+
+// A top-bar log button's count; `level` colors it: hot needs a look, bad is an error.
+function badge(id, n, level) {
+  $(id).textContent = n;
+  $(id).className = 'badge' + (level ? ' ' + level : '');
 }
 
 function renderEscalations() {
   const list = army.escalations;
   $('esc-n').textContent = list.length;
+  badge('esc-badge', list.length, list.some((e) => e.at >= now() - 3600) && 'hot');
   $('esc').innerHTML = list.map((e) => {
     const to = e.kind === 'speak' ? ['→ you, aloud', C.accent] : ['→ ' + e.to, C.sky];
     const why = e.kind === 'speak' ? `spoke “${e.why.replace(/\.$/, '')}”` : e.why;
@@ -347,6 +622,7 @@ function renderAsks() {
     .map((a) => line(a.at, a.from, a.to, '', a.from === 'berthier' ? C.sky : C.soft));
   const queued = army.asks.map((a) => line(a.at, a.from, a.to, ' <span class="dim">· queued</span>', C.accent));
   $('ask').innerHTML = done.concat(queued).join('') || '<li class="none">none in the last hour</li>';
+  badge('ask-badge', done.length + queued.length, pending && 'hot');
 }
 
 function logText(t) {
@@ -355,12 +631,16 @@ function logText(t) {
 
 function renderLog() {
   const lines = army.activity.filter((l) => ui.showLoop || l.tag !== 'loop').slice(0, LOG_LINES).reverse();
-  $('lines').innerHTML = lines.map((l) => `<li class="log">
+  const hour = lines.filter((l) => l.at >= now() - 3600);
+  badge('log-badge', hour.length, hour.some((l) => l.tag === 'error') && 'bad');
+  const ol = $('lines'), atEnd = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 8;
+  ol.innerHTML = lines.map((l) => `<li class="log">
       <span class="dim">${clock(l.at)}</span>
       <span style="color: ${TAG[l.tag] || C.muted}">${l.tag === 'other' ? 'info' : esc(l.tag)}</span>
       <span>${esc(logText(l.text))}</span>
     </li>`).join('') + `<li class="log now" id="tick"></li>`;
   renderTick();
+  if (atEnd) ol.scrollTop = ol.scrollHeight; // follow the newest line
 }
 
 function renderTick() {
@@ -379,25 +659,53 @@ function render() {
   if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
   renderHeader(all);
   renderRows(rows);
-  renderDetail(all.find((a) => a.pane_id === ui.sel));
+  renderDetail(all.find((a) => a.pane_id === ui.sel), all);
   renderEscalations();
   renderAsks();
   renderLog();
 }
 
-$('rows').addEventListener('click', (e) => {
+const select = (e) => {
   const b = e.target.closest('[data-pane]');
   if (!b) return;
   ui.sel = b.dataset.pane;
   history.replaceState(null, '', '#' + ui.sel);
   render();
+};
+$('rows').addEventListener('click', select);
+$('det').addEventListener('click', select);
+// One log open at a time in the drawer, under the top bar.
+function openLog(id) {
+  const open = id && ui.log !== id ? id : null;
+  ui.log = open;
+  document.querySelectorAll('.logbtn').forEach((b) => b.setAttribute('aria-expanded', b.dataset.log === open));
+  document.querySelectorAll('#drawer > section').forEach((sec) => { sec.hidden = sec.id !== open; });
+  $('drawer').classList.toggle('open', !!open);
+  if (open === 'log') $('lines').scrollTop = $('lines').scrollHeight;
+}
+const placeDrawer = () => document.documentElement.style.setProperty('--drawer-top', document.querySelector('header').getBoundingClientRect().bottom + 'px');
+placeDrawer();
+addEventListener('resize', placeDrawer);
+document.querySelectorAll('.logbtn').forEach((b) => b.addEventListener('click', () => { placeDrawer(); openLog(b.dataset.log); }));
+// Closing hands focus back to the log's button.
+function closeLog() {
+  const was = ui.log;
+  openLog(null);
+  document.querySelector(`.logbtn[data-log="${was}"]`)?.focus();
+}
+document.querySelectorAll('#drawer .x').forEach((b) => b.addEventListener('click', closeLog));
+
+$('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+$('msg').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });
 $('needs-only').addEventListener('change', (e) => { ui.needsOnly = e.target.checked; pref('needsOnly', ui.needsOnly); render(); });
 $('show-loop').addEventListener('change', (e) => { ui.showLoop = e.target.checked; pref('showLoop', ui.showLoop); render(); });
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement !== $('q')) { e.preventDefault(); $('q').focus(); }
+  if (e.key === '/' && !e.target.matches('input, textarea')) { e.preventDefault(); $('q').focus(); }
   else if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; ui.q = ''; $('q').blur(); render(); }
+  else if (e.key === 'Escape' && ui.log) closeLog();
 });
 
 // Ages and the next-tick countdown move every second without re-rendering.

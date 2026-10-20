@@ -24,6 +24,22 @@ b bin/berthier report "outside herdr"
 check "report no-op outside herdr" "$(find "$home/reports" -name '*.json' | wc -l)" '0'
 b HERDR_PANE_ID=a:p1 CLAUDE_CODE_SESSION_ID=s-a bin/berthier report $'needs you:\tpush main?\n'
 check "report written" "$(jq -c '[.line, .pane]' "$home/reports/s-a.json")" '["needs you: push main?","a:p1"]'
+# A backgrounded fork's Report is also filed under the session it was forked
+# from (an ancestor process), which is the one Herdr and the Army State know.
+claude="$home/claude"
+mkdir -p "$claude/sessions"
+session_file() { echo "{\"pid\": $1, \"sessionId\": \"$2\", \"kind\": \"$3\"}" >"$claude/sessions/$1.json"; }
+session_file $$ s-root interactive
+fork_report() { # kind of the forked session, then report's args
+  b CLAUDE_CONFIG_DIR="$claude" HERDR_PANE_ID=a:p1 CLAUDE_CODE_SESSION_ID=s-fork \
+    bash -c 'echo "{\"pid\": $$, \"sessionId\": \"s-fork\", \"kind\": \"$0\"}" >"$1/sessions/$$.json"; bin/berthier report "$2"; rm "$1/sessions/$$.json"' "$1" "$claude" "$2"
+}
+fork_report bg "forked work"
+check "fork report under its own session" "$(jq -r .line "$home/reports/s-fork.json")" 'forked work'
+check "fork report under the pane's session" "$(jq -r .line "$home/reports/s-root.json")" 'forked work'
+rm "$home/reports/s-root.json"
+fork_report interactive "nested claude"
+check "nested non-bg session stays its own" "$(jq -r .line "$home/reports/s-fork.json")/$(test -e "$home/reports/s-root.json" && echo leaked)" 'nested claude/'
 
 # --- hook-stop
 tr="$home/t.jsonl"

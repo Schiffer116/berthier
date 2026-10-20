@@ -166,5 +166,14 @@ sh=$(snap "$Wh" "[$(agent w5:p1 idle sid-h "" /home/u/berthier/tests),$(agent w1
 o=$(tick '{}' "$sh" 1000)
 check "berthier by cwd" "$(jq -c '[.state.berthier, (.state.corps | map(.name))]' <<<"$o")" '["w5:p1",["skipli"]]'
 
+# --- Herdr's workspace order (its numbers), whatever order the snapshot lists them in.
+num() { jq -c --argjson n "$1" '. + {number: $n}' <<<"$2"; }
+DIVISIONS='{"dark-mode":{"corps":"skipli","worktree":true},"light-mode":{"corps":"skipli","worktree":true}}'
+sn=$(snap "[$(num 4 "$(ws w4 notes)"),$(num 3 "$(ws w2 dark-mode)"),$(num 1 "$(ws w3 berthier)"),$(num 5 "$(ws w5 light-mode)"),$(num 2 "$(ws w1 skipli)")]" '[]' '[]')
+o=$(tick '{}' "$sn" 1000)
+check "herdr order recorded" "$(jq -c '.state.order' <<<"$o")" '["w3","w1","w2","w4","w5"]'
+check "corps in herdr order" "$(jq -c '.state.corps | map([.name, (.divisions | map(.name))])' <<<"$o")" '[["skipli",["dark-mode","light-mode"]],["notes",[]]]'
+DIVISIONS=$D0
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

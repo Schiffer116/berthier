@@ -1,17 +1,25 @@
-// berthier-dashboard serves the Army view model (`berthier army`) as a live,
-// read-only console page. It holds no state and no logic of its own: it polls
-// the command and pushes each change to open pages over server-sent events.
+// berthier-dashboard serves the Army view model (`berthier army`) as a live
+// console page. It holds no state and no logic of its own: it polls the command
+// and pushes each change to open pages over server-sent events. The one write
+// is POST /api/prompt, which sends the user's text to a known Agent; GET
+// /api/chat shows that Agent's conversation (chat.go).
 package main
 
 import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"mime"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,7 +87,63 @@ func Poll(ctx context.Context, a *Army, berthier string, every time.Duration) {
 	}
 }
 
-func Handler(a *Army) http.Handler {
+// Panes lists the pane ids of every Agent in the latest view model.
+func (a *Army) Panes() map[string]bool {
+	type agents struct {
+		Agents []struct {
+			Pane string `json:"pane_id"`
+		} `json:"agents"`
+	}
+	var v struct {
+		Corps []struct {
+			agents
+			Divisions []agents `json:"divisions"`
+		} `json:"corps"`
+		Berthier *struct {
+			Pane string `json:"pane_id"`
+		} `json:"berthier"`
+		BerthierDivisions []agents `json:"berthier_divisions"`
+	}
+	panes := map[string]bool{}
+	if json.Unmarshal(a.Latest(), &v) != nil {
+		return panes
+	}
+	add := func(u agents) {
+		for _, x := range u.Agents {
+			panes[x.Pane] = true
+		}
+	}
+	for _, c := range v.Corps {
+		add(c.agents)
+		for _, d := range c.Divisions {
+			add(d)
+		}
+	}
+	if v.Berthier != nil {
+		panes[v.Berthier.Pane] = true
+	}
+	for _, d := range v.BerthierDivisions {
+		add(d)
+	}
+	return panes
+}
+
+// Herdr runs `herdr` against the Army's session (BERTHIER_HERDR_SESSION, as
+// lib/common.sh's hd does).
+func Herdr(herdr string, args ...string) *exec.Cmd {
+	if s := os.Getenv("BERTHIER_HERDR_SESSION"); s != "" {
+		cmd := exec.Command(herdr, append([]string{"--session", s}, args...)...)
+		for _, e := range os.Environ() {
+			if !strings.HasPrefix(e, "HERDR_SOCKET_PATH=") {
+				cmd.Env = append(cmd.Env, e)
+			}
+		}
+		return cmd
+	}
+	return exec.Command(herdr, args...)
+}
+
+func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -93,6 +157,80 @@ func Handler(a *Army) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(v)
+	})
+	// JSON only: a cross-site form cannot send it without a CORS preflight,
+	// which this server never answers.
+	mux.HandleFunc("POST /api/prompt", func(w http.ResponseWriter, r *http.Request) {
+		if t, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); t != "application/json" {
+			http.Error(w, "want application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+		var req struct{ Pane, Text string }
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.Text) == "" {
+			http.Error(w, "empty message", http.StatusBadRequest)
+			return
+		}
+		if !a.Panes()[req.Pane] {
+			http.Error(w, "no such agent: "+req.Pane, http.StatusNotFound)
+			return
+		}
+		out, err := Herdr(herdr, "agent", "prompt", req.Pane, req.Text).CombinedOutput()
+		if err != nil {
+			log.Printf("herdr agent prompt %s: %v: %s", req.Pane, err, out)
+			http.Error(w, fmt.Sprintf("herdr agent prompt: %v: %s", err, bytes.TrimSpace(out)), http.StatusBadGateway)
+			return
+		}
+		log.Printf("prompted %s (%d bytes)", req.Pane, len(req.Text))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
+		pane := r.URL.Query().Get("pane")
+		if !a.Panes()[pane] {
+			http.Error(w, "no such agent: "+pane, http.StatusNotFound)
+			return
+		}
+		var got struct {
+			Result struct {
+				Agent struct {
+					Agent        string `json:"agent"`
+					AgentStatus  string `json:"agent_status"`
+					AgentSession struct {
+						Value string `json:"value"`
+					} `json:"agent_session"`
+				} `json:"agent"`
+			} `json:"result"`
+		}
+		out, err := Herdr(herdr, "agent", "get", pane).Output()
+		if err != nil || json.Unmarshal(out, &got) != nil {
+			http.Error(w, fmt.Sprintf("herdr agent get: %v", err), http.StatusBadGateway)
+			return
+		}
+		ag := got.Result.Agent
+		res := map[string]any{"status": ag.AgentStatus, "kind": ag.Agent}
+		// A Claude Code Agent shows its transcript; anything else, its terminal.
+		if ag.Agent == "claude" && ag.AgentSession.Value != "" {
+			if path := tr.Path(ag.AgentSession.Value); path != "" {
+				if items, rev, err := tr.Read(path); err == nil {
+					res["source"], res["session"], res["rev"], res["items"] = "transcript", strings.TrimSuffix(filepath.Base(path), ".jsonl"), rev, items
+				}
+			}
+		}
+		if res["source"] == nil {
+			text, err := Herdr(herdr, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200").Output()
+			if err != nil {
+				http.Error(w, fmt.Sprintf("herdr agent read: %v", err), http.StatusBadGateway)
+				return
+			}
+			h := fnv.New64a()
+			h.Write(text)
+			res["source"], res["rev"], res["text"] = "terminal", h.Sum64()>>1, string(text)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
 	})
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
@@ -131,11 +269,18 @@ func Handler(a *Army) http.Handler {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8430", "listen address")
 	berthier := flag.String("berthier", "berthier", "path to the berthier command")
+	herdr := flag.String("herdr", "herdr", "path to the herdr command")
+	claudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if claudeDir == "" {
+		home, _ := os.UserHomeDir()
+		claudeDir = filepath.Join(home, ".claude")
+	}
+	claude := flag.String("claude-dir", claudeDir, "Claude Code's directory (sessions and transcripts)")
 	every := flag.Duration("every", 2*time.Second, "how often to refresh the view model")
 	flag.Parse()
 
 	a := NewArmy()
 	go Poll(context.Background(), a, *berthier, *every)
 	log.Printf("serving the Army console on http://%s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, Handler(a)))
+	log.Fatal(http.ListenAndServe(*addr, Handler(a, *herdr, NewTranscripts(*claude))))
 }
