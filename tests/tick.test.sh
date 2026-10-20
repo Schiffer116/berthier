@@ -114,6 +114,10 @@ check "one-way updates are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o
 flips=$(jq -c '[range(11) | {from: (if . % 2 == 0 then "skipli" else "notes" end), to: (if . % 2 == 0 then "notes" else "skipli" end), at: (1900 + .)}]' <<<null)
 o=$(INBOX='[]' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
 check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
+o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"Skipli","worktree":true}}' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
+check "corps and its own division are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
+o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"learning","worktree":true},"skipli":{"corps":"learning","worktree":true}}' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
+check "sibling divisions still pingpong" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
 
 # --- Divisions: nested under their Corps; their trouble goes to the Corps's Main Agent.
 WD="[$(ws w1 learning),$(ws w6 tailscale),$(ws w3 berthier)]"

@@ -162,8 +162,12 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       | select(.id as $id | $deliver | any(.id == $id) | not)
       | {key: "ask_stuck:\(.id)", pane_id: null,
          text: "ask from \(.from) to \(.to) undelivered \(($now - .at) / 60 | floor)m: \(.text)"}))
-  # Ping-pong: replies flipping direction again and again; one-way updates don't count.
-  + ($ask_log | map(. + {pair: ([.from, .to] | sort | join(" and "))}) | group_by(.pair)
+  # Ping-pong: replies flipping direction again and again; one-way updates don't count,
+  # nor a Corps commanding and reviewing its own Division.
+  + ($ask_log
+     | map(select(.from as $f | .to as $t
+         | [[$f, $t], [$t, $f]] | any(($divisions[.[0]].corps // null | corps_name) == .[1]) | not))
+     | map(. + {pair: ([.from, .to] | sort | join(" and "))}) | group_by(.pair)
      | map(sort_by(.at) as $l
        | ([range(1; $l | length) | select($l[.].from != $l[. - 1].from)] | length) as $flips
        | select($flips >= $cfg.pingpong_max)
