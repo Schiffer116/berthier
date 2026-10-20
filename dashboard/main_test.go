@@ -32,7 +32,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go Poll(ctx, a, script, 20*time.Millisecond)
-	srv := httptest.NewServer(Handler(a, "herdr"))
+	srv := httptest.NewServer(Handler(a, "herdr", nil))
 	defer srv.Close()
 
 	for a.Latest() == nil {
@@ -71,7 +71,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 }
 
 func TestServesPage(t *testing.T) {
-	srv := httptest.NewServer(Handler(NewArmy(), "herdr"))
+	srv := httptest.NewServer(Handler(NewArmy(), "herdr", nil))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/")
 	if err != nil {
@@ -110,7 +110,7 @@ func TestPromptSendsToKnownAgents(t *testing.T) {
 	herdr, args := fakeHerdr(t, 0)
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
 	defer srv.Close()
 	t.Setenv("BERTHIER_HERDR_SESSION", "")
 
@@ -131,7 +131,7 @@ func TestPromptUsesBerthierSession(t *testing.T) {
 	herdr, args := fakeHerdr(t, 0)
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
 	defer srv.Close()
 	t.Setenv("BERTHIER_HERDR_SESSION", "scratch")
 
@@ -147,7 +147,7 @@ func TestPromptRejects(t *testing.T) {
 	herdr, args := fakeHerdr(t, 0)
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
 	defer srv.Close()
 
 	for _, c := range []struct {
@@ -173,7 +173,7 @@ func TestPromptReportsHerdrFailure(t *testing.T) {
 	herdr, _ := fakeHerdr(t, 1)
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr))
+	srv := httptest.NewServer(Handler(a, herdr, nil))
 	defer srv.Close()
 
 	res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"hi"}`)

@@ -1,7 +1,8 @@
 // berthier-dashboard serves the Army view model (`berthier army`) as a live
 // console page. It holds no state and no logic of its own: it polls the command
 // and pushes each change to open pages over server-sent events. The one write
-// is POST /api/prompt, which sends the user's text to a known Agent.
+// is POST /api/prompt, which sends the user's text to a known Agent; GET
+// /api/chat shows that Agent's conversation (chat.go).
 package main
 
 import (
@@ -11,11 +12,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -140,7 +143,7 @@ func Herdr(herdr string, args ...string) *exec.Cmd {
 	return exec.Command(herdr, args...)
 }
 
-func Handler(a *Army, herdr string) http.Handler {
+func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -184,6 +187,51 @@ func Handler(a *Army, herdr string) http.Handler {
 		log.Printf("prompted %s (%d bytes)", req.Pane, len(req.Text))
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
+		pane := r.URL.Query().Get("pane")
+		if !a.Panes()[pane] {
+			http.Error(w, "no such agent: "+pane, http.StatusNotFound)
+			return
+		}
+		var got struct {
+			Result struct {
+				Agent struct {
+					Agent        string `json:"agent"`
+					AgentStatus  string `json:"agent_status"`
+					AgentSession struct {
+						Value string `json:"value"`
+					} `json:"agent_session"`
+				} `json:"agent"`
+			} `json:"result"`
+		}
+		out, err := Herdr(herdr, "agent", "get", pane).Output()
+		if err != nil || json.Unmarshal(out, &got) != nil {
+			http.Error(w, fmt.Sprintf("herdr agent get: %v", err), http.StatusBadGateway)
+			return
+		}
+		ag := got.Result.Agent
+		res := map[string]any{"status": ag.AgentStatus, "kind": ag.Agent}
+		// A Claude Code Agent shows its transcript; anything else, its terminal.
+		if ag.Agent == "claude" && ag.AgentSession.Value != "" {
+			if path := tr.Path(ag.AgentSession.Value); path != "" {
+				if items, rev, err := tr.Read(path); err == nil {
+					res["source"], res["session"], res["rev"], res["items"] = "transcript", strings.TrimSuffix(filepath.Base(path), ".jsonl"), rev, items
+				}
+			}
+		}
+		if res["source"] == nil {
+			text, err := Herdr(herdr, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200").Output()
+			if err != nil {
+				http.Error(w, fmt.Sprintf("herdr agent read: %v", err), http.StatusBadGateway)
+				return
+			}
+			h := fnv.New64a()
+			h.Write(text)
+			res["source"], res["rev"], res["text"] = "terminal", h.Sum64()>>1, string(text)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
+	})
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -222,11 +270,13 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8430", "listen address")
 	berthier := flag.String("berthier", "berthier", "path to the berthier command")
 	herdr := flag.String("herdr", "herdr", "path to the herdr command")
+	home, _ := os.UserHomeDir()
+	claude := flag.String("claude-dir", filepath.Join(home, ".claude"), "Claude Code's directory (session transcripts)")
 	every := flag.Duration("every", 2*time.Second, "how often to refresh the view model")
 	flag.Parse()
 
 	a := NewArmy()
 	go Poll(context.Background(), a, *berthier, *every)
 	log.Printf("serving the Army console on http://%s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, Handler(a, *herdr)))
+	log.Fatal(http.ListenAndServe(*addr, Handler(a, *herdr, NewTranscripts(*claude))))
 }
