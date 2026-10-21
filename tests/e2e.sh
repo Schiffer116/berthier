@@ -146,6 +146,17 @@ for _ in $(seq 30); do h agent get "$limited" >/dev/null 2>&1 && break; sleep 1;
 h agent wait "$limited" --until idle --timeout 60000 >/dev/null
 h agent rename "$limited" limited >/dev/null
 bin/berthier tick
+# More history than the screen holds, on screen, so a read that scrolls shows.
+h agent prompt limited "Print the numbers 1 to 80, one per line, nothing else." --wait --timeout 90000 >/dev/null
+h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')" >/dev/null
+sleep 1
+# The tick reads the newly idle pane for a limit stop; the user's view must not move.
+screen() { tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//'; }
+still=$(screen | md5sum) frames=$work/frames
+(for _ in $(seq 150); do screen | md5sum; sleep 0.01; done >"$frames") &
+bin/berthier tick
+wait
+grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c)"
 clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
 h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
   --wait --timeout 90000 >/dev/null

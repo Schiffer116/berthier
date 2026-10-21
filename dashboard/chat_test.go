@@ -90,14 +90,16 @@ func TestTranscriptPathFollowsTheLiveDescendantSession(t *testing.T) {
 	}
 }
 
-// fakeChatHerdr answers `agent get` with the given agent kind and session and
-// `agent read` with fixed terminal text.
+// fakeChatHerdr answers `agent get` with the given agent kind and session,
+// `pane get` with a 30-row screen and 10 rows of scrollback, and `agent read`
+// with fixed terminal text, or with its arguments past 40 lines.
 func fakeChatHerdr(t *testing.T, kind, session string) string {
 	script := filepath.Join(t.TempDir(), "herdr")
 	os.WriteFile(script, []byte(fmt.Sprintf(`#!/bin/sh
-case "$2" in
-get) echo '{"result":{"agent":{"agent":"%s","agent_status":"working","agent_session":{"value":"%s"}}}}' ;;
-read) printf 'terminal text\n' ;;
+case "$1 $2" in
+"agent get") echo '{"result":{"agent":{"agent":"%s","agent_status":"working","agent_session":{"value":"%s"}}}}' ;;
+"pane get") echo '{"result":{"pane":{"scroll":{"viewport_rows":30,"max_offset_from_bottom":10}}}}' ;;
+"agent read") [ "$7" -le 40 ] && printf 'terminal text\n' || echo "$@" ;;
 esac
 `, kind, session)), 0o755)
 	return script
