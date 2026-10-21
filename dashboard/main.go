@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -144,6 +145,27 @@ func Herdr(herdr string, args ...string) *exec.Cmd {
 	return exec.Command(herdr, args...)
 }
 
+// unscrolledLines caps a read of pane at want lines to what its screen and
+// host scrollback hold: asked for more, Herdr scrolls an idle alt-screen
+// Agent's view up and back to collect its history, and the user sees it jump.
+func unscrolledLines(herdr, pane string, want int) int {
+	var got struct {
+		Result struct {
+			Pane struct {
+				Scroll struct {
+					Rows int `json:"viewport_rows"`
+					Back int `json:"max_offset_from_bottom"`
+				}
+			}
+		}
+	}
+	out, err := Herdr(herdr, "pane", "get", pane).Output()
+	if err != nil || json.Unmarshal(out, &got) != nil || got.Result.Pane.Scroll.Rows == 0 {
+		return want
+	}
+	return min(want, got.Result.Pane.Scroll.Rows+got.Result.Pane.Scroll.Back)
+}
+
 func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +243,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 			}
 		}
 		if res["source"] == nil {
-			text, err := Herdr(herdr, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200").Output()
+			text, err := Herdr(herdr, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", strconv.Itoa(unscrolledLines(herdr, pane, 200))).Output()
 			if err != nil {
 				http.Error(w, fmt.Sprintf("herdr agent read: %v", err), http.StatusBadGateway)
 				return

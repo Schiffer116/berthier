@@ -125,7 +125,7 @@ exited_deliberately() { # session id
 }
 
 # When does the usage limit an idle Agent stopped on reset? Reads its pane's
-# tail on stdin and prints epoch seconds, or nothing unless Claude's usage-limit
+# screen on stdin and prints epoch seconds, or nothing unless Claude's usage-limit
 # stop is the last thing above the input box:
 #   ⎿  You've hit your session limit · resets 11pm (Asia/Ho_Chi_Minh)
 #   ● Usage limit reached · continuing automatically at 11pm · esc to cancel
@@ -169,7 +169,7 @@ usage_limit_reset() { # since (epoch the Agent went idle)
 # Herdr's message from its JSON error output, to stderr.
 herdr_error() { { jq -er '.error.message' <<<"$1" 2>/dev/null || printf '%s\n' "$1"; } >&2; }
 
-# Does the Claude Code input box in a pane's tail (stdin) still hold <text>,
+# Does the Claude Code input box on a pane's screen (stdin) still hold <text>,
 # unsent? Claude shows pasted image paths as [Image #n] and long pastes as
 # [Pasted text #n]; its idle suggestion matches neither nor the text.
 input_holds() { # text
@@ -204,7 +204,7 @@ prompt_agent() { # pane text
     read -r seq status < <(agent_state) || { echo "agent in $pane went away" >&2; return 1; }
     [[ $seq == "$seq0" ]] || return 0
     ((polls % 4 == 0)) || continue
-    if hd pane read "$pane" --source recent-unwrapped --lines 40 2>/dev/null | input_holds "$text"; then
+    if hd pane read "$pane" --source visible 2>/dev/null | input_holds "$text"; then
       ((tries++ < 3)) || break
       hd agent send-keys "$pane" enter >/dev/null 2>&1
     elif [[ $status == working ]]; then

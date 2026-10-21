@@ -37,7 +37,8 @@ commitments to the user, recent decisions. Update as you go; prune resolved.
 
 - Grand Army: `state/state.json`, `herdr agent list`, `herdr workspace list`;
   `herdr --skill` for the CLI.
-- Check-in: `herdr agent read <pane> --source recent-unwrapped --lines 80`.
+- Check-in: `herdr agent read <pane> --source visible` (more lines than the
+  screen make Herdr scroll the user's view of an idle Agent).
   Text after an idle `❯` is Claude Code's suggested prompt, not a user draft.
 - Nudge: `herdr agent prompt <pane> "<text>"`.
 - Speak when you end a turn needing the user:

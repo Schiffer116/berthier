@@ -40,7 +40,7 @@ func PromptAgent(herdr, pane, text string) error {
 		if polls%4 != 0 {
 			continue
 		}
-		tail, _ := Herdr(herdr, "pane", "read", pane, "--source", "recent-unwrapped", "--lines", "40").Output()
+		tail, _ := Herdr(herdr, "pane", "read", pane, "--source", "visible").Output()
 		holds := inputHolds(string(tail), text)
 		if !holds && status == "working" {
 			return nil

@@ -35,3 +35,4 @@
 - A Claude session with no messages is not saved and cannot be resumed.
 - New directories trigger Claude's folder trust dialog (Agent shows `blocked`); trusting a parent dir covers children.
 - `CLAUDE.md` `@` imports of files outside the session's cwd need interactive approval and silently drop in `claude -p`.
+- Reading an idle Claude pane for more lines than its screen holds (`pane get` `scroll`: `viewport_rows` + `max_offset_from_bottom`) makes Herdr scroll it up and back to collect history (~600ms; the user sees the TUI jump). Read `--source visible` when what you need is on screen.
