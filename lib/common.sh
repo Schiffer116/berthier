@@ -35,6 +35,8 @@ BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
+# How often prompt_agent checks that Claude took a prompt (seconds).
+BERTHIER_PROMPT_POLL=${BERTHIER_PROMPT_POLL:-0.5}
 # Claude Code's own directory: live sessions (sessions/<pid>.json) and transcripts.
 CLAUDE_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 
@@ -92,6 +94,8 @@ event() { # kind msg [fields-json]
   jq -cn --arg kind "$1" --arg msg "$2" --argjson f "${3:-"{}"}" --argjson ts "$(date +%s)" \
     '{ts: $ts, kind: $kind} + $f + {msg: $msg}' >>"$BERTHIER_LOG"
 }
+# An event's fields with why it failed added.
+with_why() { jq -c --arg w "$2" '. + {why: $w}' <<<"$1"; }
 
 # Talk to Herdr from inside or outside a Herdr pane. Inherited pane context
 # would otherwise pin us to whichever session spawned this process.
@@ -162,18 +166,96 @@ usage_limit_reset() { # since (epoch the Agent went idle)
   echo "$t"
 }
 
-# Start Claude as Agent <name> in <pane>, the Brief riding along as its first
-# prompt so it is delivered even past a folder trust dialog. Herdr's start waits
-# out that whole first turn, so a long Brief times out a healthy start and
-# leaves the Agent unnamed: name it then. Prints ready, blocked or failed.
+# Herdr's message from its JSON error output, to stderr.
+herdr_error() { { jq -er '.error.message' <<<"$1" 2>/dev/null || printf '%s\n' "$1"; } >&2; }
+
+# Does the Claude Code input box in a pane's tail (stdin) still hold <text>,
+# unsent? Claude shows pasted image paths as [Image #n] and long pastes as
+# [Pasted text #n]; its idle suggestion matches neither nor the text.
+input_holds() { # text
+  local lines=() rules=() i box key n
+  mapfile -t lines
+  for i in "${!lines[@]}"; do [[ ${lines[i]} =~ ^(─){8} ]] && rules+=("$i"); done
+  ((${#rules[@]} >= 2)) || return 1
+  box=$(printf '%s' "${lines[@]:rules[-2]+1:rules[-1]-rules[-2]-1}")
+  box=${box//[[:space:]]/} box=${box#❯}
+  [[ -n $box ]] || return 1
+  [[ $box == *"[Image#"* || $box == *"[Pastedtext#"* ]] && return 0
+  key=${1//[[:space:]]/}
+  n=$((${#key} < 24 ? ${#key} : 24))
+  ((n > 0)) && [[ $box == *"${key:0:n}"* || $box == *"${key: -n}"* ]]
+}
+
+# Prompt the Agent in <pane> and make sure Claude took it: `agent prompt` only
+# types the text and Enter, and Claude swallows that Enter while it turns pasted
+# image paths into attachments, leaving a draft. Taken once the Agent changes
+# state, or, busy, its box is empty (queued). A draft gets Enter, a lost paste
+# is sent again. On failure prints why (Herdr's message) to stderr.
+prompt_agent() { # pane text
+  local pane=$1 text=$2 seq0 seq status err polls tries=0
+  agent_state() { hd agent get "$pane" 2>/dev/null | jq -er '.result.agent | "\(.state_change_seq) \(.agent_status)"'; }
+  read -r seq0 _ < <(agent_state) || { echo "no agent in $pane" >&2; return 1; }
+  if ! err=$(hd agent prompt "$pane" "$text" 2>&1 >/dev/null); then
+    herdr_error "$err"
+    return 1
+  fi
+  for ((polls = 1; ; polls++)); do
+    sleep "$BERTHIER_PROMPT_POLL"
+    read -r seq status < <(agent_state) || { echo "agent in $pane went away" >&2; return 1; }
+    [[ $seq == "$seq0" ]] || return 0
+    ((polls % 4 == 0)) || continue
+    if hd pane read "$pane" --source recent-unwrapped --lines 40 2>/dev/null | input_holds "$text"; then
+      ((tries++ < 3)) || break
+      hd agent send-keys "$pane" enter >/dev/null 2>&1
+    elif [[ $status == working ]]; then
+      return 0
+    else
+      ((tries++ < 3)) || break
+      hd agent prompt "$pane" "$text" >/dev/null 2>&1
+    fi
+  done
+  echo "Claude in $pane did not take the prompt" >&2
+  return 1
+}
+
+# Start Claude as Agent <name> in <pane>, then send the Brief with
+# prompt_agent: Herdr refuses multi-line start arguments. Behind a startup
+# dialog (folder trust), a background waiter sends the Brief once the user
+# answers it. Prints ready, blocked or failed; why it failed goes to stderr.
 start_claude() { # name pane [brief]
-  hd agent start "$1" --kind claude --pane "$2" --timeout "$BERTHIER_START_TIMEOUT_MS" \
-    -- ${3:+"$3"} >/dev/null 2>&1 && { echo ready; return; }
-  case $(hd agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_status // ""') in
-    blocked) echo blocked ;;
-    working | idle | done | unknown) hd agent rename "$2" "$1" >/dev/null 2>&1 && echo ready || echo failed ;;
-    *) echo failed ;;
+  local err status=started
+  err=$(hd agent start "$1" --kind claude --pane "$2" --timeout "$BERTHIER_START_TIMEOUT_MS" 2>&1 >/dev/null) \
+    || status=$(hd agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_status // ""')
+  case $status in
+    blocked)
+      # Detached from our stdout, or $(start_claude) would wait for it.
+      if [[ -n ${3:-} ]]; then brief_after_dialog "$@" </dev/null >/dev/null 2>&1 & fi
+      echo blocked ;;
+    started | idle | done | working | unknown)
+      # A timed-out start leaves the Agent unnamed.
+      if [[ $status != started ]] && ! hd agent rename "$2" "$1" >/dev/null 2>&1; then echo failed; return; fi
+      if [[ -n ${3:-} ]] && ! err=$(prompt_agent "$2" "$3" 2>&1); then
+        echo "Brief not delivered: $err" >&2
+        echo failed
+        return
+      fi
+      echo ready ;;
+    *)
+      herdr_error "$err"
+      echo failed ;;
   esac
+}
+brief_after_dialog() { # name pane brief
+  local err f
+  f=$(jq -cn --arg p "$2" --arg n "$1" '{pane: $p, name: $n}')
+  if ! hd agent wait "$2" --until idle --timeout 3600000 >/dev/null 2>&1; then
+    event brief_failed "Brief for $1 ($2) not sent: Claude never got past its startup dialog" \
+      "$(with_why "$f" "startup dialog")"
+  elif err=$(prompt_agent "$2" "$3" 2>&1); then
+    event brief_sent "sent Brief to $1 ($2) after its startup dialog" "$f"
+  else
+    event brief_failed "Brief for $1 ($2) not sent after its startup dialog: $err" "$(with_why "$f" "$err")"
+  fi
 }
 
 # Is the pane sitting at a bare interactive shell, ready for `agent start`?

@@ -79,9 +79,34 @@ HERDR_PANE_ID=$helper bin/berthier ask demo "Reply with just: ack" >/dev/null
 h agent wait demo-main --until idle --timeout 60000 >/dev/null
 bin/berthier tick
 (($(logged '.kind == "delivered" and .pane == $p and .from == "helper" and .to == "demo"' "$pane"))) || fail "ask not delivered"
-h agent wait demo-main --until idle --timeout 90000 >/dev/null
+h agent wait demo-main --timeout 90000 >/dev/null
 h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier ask\] from helper' || fail "ask not in demo-main's pane"
-[[ -z $(ls "$BERTHIER_HOME/inbox") ]] || fail "delivered ask left in the inbox"
+# The Agent may answer with an ask of its own, to helper.
+grep -qsF '"to":"demo"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered ask left in the inbox"
+
+step "an ask naming oversized screenshots is submitted, not left as a draft"
+# Claude resizes big images while it pastes their paths and drops the Enter
+# that arrives meanwhile (2026-10-21, skipli).
+python3 - "$work" <<'PY'
+import struct, sys, zlib
+w = h = 2400
+raw = b"".join(b"\0" + bytes((x + y) % 256 for x in range(w * 3)) for y in range(h))
+chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) \
+    + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+for i in range(4):
+    open(f"{sys.argv[1]}/shot{i}.png", "wb").write(png)
+PY
+mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+HERDR_PANE_ID=$helper bin/berthier ask demo "Screenshots: $work/shot0.png $work/shot1.png $work/shot2.png $work/shot3.png. Reply with just: seen" >/dev/null
+bin/berthier tick
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "delivered" and .pane == $p and .from == "helper" and .to == "demo"' "$pane" "$work/since"))) \
+  || fail "image ask not delivered: $(cat "$work/since")"
+h agent wait demo-main --timeout 90000 >/dev/null
+# Claude lists a sent prompt's images under it; a draft only shows [Image #n].
+h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '⎿.*\[Image #' \
+  || fail "image ask not submitted: $(h pane read "$pane" --source recent-unwrapped --lines 60)"
 
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
@@ -153,12 +178,13 @@ h agent get "$pane" >/dev/null 2>&1 && fail "deliberately exited agent was reviv
 jq -e --arg p "$pane" '.agents[$p] == null' "$BERTHIER_HOME/state.json" >/dev/null || fail "exited agent still tracked"
 
 step "division-new spawns a worktree Division; division-done removes it"
-# A Brief whose first turn outlasts the start timeout must still read as started and named.
-out=$(BERTHIER_WORKSPACE="$ws" BERTHIER_START_TIMEOUT_MS=20000 bin/berthier division-new "Dark Mode" \
-  "Run this one bash command in the foreground with timeout 120000ms: for i in \$(seq 40); do echo \$i; sleep 1; done")
+# Herdr refuses a multi-line Brief as a start argument; it goes as a prompt.
+out=$(BERTHIER_WORKSPACE="$ws" bin/berthier division-new "Dark Mode" $'Reply with just: first\nThen, on its own line: second')
 echo "$out"
 [[ $out == *" started: "* ]] || fail "division-new misreported its start"
 h agent get demo-dark-mode >/dev/null 2>&1 || fail "division agent left unnamed"
+h agent wait demo-dark-mode --timeout 90000 >/dev/null
+h agent read demo-dark-mode --source recent-unwrapped --lines 40 | grep -q '^  second' || fail "multi-line Brief not answered"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode")' >/dev/null || fail "division workspace missing"
 bin/berthier tick
 jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \

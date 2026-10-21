@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,16 +84,6 @@ func TestServesPage(t *testing.T) {
 	}
 }
 
-// fakeHerdr writes a script that logs its args one per line and exits with
-// the given status.
-func fakeHerdr(t *testing.T, status int) (script, log string) {
-	dir := t.TempDir()
-	log = filepath.Join(dir, "args")
-	script = filepath.Join(dir, "herdr")
-	os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" >%s\necho herdr says no >&2\nexit %d\n", log, status)), 0o755)
-	return script, log
-}
-
 const promptArmy = `{"corps":[{"agents":[{"pane_id":"wA:p1"}],"divisions":[{"agents":[{"pane_id":"wB:p1"}]}]}],
 	"berthier":{"pane_id":"wC:p1"},"berthier_divisions":[{"agents":[{"pane_id":"wD:p1"}]}]}`
 
@@ -107,7 +96,7 @@ func postPrompt(t *testing.T, url, ctype, body string) *http.Response {
 }
 
 func TestPromptSendsToKnownAgents(t *testing.T) {
-	herdr, args := fakeHerdr(t, 0)
+	herdr, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 	srv := httptest.NewServer(Handler(a, herdr, nil))
@@ -120,15 +109,18 @@ func TestPromptSendsToKnownAgents(t *testing.T) {
 		if res := postPrompt(t, srv.URL, "application/json", string(body)); res.StatusCode != http.StatusNoContent {
 			t.Fatalf("%s: status %d", pane, res.StatusCode)
 		}
-		got, _ := os.ReadFile(args)
-		if want := "agent\nprompt\n" + pane + "\n" + text + "\n"; string(got) != want {
-			t.Fatalf("%s: herdr args %q, want %q", pane, got, want)
+		calls, _ := os.ReadFile(filepath.Join(dir, "calls"))
+		if !strings.Contains(string(calls), "agent prompt "+pane+" ") {
+			t.Fatalf("%s: herdr calls %q", pane, calls)
+		}
+		if got, _ := os.ReadFile(filepath.Join(dir, "text")); string(got) != text {
+			t.Fatalf("%s: prompted %q, want %q", pane, got, text)
 		}
 	}
 }
 
 func TestPromptUsesBerthierSession(t *testing.T) {
-	herdr, args := fakeHerdr(t, 0)
+	herdr, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 	srv := httptest.NewServer(Handler(a, herdr, nil))
@@ -138,13 +130,13 @@ func TestPromptUsesBerthierSession(t *testing.T) {
 	if res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"go"}`); res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	if got, _ := os.ReadFile(args); string(got) != "--session\nscratch\nagent\nprompt\nwA:p1\ngo\n" {
-		t.Fatalf("herdr args %q", got)
+	if calls, _ := os.ReadFile(filepath.Join(dir, "calls")); !strings.Contains(string(calls), "--session scratch agent prompt wA:p1 go\n") {
+		t.Fatalf("herdr calls %q", calls)
 	}
 }
 
 func TestPromptRejects(t *testing.T) {
-	herdr, args := fakeHerdr(t, 0)
+	herdr, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 	srv := httptest.NewServer(Handler(a, herdr, nil))
@@ -164,13 +156,13 @@ func TestPromptRejects(t *testing.T) {
 			t.Errorf("%s: status %d, want %d", c.name, res.StatusCode, c.status)
 		}
 	}
-	if _, err := os.Stat(args); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "calls")); err == nil {
 		t.Fatal("herdr ran for a rejected prompt")
 	}
 }
 
 func TestPromptReportsHerdrFailure(t *testing.T) {
-	herdr, _ := fakeHerdr(t, 1)
+	herdr, _ := fakeClaude(t, "error")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 	srv := httptest.NewServer(Handler(a, herdr, nil))
@@ -178,7 +170,7 @@ func TestPromptReportsHerdrFailure(t *testing.T) {
 
 	res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"hi"}`)
 	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "herdr says no") {
+	if res.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "agent target x not found") {
 		t.Fatalf("status %d body %q", res.StatusCode, body)
 	}
 }
