@@ -96,20 +96,20 @@ done < <(actions rename '[.pane_id, .name, .session_id]')
 
 # --- Usage limits: nudge an Agent on once its limit has reset.
 while IFS=$'\t' read -r pane name && IFS= read -r ev; do
-  if hd agent prompt "$pane" "$BERTHIER_LIMIT_PROMPT" >/dev/null 2>&1; then
+  if err=$(prompt_agent "$pane" "$BERTHIER_LIMIT_PROMPT" 2>&1); then
     event resumed "resumed $name in $pane: usage limit reset" "$ev"
   else
-    event resume_failed "resume failed: $name in $pane (usage limit reset)" "$ev"
+    event resume_failed "resume failed: $name in $pane (usage limit reset): $err" "$(with_why "$ev" "$err")"
   fi
 done < <(actions resume '[.pane_id, .name]')
 
 # --- Deliver asks; a delivered ask leaves the inbox.
 while IFS=$'\t' read -r id pane from to text && IFS= read -r ev; do
-  if hd agent prompt "$pane" "$text" >/dev/null 2>&1; then
+  if err=$(prompt_agent "$pane" "$text" 2>&1); then
     rm -f "$BERTHIER_INBOX/$id.json"
     event delivered "delivered ask $from -> $to ($pane)" "$ev"
   else
-    event delivery_failed "ask delivery failed: $from -> $to ($pane), ask $id" "$ev"
+    event delivery_failed "ask delivery failed: $from -> $to ($pane), ask $id: $err" "$(with_why "$ev" "$err")"
   fi
 done < <(actions deliver '[.id, .pane_id, .from, .to, .text]')
 
@@ -125,7 +125,7 @@ while IFS= read -r group; do
   if [[ $to == - ]]; then target=$berthier msg="[berthier-loop] Army events:"
   else target=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
-  if [[ -n $target ]] && hd agent prompt "$target" "$msg" >/dev/null 2>&1; then
+  if [[ -n $target ]] && prompt_agent "$target" "$msg" 2>/dev/null; then
     for i in "${!lines[@]}"; do
       event escalated "escalated $(jq -r .why <<<"${evs[i]}") to $who: ${lines[i]}" "${evs[i]}"
     done

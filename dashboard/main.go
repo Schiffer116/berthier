@@ -180,10 +180,9 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 			http.Error(w, "no such agent: "+req.Pane, http.StatusNotFound)
 			return
 		}
-		out, err := Herdr(herdr, "agent", "prompt", req.Pane, req.Text).CombinedOutput()
-		if err != nil {
-			log.Printf("herdr agent prompt %s: %v: %s", req.Pane, err, out)
-			http.Error(w, fmt.Sprintf("herdr agent prompt: %v: %s", err, bytes.TrimSpace(out)), http.StatusBadGateway)
+		if err := PromptAgent(herdr, req.Pane, req.Text); err != nil {
+			log.Printf("prompt %s: %v", req.Pane, err)
+			http.Error(w, "prompt: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 		log.Printf("prompted %s (%d bytes)", req.Pane, len(req.Text))

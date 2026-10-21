@@ -29,7 +29,7 @@ def log_entry:
   | ({loop_started: "loop", loop_stopped: "loop", loop_recovered: "loop", loop_error: "error",
       revived: "revive", revive_failed: "revive", revive_skipped: "revive", forgot: "forget",
       spoke: "speak", speak_failed: "speak", escalated: "escal", notified: "escal", unreachable: "escal",
-      delivered: "ask", delivery_failed: "ask", adopted: "army", renamed: "army", rename_failed: "army",
+      delivered: "ask", delivery_failed: "ask", adopted: "army", brief_sent: "army", brief_failed: "army", renamed: "army", rename_failed: "army",
       limit_stop: "limit", resumed: "limit", resume_failed: "limit"}[$k] // "other") as $tag
   | . + {at: .ts, tag: $tag, text: .msg, label: (if $tag == "other" then "info" else $tag end)};
 
