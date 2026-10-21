@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Berthier console</title>
 <meta name="theme-color" content="#141A22">
 <meta name="color-scheme" content="dark">
@@ -54,9 +54,11 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 /* Stacked, the Grand Army list grows with its rows up to most of the screen. */
 @media (max-width: 1099px) {
   .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 85vh; }
+  /* The conversation gets a whole screen (dvh follows the browser bars, the installed app and the on-screen keyboard). */
+  @supports (height: 100dvh) { .top { grid-template-rows: auto calc(100dvh - var(--sat) - var(--sab)); } }
   .top > #army { min-height: 260px; max-height: 75vh; }
   .top > #army .scroll { flex: 1 1 auto; }
-  #det { max-height: 35%; }
+  #det { max-height: 30%; }
 }
 /* Logs open from the top bar in a drawer over the page, never moving it. */
 .logs { display: flex; gap: 6px; }
@@ -77,12 +79,17 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .ph .end { display: inline-flex; align-items: center; gap: 12px; }
 .x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
 .x:hover { color: var(--bright); }
-/* One bar per Corps with a weekly budget: its use of the account's seven-day quota against its allowance. */
-#budget { padding: 6px 12px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 20px; }
-#budget[hidden] { display: none; }
-.bud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; color: var(--muted); font-size: 12px; }
+/* Quota usage: the account's 5h and 7d windows, then every Corps's share of the week (a budget, where set, as its allowance). */
+#usage { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+#usage[hidden] { display: none; }
+#usage summary { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 6px 12px; min-height: 32px; align-items: center; cursor: pointer; }
+#usage summary h2 { display: inline; }
+#usage .body { padding: 0 12px 8px; display: grid; gap: 8px; }
+#usage .win, #usage .cs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 20px; }
+.bud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; }
 .bud .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; }
+.bud .sub { grid-column: 1 / -1; color: var(--dim); }
+.bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; margin: 2px 0; }
 .bud .fill { position: absolute; inset: 0 auto 0 0; }
 .bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
@@ -236,7 +243,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
             </label>
           </div>
         </div>
-        <div id="budget" aria-label="weekly quota budgets" hidden></div>
+        <details id="usage" aria-label="quota usage" open hidden></details>
         <div class="scroll">
           <div class="table">
             <div class="grid thead" aria-hidden="true"><span></span><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
@@ -388,20 +395,38 @@ function renderHeader(all) {
     + (divs ? ` · ${divs} division${divs === 1 ? '' : 's'}` : '') + (army.berthier ? ' + berthier' : '');
 }
 
-// A bar per Corps with a budget; the tick marks the share of the allowance at which its Main Agent is told.
+// Quota usage: the account's 5h and 7d windows and every Corps's share of the
+// week. With a budget the bar is the share of the allowance (the tick marks
+// where its Main Agent is told); without, the share of the week.
 function renderBudget() {
-  const b = army.budget, corps = (b?.corps || []).filter((c) => c.allowance != null);
-  $('budget').hidden = !corps.length;
+  const b = army.budget, el = $('usage');
+  const corps = b?.corps || [], five = b?.five_hour;
+  el.hidden = !(five || b?.week_pct != null || corps.length);
+  if (el.hidden) return;
+  if (!el.dataset.seen) { el.dataset.seen = '1'; el.open = !matchMedia('(max-width: 699px)').matches; } // compact on phones
   const pct = (n) => (Math.round(n * 10) / 10) + '%';
-  $('budget').innerHTML = corps.map((c) => {
-    const warn = b.warn / 100, color = c.ratio >= 1 ? C.red : c.ratio >= warn ? C.accent : C.green;
-    const title = `${c.name}: ${pct(c.used)} of the week used, budget ${pct(c.allowance)}${c.ratio >= 1 ? ' · Revives, resumes and asks held' : ''}`;
-    return `<div class="bud" title="${esc(title)}" role="meter" aria-label="${esc(c.name)} weekly budget" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.ratio * 100)}">
-      <span class="name">${esc(c.name)}</span>
-      <span style="color: ${color}">${pct(c.used)} / ${pct(c.allowance)}</span>
-      <span class="track"><span class="fill" style="width: ${Math.min(100, c.ratio * 100)}%; background: ${color}"></span><span class="warn" style="left: ${b.warn}%"></span></span>
-    </div>`;
+  const until = (t) => {
+    if (t == null) return 'reset time unknown';
+    const s = Math.max(0, Math.floor(t - now())), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return `resets in ${h >= 24 ? Math.floor(h / 24) + 'd ' + (h % 24) + 'h' : h ? h + 'h ' + m + 'm' : m + 'm'} · ${sameDay(t) ? '' : day(t) + ' '}${clock(t, false)}`;
+  };
+  const bar = (name, text, ratio, color, sub, label, warn) => `<div class="bud" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}">
+      <span class="name">${esc(name)}</span><span style="color: ${color}">${text}</span>
+      <span class="track"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>
+      ${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
+  const level = (p) => p >= 90 ? C.red : p >= 70 ? C.accent : C.green;
+  const win = (name, p, t) => p == null ? '' : bar(name, pct(p), p / 100, level(p), until(t), `${name} account quota`);
+  const rows = corps.map((c) => {
+    if (c.allowance == null) {
+      return bar(c.name, `${pct(c.used)} of week`, c.used / 100, C.blue, null, `${c.name} share of the week`);
+    }
+    const color = c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
+    return bar(c.name, `${pct(c.used)} / ${pct(c.allowance)} · ${Math.round(c.ratio * 100)}%`, c.ratio, color,
+      c.ratio >= 1 ? 'budget spent · Revives, resumes and asks held' : null, `${c.name} weekly budget`, b.warn);
   }).join('');
+  el.innerHTML = `<summary><h2>QUOTA</h2>${five ? `<span>5h ${pct(five.pct)}</span>` : ''}${b.week_pct != null ? `<span>7d ${pct(b.week_pct)}</span>` : ''}</summary>
+    <div class="body"><div class="win">${win('5h', five?.pct, five?.resets_at)}${win('7d', b.week_pct, b.resets_at)}</div>
+    ${rows ? `<div class="cs">${rows}</div>` : ''}</div>`;
 }
 
 function renderRows(rows) {
@@ -723,6 +748,8 @@ const select = (e) => {
   ui.sel = b.dataset.pane;
   history.replaceState(null, '', '#' + ui.sel);
   render();
+  // Stacked, the conversation is below the list: bring it up.
+  if (b.closest('#rows') && matchMedia('(max-width: 1099px)').matches) $('detail').scrollIntoView({ block: 'start' });
 };
 $('rows').addEventListener('click', select);
 $('det').addEventListener('click', select);
