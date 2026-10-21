@@ -35,7 +35,7 @@ def new_window($r):
        else $r.week_pct < .week_pct end);
 
 def rise($amt):
-  (.acc | to_entries) as $a
+  ((.acc // {}) | to_entries) as $a
   | ([$a[].value] | add // 0) as $total
   | (if $total > 0
      then reduce $a[] as $e (.; .by_corps[.sessions[$e.key].corps] += $amt * $e.value / $total)
@@ -56,7 +56,8 @@ def step($r; $map):
 
 # $usage (or {}) folded over $rows, in ledger order; sessions idle for two weeks forgotten.
 def fold($rows; $map; $offset):
-  reduce $rows[] as $r (.; step($r; $map))
+  (.acc //= {}) | (.by_corps //= {}) | (.sessions //= {})
+  | reduce $rows[] as $r (.; step($r; $map))
   | (([$rows[].ts] | max) // 0) as $latest
   | .sessions |= with_entries(select(.value.ts > $latest - 1209600))
   | .offset = $offset;

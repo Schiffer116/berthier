@@ -244,6 +244,7 @@ o=$(tick "$prev" "$(snap "$W" '[]' '[]')" 1010)
 check "no main agent: berthier hears" "$(jq -c '.escalate | map([.key, .to, .ev.to])' <<<"$o")" '[["budget_warn:skipli:9000",null,"berthier"]]'
 check "a division's use counts for its corps" "$(USAGE=$(used 8 0) tick "$prev" "$sb" 1010 | jq -c '.escalate | map(.ev.corps)')" '["skipli"]'
 check "expired week counts for nothing" "$(USAGE=$(used 20 20 | jq -c '.resets_at = 1000') tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events, .revive]')" '[[],[],[],[]]'
+check "baseline-only usage is quiet" "$(USAGE='{"week_pct":73,"resets_at":null,"sessions":{}}' tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events]')" '[[],[],[]]'
 check "no budget set, no event" "$(USAGE=$(used 20 20) BUDGETS='{}' tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events]')" '[[],[],[]]'
 
 # At 100%: logged and spoken once, no warning on top.

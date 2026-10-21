@@ -75,6 +75,18 @@ b budget >/dev/null
 check "unmapped and unexplained go to other" "$(jq -c '.by_corps.other * 1000 | round / 1000' "$home/usage.json")" '4'
 check "folded rows are not folded twice" "$(b budget >/dev/null; jq -c '.by_corps.skipli * 1000 | round / 1000' "$home/usage.json")" '4.143'
 
+# --- A baseline-only record (first row, no rise yet) folds on and shows.
+base=$(mktemp -d)
+cp "$home/state.json" "$home/divisions.json" "$base/"
+status r1 /r/dot 1 73 null | BERTHIER_HOME="$base" bin/berthier sample
+check "baseline-only shows" "$(BERTHIER_HOME="$base" bin/berthier budget | head -1)" 'week resets at an unknown time, account at 73%'
+echo '{"agents": {}}' >"$base/state.json"
+check "baseline-only view in army" "$(BERTHIER_HOME="$base" bin/berthier army | jq -c '.budget | [.week_pct, .corps]')" '[73,[]]'
+cp "$home/state.json" "$base/"
+status r1 /r/dot 2 74 null | BERTHIER_HOME="$base" bin/berthier sample
+check "rise after a baseline-only record" "$(BERTHIER_HOME="$base" bin/berthier budget >/dev/null; jq -c '.by_corps' "$base/usage.json")" '{"dotfiles":1}'
+rm -rf "$base"
+
 # --- A new window starts over.
 sample a /r/skipli 7 3 1900000000
 b budget >/dev/null
