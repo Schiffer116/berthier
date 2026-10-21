@@ -77,8 +77,9 @@ actions() { jq -r ".$1[] | ($2 | @tsv), (.ev | tojson)" <<<"$out"; }
 
 # --- Revive: resume the gone session in the pane it died in.
 while IFS=$'\t' read -r pane name sid && IFS= read -r ev; do
+  model=$(division_model "$(jq -r --arg p "$pane" '.state.agents[$p].workspace_label // ""' <<<"$out")")
   if hd agent start "$name" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
-       -- --resume "$sid" >/dev/null 2>&1; then
+       -- --resume "$sid" ${model:+--model "$model"} >/dev/null 2>&1; then
     event revived "revived $name in $pane (session $sid)" "$ev"
   else
     event revive_failed "revive failed: $name in $pane (session $sid)" "$ev"

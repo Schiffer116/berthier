@@ -179,13 +179,23 @@ jq -e --arg p "$pane" '.agents[$p] == null' "$BERTHIER_HOME/state.json" >/dev/nu
 
 step "division-new spawns a worktree Division; division-done removes it"
 # Herdr refuses a multi-line Brief as a start argument; it goes as a prompt.
-out=$(BERTHIER_WORKSPACE="$ws" bin/berthier division-new "Dark Mode" $'Reply with just: first\nThen, on its own line: second')
+out=$(BERTHIER_WORKSPACE="$ws" bin/berthier division-new "Dark Mode" --model haiku $'Reply with just: first\nThen, on its own line: second')
 echo "$out"
 [[ $out == *" started: "* ]] || fail "division-new misreported its start"
 h agent get demo-dark-mode >/dev/null 2>&1 || fail "division agent left unnamed"
 h agent wait demo-dark-mode --timeout 90000 >/dev/null
 h agent read demo-dark-mode --source recent-unwrapped --lines 40 | grep -q '^  second' || fail "multi-line Brief not answered"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode")' >/dev/null || fail "division workspace missing"
+jq -e '.["dark-mode"].model == "haiku"' "$BERTHIER_HOME/divisions.json" >/dev/null || fail "division model not recorded"
+dpane=$(h agent get demo-dark-mode | jq -r '.result.agent.pane_id')
+model_of() { tr '\0' ' ' <"/proc/$(claude_pid "$dpane")/cmdline"; }
+[[ $(model_of) == *"--model haiku"* ]] || fail "division not running --model haiku: $(model_of)"
+bin/berthier tick
+kill -KILL "$(claude_pid "$dpane")"
+sleep 3
+bin/berthier tick
+for _ in $(seq 30); do claude_pid "$dpane" 2>/dev/null | grep -q . && break; sleep 1; done
+[[ $(model_of) == *"--resume"*"--model haiku"* ]] || fail "revived division lost its model: $(model_of)"
 bin/berthier tick
 jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "state does not show the division under demo"
