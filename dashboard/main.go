@@ -1,9 +1,9 @@
-// berthier-dashboard serves the Army view model (`berthier army`) as a live
-// console page. It holds no state and no logic of its own: it polls the command
-// and pushes each change to open pages over server-sent events. The one write
-// is POST /api/prompt, which sends the user's text to a known Agent; GET
-// /api/chat shows that Agent's conversation (chat.go). app.go makes the page
-// an installable app.
+// berthier-dashboard serves the Grand Army view model (`berthier army`) as a
+// live console page. It holds no state and no logic of its own: it polls the
+// command and pushes each change to open pages over server-sent events. The one
+// write is POST /api/prompt, which sends the user's text to a known Agent; GET
+// /api/chat shows that Agent's conversation (chat.go). app.go makes the page an
+// installable app.
 package main
 
 import (
@@ -129,8 +129,8 @@ func (a *Army) Panes() map[string]bool {
 	return panes
 }
 
-// Herdr runs `herdr` against the Army's session (BERTHIER_HERDR_SESSION, as
-// lib/common.sh's hd does).
+// Herdr runs `herdr` against the Grand Army's session (BERTHIER_HERDR_SESSION,
+// as lib/common.sh's hd does).
 func Herdr(herdr string, args ...string) *exec.Cmd {
 	if s := os.Getenv("BERTHIER_HERDR_SESSION"); s != "" {
 		cmd := exec.Command(herdr, append([]string{"--session", s}, args...)...)
@@ -282,6 +282,6 @@ func main() {
 
 	a := NewArmy()
 	go Poll(context.Background(), a, *berthier, *every)
-	log.Printf("serving the Army console on http://%s", *addr)
+	log.Printf("serving the Grand Army console on http://%s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, Handler(a, *herdr, NewTranscripts(*claude))))
 }

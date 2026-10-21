@@ -1,7 +1,7 @@
 # Pure decision core of the Main Loop.
 #
 # Inputs (all via --argjson):
-#   $prev  previous Army State ({} on first run)
+#   $prev  previous Grand Army State ({} on first run)
 #   $snap  `herdr api snapshot` .result.snapshot
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, division_settle, revive_max,
@@ -19,8 +19,8 @@
 # the caller logs for its outcome.
 # A decision that needs a pane read waits: the pane is listed under look
 # ({pane_id, session_id, want: [exited, at_shell, limit_reset]}) and the caller
-# runs this again with $obs. This program alone writes the Army State; the caller
-# performs the actions and never touches the state.
+# runs this again with $obs. This program alone writes the Grand Army State; the
+# caller performs the actions and never touches the state.
 
 include "names";
 # Berthier is whichever agent runs in Berthier's own repository.
@@ -33,7 +33,7 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
 
 ($ARGS.named.obs // {}) as $obs
-# Herdr's own workspace order, which every view of the Army follows.
+# Herdr's own workspace order, which every view of the Grand Army follows.
 | ($snap.workspaces // [] | sort_by(.number // 0)) as $workspaces
 | ($workspaces | map({key: .workspace_id, value: .}) | from_entries) as $ws
 | ($snap.panes // [] | map(.pane_id)) as $pane_ids
@@ -294,7 +294,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     path: (.worktree.checkout_path // null),
     agents: ($by_ws[.workspace_id] // [])})) as $berthier_divisions
 
-# --- The Army State: what was decided above, recorded.
+# --- The Grand Army State: what was decided above, recorded.
 | ($agents
    | reduce $limit_read[] as $e (.; .[$e.key].limit = $e.value.limit)
    | reduce $reviving[] as $p (.; .[$p].revive_attempts += 1 | .[$p].last_revive_at = $now)

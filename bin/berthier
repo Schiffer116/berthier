@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# berthier - multi-step Army conventions as deterministic commands.
+# berthier - multi-step Grand Army conventions as deterministic commands.
 set -euo pipefail
 
 root=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
@@ -17,8 +17,8 @@ ask <corps> "<request>"             (any Agent) request work from another Corps,
 owners                              who owns what, to know whom to ask
 counts                              Agent count per status plus reports, as JSON for status bars
 log [-n lines] [-f]                 the Main Loop's event log, readable
-army                                the full Army view model as JSON (Corps, Divisions, Agents, asks, log)
-dashboard [server args]             serve the live Army console on 127.0.0.1:8430
+army                                the full Grand Army view model as JSON (Corps, Divisions, Agents, asks, log)
+dashboard [server args]             serve the live Grand Army console on 127.0.0.1:8430
 hook-stop                           Claude Code Stop hook: no turn ends without a report
 tick                                run one Main Loop pass
 loop                                run the Main Loop forever

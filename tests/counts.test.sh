@@ -29,9 +29,9 @@ check "fresh counts" "$(counts | jq -c 'del(.report)')" '{"available":true,"work
 mkdir -p "$home/reports"
 echo '{"line": "building offline sync"}' >"$home/reports/s-a.json"
 echo '{"line": "Needs you: push main?"}' >"$home/reports/s-c.json"
-echo '{"line": "watching the Army"}' >"$home/reports/s-b.json"
+echo '{"line": "watching the Grand Army"}' >"$home/reports/s-b.json"
 echo '{"line": "an old session"}' >"$home/reports/s-gone.json"
-check "report" "$(counts | jq -r .report)" $'dark-mode: needs you - no report yet\ndotfiles: needs you - push main?\nberthier: idle - watching the Army\nskipli: working - building offline sync'
+check "report" "$(counts | jq -r .report)" $'dark-mode: needs you - no report yet\ndotfiles: needs you - push main?\nberthier: idle - watching the Grand Army\nskipli: working - building offline sync'
 
 # --- army: the full view model behind counts and the dashboard.
 army() { BERTHIER_HOME=$home bin/berthier army; }
@@ -57,7 +57,7 @@ check "army escalations 7d" "$(army | jq -c '.escalations | map([.label, .to, .w
   '[["ask stuck","berthier","skipli → notes","undelivered 31m"],["pingpong","berthier","dotfiles ⇄ skipli","10 back-and-forths in the last hour"],["blocked","skipli","dark-mode d:p1","blocked 3m on an approval or question"],["blocked","you","berthier b:p1","blocked 2m on an approval or question"],["speak","you","skipli","skipli is waiting on you."]]'
 check "army revive max" "$(army | jq -c .loop.revive_max)" '3'
 check "army asks" "$(army | jq -c '.asks | map([.id, .to])')" '[["7-skipli","dotfiles"]]'
-check "army berthier" "$(army | jq -c '.berthier | [.who, .report]')" '["berthier","watching the Army"]'
+check "army berthier" "$(army | jq -c '.berthier | [.who, .report]')" '["berthier","watching the Grand Army"]'
 check "army units without an order" "$(army | jq -c '.units | map([.kind, .name])')" '[["corps","skipli"],["corps","dotfiles"],["berthier","berthier"]]'
 # Herdr's order: Berthier's workspace first here, Divisions sorted under their Corps.
 jq '.order = ["wb", "wc", "wa", "we", "wd"] | .corps[0].workspace_id = "wa" | .corps[1].workspace_id = "wc"

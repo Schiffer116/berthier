@@ -7,7 +7,7 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 [[ $# -eq 2 && -n $2 ]] || die 'usage: berthier ask <corps> "<what you need and why>"'
 pane=${HERDR_PANE_ID:-}
 [[ -n $pane ]] || die "run this from an Agent's Herdr pane (no HERDR_PANE_ID)"
-[[ -s $BERTHIER_STATE ]] || die "no Army state yet; is berthier-loop running?"
+[[ -s $BERTHIER_STATE ]] || die "no Grand Army State yet; is berthier-loop running?"
 
 to=$(corps_name "$1")
 names=$(jqn -r '.berthier as $b | [.agents | to_entries[] | select(.value.status != "gone")
