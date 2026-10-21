@@ -198,7 +198,7 @@ usage_update() {
     if ((size > offset)); then
       rows=$(tail -c "+$((offset + 1))" "$BERTHIER_LEDGER" | head -c "$((size - offset))")
       map=$(jqn -c --argjson d "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
-        'include "usage"; path_map(.; $d)' <"$BERTHIER_STATE" 2>/dev/null) || map='[]'
+        'include "usage"; path_map(.; $d)' < <(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}')) || map='[]'
       if ((size > BERTHIER_LEDGER_MAX)); then
         mv "$BERTHIER_LEDGER" "$BERTHIER_LEDGER.prev"
         moved=1

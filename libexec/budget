@@ -38,7 +38,7 @@ jq -rn --argjson usage "$usage" --argjson budgets "$(cat "$BERTHIER_BUDGETS" 2>/
   def pct: if . == null then "-" else "\(. * 10 | round / 10)%" end;
   (usage_view($usage; $budgets; $now)) as $v
   | if $v.week_pct == null then "no quota samples yet: wire `berthier sample` into the status line"
-    else "week resets \($v.resets_at // 0 | strflocaltime("%a %d %b %H:%M")), account at \($v.week_pct | pct)" end,
+    else "week resets \(if $v.resets_at then ($v.resets_at | strflocaltime("%a %d %b %H:%M")) else "at an unknown time" end), account at \($v.week_pct | pct)" end,
     (["corps", "used", "budget", "of budget"], ($v.corps[] | [.name, (.used | pct), (.allowance | pct),
        (if .allowance then "\(.ratio * 100 | round)%" else "-" end)]) | @tsv)' \
   | { IFS= read -r head; echo "$head"; column -t -s $'\t'; }
