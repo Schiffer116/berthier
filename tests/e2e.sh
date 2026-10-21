@@ -109,6 +109,33 @@ since=$(tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log")
 grep -q revive <<<"$since" && fail "Revive attempted after restart: $since"
 grep -q "restored name typed in $typed" <<<"$since" || fail "name restore not logged"
 
+step "an Agent stopped on its usage limit is nudged once the limit has reset"
+# Haiku plays the stop (Claude renders the line as a real one); without hooks,
+# so the Stop hook's report does not become its last output.
+limited=$(h workspace create --cwd "$repo" --label limited --no-focus | jq -re '.result.root_pane.pane_id')
+h pane run "$limited" "claude --model haiku --settings '{\"disableAllHooks\": true}'" >/dev/null
+for _ in $(seq 30); do h agent get "$limited" >/dev/null 2>&1 && break; sleep 1; done
+h agent wait "$limited" --until idle --timeout 60000 >/dev/null
+h agent rename "$limited" limited >/dev/null
+bin/berthier tick
+clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
+h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
+  --wait --timeout 90000 >/dev/null
+bin/berthier tick
+grep -q "usage limit: limited in $limited stopped until" "$BERTHIER_HOME/loop.log" \
+  || fail "usage-limit stop not detected: $(h pane read "$limited" --source recent-unwrapped --lines 200 | grep -v "^\s*$")"
+bin/berthier tick
+grep -q "resumed limited in $limited: usage limit reset" "$BERTHIER_HOME/loop.log" || fail "limited agent not resumed: $(tail -5 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$limited" ".agents[\$p]" "$BERTHIER_HOME/state.json")"
+for _ in $(seq 30); do
+  h pane read "$limited" --source recent-unwrapped --lines 200 | grep -qF "The usage limit has reset. Continue exactly" && break
+  sleep 1
+done
+h pane read "$limited" --source recent-unwrapped --lines 200 | grep -qF "The usage limit has reset. Continue exactly" \
+  || fail "resume prompt not in the pane"
+bin/berthier tick
+bin/berthier tick
+[[ $(grep -c "resumed limited in $limited" "$BERTHIER_HOME/loop.log") == 1 ]] || fail "resumed more than once"
+
 step "a deliberate /exit must not be Revived"
 h agent wait "$pane" --timeout 60000 >/dev/null
 h pane send-text "$pane" "/exit" >/dev/null

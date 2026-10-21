@@ -6,12 +6,12 @@
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, division_settle, revive_max,
 #           revive_backoff, revive_reset, escalation_ttl, speak_after,
-#           ask_stuck, pingpong_max}
+#           ask_stuck, pingpong_max, limit_grace, limit_retry}
 #   $divisions {division name: {corps: label, worktree: bool}} (division-new, adopt)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
 #
-# Output: {state, vanished: [...], revive: [...], rename: [...], escalate: [...], notify: [...],
-#          speak: [...], deliver: [...]}
+# Output: {state, vanished: [...], revive: [...], rename: [...], limit_check: [...],
+#          resume: [...], escalate: [...], notify: [...], speak: [...], deliver: [...]}
 # The caller performs the actions; this program never touches the world.
 
 include "names";
@@ -51,6 +51,12 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
         tab_id: $a.tab_id,
         cwd: $a.cwd,
         title: $a.terminal_title_stripped,
+        # Herdr bumps it on every status change, even a turn between two ticks.
+        state_seq: $a.state_change_seq,
+        # The caller's reading of an idle episode for a usage-limit stop:
+        # {episode, since, reset_at, resumed}; reset_at null means no limit stop.
+        limit: $p.limit,
+        limit_resumed_at: $p.limit_resumed_at,
         revive_attempts: (if ($p.last_revive_at // 0) > ($now - $cfg.revive_reset)
                           then ($p.revive_attempts // 0) else 0 end),
         last_revive_at: $p.last_revive_at
@@ -103,6 +109,25 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     | select($v.name as $n | $taken | index($n) | not)
     | {pane_id, name: $v.name, session_id: $v.session_id}
   )) as $rename
+
+# --- Usage limits: Claude often never continues by itself once its limit
+# resets. Read each idle episode's pane once for a limit stop; once the limit
+# has reset, nudge it once per episode, and never twice within limit_retry.
+| ($live | to_entries
+   | map(select(.value.status == "idle" or .value.status == "done")
+         | .value.episode = "\(.value.state_seq):\(.value.status_since)"))
+  as $idle
+| ($idle | map(select(.value.limit.episode != .value.episode)
+    | {pane_id: .key, name: (.value.name // fallback_name(.key)), episode: .value.episode}))
+  as $limit_check
+| ($idle | map(
+    .value as $v
+    | select($v.limit.episode == $v.episode and $v.limit.reset_at != null
+             and ($v.limit.resumed | not)
+             and $now >= $v.limit.reset_at + $cfg.limit_grace
+             and $now >= ($v.limit_resumed_at // 0) + $cfg.limit_retry)
+    | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at}))
+  as $resume
 
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
 | ($agents | to_entries
@@ -240,6 +265,8 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     vanished: $vanished,
     revive: $revive,
     rename: $rename,
+    limit_check: $limit_check,
+    resume: $resume,
     escalate: $escalate,
     notify: $notify,
     speak: $speak,

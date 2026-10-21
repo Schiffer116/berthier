@@ -26,6 +26,11 @@ BERTHIER_SPEAK_AFTER=${BERTHIER_SPEAK_AFTER:-30}
 BERTHIER_SPEAK=${BERTHIER_SPEAK:-$HOME/.claude/skills/notify-user/speak.sh}
 BERTHIER_ASK_STUCK=${BERTHIER_ASK_STUCK:-1800}
 BERTHIER_PINGPONG_MAX=${BERTHIER_PINGPONG_MAX:-10}
+# Usage limits: nudge a stopped Agent this long after its limit resets, and
+# never twice within RETRY (a nudge that hits the limit again starts over).
+BERTHIER_LIMIT_GRACE=${BERTHIER_LIMIT_GRACE:-60}
+BERTHIER_LIMIT_RETRY=${BERTHIER_LIMIT_RETRY:-1800}
+BERTHIER_LIMIT_PROMPT=${BERTHIER_LIMIT_PROMPT:-"The usage limit has reset. Continue exactly where you left off."}
 BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
@@ -106,6 +111,48 @@ exited_deliberately() {
   local tail
   tail=$(hd pane read "$1" --source recent-unwrapped --lines 20 | grep -v '^[[:space:]]*$' | tail -6)
   grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $2" <<<"$tail"
+}
+
+# When does the usage limit an idle Agent stopped on reset? Reads its pane's
+# tail on stdin and prints epoch seconds, or nothing unless Claude's usage-limit
+# stop is the last thing above the input box:
+#   ⎿  You've hit your session limit · resets 11pm (Asia/Ho_Chi_Minh)
+#   ● Usage limit reached · continuing automatically at 11pm · esc to cancel
+# A bare clock is its first occurrence after since-12h: limits reset within 5h
+# of the stop, and a late since (loop or Herdr restarted) still lands on it. An
+# unreadable time falls back to since+5h.
+usage_limit_reset() { # since (epoch the Agent went idle)
+  local since=$1 lines=() rules=() i end l last="" spec="" tz="" day t
+  local with_tz='resets ([^·(]+)[(]([^)]+)[)]' bare='(resets|continuing automatically at) ([^·(]+)'
+  mapfile -t lines
+  for i in "${!lines[@]}"; do [[ ${lines[i]} =~ ^(─){8} ]] && rules+=("$i"); done
+  ((${#rules[@]} >= 2)) && lines=("${lines[@]:0:${rules[-2]}}")
+  for ((i = ${#lines[@]} - 1; i >= 0; i--)); do
+    l=${lines[i]}
+    # Skip blanks, turn timings, the upgrade hint and right-aligned notices.
+    [[ $l =~ ^[[:space:]]*$ || $l == *"· done "* || $l =~ ^[^[:alnum:]]+\ [[:alpha:]]+\ for\ [0-9] \
+       || $l == *"/upgrade"* || $l =~ ^\ {20} ]] && continue
+    last=$l
+    break
+  done
+  [[ $last =~ (Usage limit reached|hit your [a-z ]*limit) ]] || return 0
+  for ((end = i - 12; i >= 0 && i > end; i--)); do
+    l=${lines[i]}
+    if [[ $l =~ $with_tz ]]; then spec=${BASH_REMATCH[1]} tz=${BASH_REMATCH[2]}; break
+    elif [[ -z $spec && $l =~ $bare ]]; then spec=${BASH_REMATCH[2]}
+    fi
+  done
+  [[ -f /usr/share/zoneinfo/$tz ]] || tz=
+  spec=${spec//,/} spec=${spec// at / }
+  spec=$(sed -E 's/^ +| +$//g' <<<"$spec")
+  if [[ $spec =~ ^[0-9]{1,2}(:[0-9]{2})?[ap]m$ ]]; then
+    day=$(env ${tz:+"TZ=$tz"} date -d "@$((since - 43200))" +%F)
+    t=$(env ${tz:+"TZ=$tz"} date -d "$day $spec" +%s)
+    ((t > since - 43200)) || t=$(env ${tz:+"TZ=$tz"} date -d "$(date -d "$day +1 day" +%F) $spec" +%s)
+  elif [[ -z $spec ]] || ! t=$(env ${tz:+"TZ=$tz"} date -d "$spec" +%s 2>/dev/null); then
+    t=$((since + 18000))
+  fi
+  echo "$t"
 }
 
 # Start Claude as Agent <name> in <pane>, the Brief riding along as its first

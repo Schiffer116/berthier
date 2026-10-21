@@ -24,6 +24,8 @@ cfg=$(jq -cn \
   --argjson speak_after "$BERTHIER_SPEAK_AFTER" \
   --argjson ask_stuck "$BERTHIER_ASK_STUCK" \
   --argjson pingpong_max "$BERTHIER_PINGPONG_MAX" \
+  --argjson limit_grace "$BERTHIER_LIMIT_GRACE" \
+  --argjson limit_retry "$BERTHIER_LIMIT_RETRY" \
   '$ARGS.named')
 
 inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
@@ -75,6 +77,27 @@ while IFS=$'\t' read -r pane name sid; do
     log "name restore failed: $name in $pane (session $sid)"
   fi
 done < <(jq -r '.rename[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+
+# --- Usage limits: read a newly idle Agent's pane once for a limit stop, and
+# nudge it on once the limit has reset.
+# An episode is read on its first tick, so it stopped about now.
+while IFS=$'\t' read -r pane name episode; do
+  [[ -n $pane ]] || continue
+  reset=$(hd pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null | usage_limit_reset "$now") || continue
+  state=$(jq -c --arg p "$pane" --arg e "$episode" --argjson now "$now" --arg r "$reset" \
+    '.agents[$p].limit = {episode: $e, since: $now, reset_at: ($r | if . == "" then null else tonumber end)}' <<<"$state")
+  [[ -z $reset ]] || log "usage limit: $name in $pane stopped until $(date -d "@$reset" '+%F %R %Z')"
+done < <(jq -r '.limit_check[] | [.pane_id, .name, .episode] | @tsv' <<<"$out")
+while IFS=$'\t' read -r pane name; do
+  [[ -n $pane ]] || continue
+  state=$(jq -c --arg p "$pane" --argjson now "$now" \
+    '.agents[$p].limit.resumed = true | .agents[$p].limit_resumed_at = $now' <<<"$state")
+  if hd agent prompt "$pane" "$BERTHIER_LIMIT_PROMPT" >/dev/null 2>&1; then
+    log "resumed $name in $pane: usage limit reset"
+  else
+    log "resume failed: $name in $pane (usage limit reset)"
+  fi
+done < <(jq -r '.resume[] | [.pane_id, .name] | @tsv' <<<"$out")
 
 # --- Deliver asks; a delivered ask leaves the inbox.
 while IFS=$'\t' read -r id pane from to text; do
