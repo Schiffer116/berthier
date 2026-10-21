@@ -17,6 +17,8 @@ division-done <name>                (Main Agent) remove a spawned Division once 
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
 owners                              who owns what, to know whom to ask
+sample                              (status line) read session JSON on stdin, append to the quota ledger; silent, never fails
+budget [<corps> <pct>|off]          weekly quota used vs allowance per Corps; set or drop one Corps's budget (% of the week)
 counts                              Agent count per status plus reports, as JSON for status bars
 log [-n lines] [-f]                 the Main Loop's event log, readable
 army                                the full Grand Army view model as JSON (Corps, Divisions, Agents, asks, log)
@@ -32,7 +34,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  corps-new|adopt|army|division-new|division-done|report|ask|owners|counts|log|dashboard|hook-stop|tick|loop)
+  corps-new|adopt|army|division-new|division-done|report|ask|owners|counts|sample|budget|log|dashboard|hook-stop|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac

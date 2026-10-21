@@ -3,8 +3,9 @@
 #
 # Inputs (--argjson): $state (state.json or {}), $reports {session_id: {line, at}},
 #   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log, JSON Lines],
-#   $available, $now, $interval (Main Loop seconds), $revive_max
+#   $usage (state/usage.json), $budgets (state/budgets.json), $budget_warn, $available, $now, $interval (Main Loop seconds), $revive_max
 include "names";
+include "usage";
 
 def agent_view($pane):
   ($state.agents[$pane] // {}) as $a
@@ -30,18 +31,19 @@ def log_entry:
       revived: "revive", revive_failed: "revive", revive_skipped: "revive", forgot: "forget",
       spoke: "speak", speak_failed: "speak", escalated: "escal", notified: "escal", unreachable: "escal",
       delivered: "ask", delivery_failed: "ask", adopted: "army", brief_sent: "army", brief_failed: "army", renamed: "army", rename_failed: "army",
-      limit_stop: "limit", resumed: "limit", resume_failed: "limit"}[$k] // "other") as $tag
+      limit_stop: "limit", resumed: "limit", resume_failed: "limit", budget_exhausted: "budget"}[$k] // "other") as $tag
   | . + {at: .ts, tag: $tag, text: .msg, label: (if $tag == "other" then "info" else $tag end)};
 
 # An escalation's condition as the Console labels it.
 def escalation_label:
-  {revive_failed: "revive failed", division_stopped: "stopped", long: "long run", ask_stuck: "ask stuck"}[.] // .;
+  {revive_failed: "revive failed", division_stopped: "stopped", long: "long run", ask_stuck: "ask stuck", budget_warn: "budget"}[.] // .;
 
 # Who an escalation is about, as the Console shows it: "dark-mode d:p1",
 # "dotfiles ⇄ skipli" (asks bouncing), "skipli → notes" (an ask stuck).
 def escalation_who:
   if .ask_from then "\(.ask_from) \(if .why == "pingpong" then "⇄" else "→" end) \(.ask_to)"
   elif .pane then "\(.corps) \(.pane)"
+  elif .why == "budget_warn" then .corps
   else null end;
 
 ($state.agents // {}) as $agents
@@ -68,6 +70,7 @@ def escalation_who:
     updated_at: ($state.updated_at // null),
     loop: {interval: $interval, revive_max: $revive_max,
            started_at: ([$entries[] | select(.kind == "loop_started")] | last | .at // null)},
+    budget: usage_view($usage; $budgets; $now) + {warn: $budget_warn},
     counts: ([["working","blocked","done","idle","unknown","gone"][] as $k
               | {($k): ([$agents[].status] | map(select(. == $k)) | length)}] | add),
     needs_you: [$all[] | select(.needs_you)] | sort_by(.status_since // 0, .who),

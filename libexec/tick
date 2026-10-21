@@ -27,14 +27,20 @@ cfg=$(jq -cn \
   --argjson pingpong_max "$BERTHIER_PINGPONG_MAX" \
   --argjson limit_grace "$BERTHIER_LIMIT_GRACE" \
   --argjson limit_retry "$BERTHIER_LIMIT_RETRY" \
+  --argjson budget_warn "$BERTHIER_BUDGET_WARN" \
   '$ARGS.named')
 
 inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
   | xargs -0r jq -c '. + {id: (input_filename | split("/") | last | rtrimstr(".json"))}' | jq -cs .)
 
+# Fold new quota samples into the usage record the budgets are judged on.
+usage=$(usage_update 2>/dev/null) || usage=$(cat "$BERTHIER_USAGE" 2>/dev/null || echo '{}')
+usage=$(jq -c 'del(.sessions, .acc)' <<<"$usage" 2>/dev/null) || usage='{}'
+budgets=$(cat "$BERTHIER_BUDGETS" 2>/dev/null) && jq -e type <<<"$budgets" >/dev/null 2>&1 || budgets='{}'
+
 decide() { # [obs]
   jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
-    --argjson inbox "$inbox" --argjson divisions "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
+    --argjson inbox "$inbox" --argjson usage "$usage" --argjson budgets "$budgets" --argjson divisions "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
     ${1:+--argjson obs "$1"} -L "$BERTHIER_ROOT/lib" -f "$BERTHIER_ROOT/lib/tick.jq"
 }
 
@@ -125,8 +131,9 @@ while IFS= read -r group; do
   who=$(jq -r '.[0].ev.to' <<<"$group")
   mapfile -t lines < <(jq -r '.[].text' <<<"$group")
   mapfile -t evs < <(jq -c '.[].ev' <<<"$group")
-  if [[ $to == - ]]; then target=$berthier msg="[berthier-loop] Grand Army events:"
-  else target=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
+  head=$(jq -r '.[0].head // empty' <<<"$group")
+  if [[ $to == - ]]; then target=$berthier msg=${head:-"[berthier-loop] Grand Army events:"}
+  else target=$to msg=${head:-"[berthier-loop] Events in your Divisions (you command them):"}; fi
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
   if [[ -n $target ]] && prompt_agent "$target" "$msg" 2>/dev/null; then
     for i in "${!lines[@]}"; do
@@ -137,7 +144,7 @@ while IFS= read -r group; do
     event unreachable "$who unreachable; notified user of ${#lines[@]} event(s)" \
       "$(jq -cn --arg to "$who" --argjson n "${#lines[@]}" '{to: $to, events: $n}')"
   fi
-done < <(jq -c '.escalate | group_by(.to // "-")[]' <<<"$out")
+done < <(jq -c '.escalate | group_by([.to // "-", .head // ""])[]' <<<"$out")
 
 # --- Berthier's own trouble goes straight to the user.
 while IFS=$'\t' read -r l && IFS= read -r ev; do

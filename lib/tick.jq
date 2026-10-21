@@ -6,9 +6,11 @@
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, division_settle, revive_max,
 #           revive_backoff, revive_reset, escalation_ttl, speak_after,
-#           ask_stuck, pingpong_max, limit_grace, limit_retry}
+#           ask_stuck, pingpong_max, limit_grace, limit_retry, budget_warn}
 #   $divisions {division name: {corps: label, worktree: bool}} (division-new, adopt)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
+#   $usage, $budgets  optional: the quota usage record (state/usage.json, lib/usage.jq)
+#          and {corps: % of the week} (state/budgets.json)
 #   $obs   optional: what the caller read from panes this program asked to look
 #          at, {pane: {exited, at_shell, limit_reset}}
 #
@@ -23,6 +25,10 @@
 # caller performs the actions and never touches the state.
 
 include "names";
+include "usage";
+# The Corps a workspace label counts toward: a Division's Corps, else itself.
+def corps_of_label: owner($divisions);
+
 # Berthier is whichever agent runs in Berthier's own repository.
 def is_berthier_cwd: (. // "") as $c | $c == $cfg.berthier_root or ($c | startswith($cfg.berthier_root + "/"));
 
@@ -37,6 +43,13 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
 | ($snap.workspaces // [] | sort_by(.number // 0)) as $workspaces
 | ($workspaces | map({key: .workspace_id, value: .}) | from_entries) as $ws
 | ($snap.panes // [] | map(.pane_id)) as $pane_ids
+# --- Weekly budgets: a Corps at its allowance has its Revives, usage-limit
+# resumes and ask deliveries held (soft: nothing is stopped), and its Main Agent
+# and the user hear at the warning level, once per week.
+| usage_view($ARGS.named.usage // {}; $ARGS.named.budgets // {}; $now).corps
+  | map(select(.allowance != null and .allowance > 0)) as $budget
+| (($ARGS.named.usage // {}).resets_at // 0) as $week
+| ($budget | map(select(.ratio >= 1) | .name)) as $over
 | ($prev.agents // {}) as $prev_agents
 | ($prev.escalated // {}) as $prev_escalated
 
@@ -94,6 +107,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
 | ($gone | keys | map(select($prev_agents[.].status != "gone"))) as $vanished
 | ($gone | to_entries | map(
     select((.value.revive_attempts // 0) < $cfg.revive_max)
+    | select(.value.workspace_label | corps_of_label | IN($over[]) | not)
     | select(($now - (.value.last_revive_at // 0)) >= $cfg.revive_backoff) | .key)) as $due
 # A clean exit is the user's choice: forget the agent instead of Reviving.
 # Read when it vanishes, while the evidence is still at the bottom of its
@@ -150,6 +164,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
              and ($v.limit.resumed | not)
              and $now >= $v.limit.reset_at + $cfg.limit_grace
              and $now >= ($v.limit_resumed_at // 0) + $cfg.limit_retry)
+    | select($v.workspace_label | corps_of_label | IN($over[]) | not)
     | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at, ev: about(.key)}))
   as $resume
 
@@ -160,12 +175,20 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
    + [$limit_check[] | select(.key | seen("limit_reset") | not)
       | {pane_id: .key, session_id: .value.session_id, want: ["limit_reset"]}]) as $look
 
+# A Corps newly at its allowance this week: logged and spoken once.
+| ($budget | map(select(.ratio >= 1)
+    | select($prev_escalated["budget_block:\(.name):\($week)"] == null)
+    | {key: "budget_block:\(.name):\($week)", corps: .name,
+       text: "\(.name) used \(.used | . * 10 | round / 10)% of the week, over its \(.allowance)% budget"})) as $block
+
 | ([$exited[] | about(.) + {session: $prev_agents[.].session_id}
      | {kind: "forgot", msg: "forgot \(.name) in \(.pane): user exited it (session \(.session))"} + .]
    + [$reviving[] | select($obs[.].at_shell | not) | about(.)
       | {kind: "revive_skipped", msg: "revive skipped: pane \(.pane) is not at a shell prompt"} + .]
    + [$limit_read[] | select(.value.limit.reset_at != null) | about(.key) + {until: $obs[.key].limit_reset}
-      | {kind: "limit_stop", msg: "usage limit: \(.name) in \(.pane) stopped until \(.until | strflocaltime("%F %R %Z"))"} + .])
+      | {kind: "limit_stop", msg: "usage limit: \(.name) in \(.pane) stopped until \(.until | strflocaltime("%F %R %Z"))"} + .]
+   + [$block[] | {kind: "budget_exhausted", corps: .corps,
+       msg: "\(.text): holding Revives, usage-limit resumes and ask delivery for it and its Divisions until the week resets"}])
   as $decided
 
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
@@ -174,17 +197,28 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
                 and (.value.workspace_label | is_division($divisions) | not)))
    | group_by(.value.workspace_label) | map({key: .[0].value.workspace_label, value: .[0].key})
    | from_entries) as $main_of
+| ($main_of | with_entries(.key |= corps_name)) as $main_named
+
+# --- Warning level reached: the Corps's Main Agent hears (Berthier when it has none).
+| ($budget | map(select(.ratio >= ($cfg.budget_warn // 80) / 100 and .ratio < 1)
+    | $main_named[.name] as $to
+    | {key: "budget_warn:\(.name):\($week)", pane_id: (if $to == $berthier then $berthier else null end), to: $to,
+       head: "[berthier-loop] Weekly budget:",
+       text: "\(.name) has used \(.used | . * 10 | round / 10)% of the week, \(.ratio * 100 | floor)% of its \(.allowance)% budget: wind down low-value work, since at 100% its Revives, usage-limit resumes and ask delivery are held",
+       ev: {why: "budget_warn", reason: "\(.ratio * 100 | floor)% of weekly budget", corps: .name, pct: (.ratio * 100 | floor)}})) as $warn
 
 # --- Asks: deliver each to its addressee's Agent once it is ready for input,
 # at most one per Agent per tick, oldest first.
 | ($agents | to_entries | map(select(.value.status != "gone") | {
     pane_id: .key, status: .value.status,
+    corps: (if .key == $berthier then "berthier" else .value.workspace_label | corps_of_label end),
     name: (if .key == $berthier then "berthier" else (.value.workspace_label | corps_name) end)
   })) as $addressable
 | (reduce ($inbox | sort_by(.at))[] as $m ({used: [], deliver: []};
     . as $acc
     | ($m.to | corps_name) as $to
     | ([$addressable[] | select(.name == $to and (.status == "idle" or .status == "done"))
+        | select(.corps | IN($over[]) | not)
         | select(.pane_id as $p | $acc.used | any(. == $p) | not)] | first) as $o
     | if $o == null then . else
         .used += [$o.pane_id]
@@ -241,6 +275,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
        | {key: "pingpong:\($l[0].pair | join(" and ")):\($now / 3600 | floor)", pane_id: null,
           text: "asks bouncing between \($l[0].pair | join(" and ")): \($reason)",
           ev: {why: "pingpong", reason: $reason, ask_from: $l[0].pair[0], ask_to: $l[0].pair[1]}}))
+  + $warn
   | map(select($prev_escalated[.key] == null)
         | .ev.to = (if .to then $agents[.to].workspace_label | corps_name else "berthier" end))) as $events
 
@@ -258,15 +293,20 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
         {why: "revive_failed", text: "\($where) crashed and could not be resumed"}
       else empty end
     | {key: "speak_\(.why):\($pane):\($v.status_since)", text, ev: (about($pane) + {why, to: "you"})}
-  ) | map(select($prev_escalated[.key] == null))) as $speak
+  )
+  + ($warn | map({key: "speak_\(.key)", text: "\(.ev.corps | spoken) has used \(.ev.pct) percent of its weekly budget",
+                  ev: {corps: .ev.corps, why: "budget_warn", to: "you"}}))
+  + ($block | map({key: "speak_\(.key)", text: "\(.corps | spoken) is over its weekly budget",
+                   ev: {corps: .corps, why: "budget_exhausted", to: "you"}}))
+  | map(select($prev_escalated[.key] == null))) as $speak
 
 # Berthier cannot escalate to itself: its own events go to the user instead.
-| ($events | map(select(.pane_id != $berthier))) as $escalate
-| ($events | map(select(.pane_id == $berthier) | .ev.to = "you")) as $notify
+| ($events | map(select(.pane_id == null or .pane_id != $berthier))) as $escalate
+| ($events | map(select(.pane_id != null and .pane_id == $berthier) | .ev.to = "you")) as $notify
 
 | ($prev_escalated
    | with_entries(select(.value > ($now - $cfg.escalation_ttl)))
-   | . + ($events + $speak | map({key: .key, value: $now}) | from_entries)) as $escalated
+   | . + ($events + $speak + $block | map({key: .key, value: $now}) | from_entries)) as $escalated
 
 # --- Corps: every workspace that is not a known Division and not Berthier's own.
 | ($agents | to_entries | group_by(.value.workspace_id)

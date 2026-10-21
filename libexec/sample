@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Run by Claude Code's status line on every render, with the session JSON on
+# stdin: append {ts, session, cwd, cost, week_pct, resets_at} to the ledger
+# (state/ledger.jsonl) when the session's cost or the week's usage moved since
+# its last sample. Silent and always exit 0: it must never disturb the status
+# line. One short O_APPEND write per row, so concurrent sessions never
+# interleave. lib/usage.jq turns the ledger into per-Corps usage.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh" >/dev/null 2>&1 || exit 0
+
+sample() {
+  local sid key row last dir=$BERTHIER_HOME/sampled
+  IFS=$'\t' read -r sid key row < <(jq -r '
+    select((.session_id | type) == "string" and (.session_id | test("^[A-Za-z0-9_-]{1,80}$"))
+           and (.rate_limits.seven_day.used_percentage | type) == "number")
+    | {ts: (now | floor), session: .session_id, cwd: (.cwd // .workspace.current_dir),
+       cost: (.cost.total_cost_usd // 0), week_pct: .rate_limits.seven_day.used_percentage,
+       resets_at: .rate_limits.seven_day.resets_at} as $r
+    | [$r.session, ([$r.cost, $r.week_pct, $r.resets_at, $r.cwd] | tojson), ($r | tojson)] | @tsv') || return 0
+  [[ -n $sid ]] || return 0
+  last=$(cat "$dir/$sid" 2>/dev/null) || last=
+  [[ $key != "$last" ]] || return 0
+  mkdir -p "$dir"
+  printf '%s' "$key" >"$dir/$sid"
+  printf '%s\n' "$row" >>"$BERTHIER_LEDGER"
+}
+sample 2>/dev/null || true
+exit 0

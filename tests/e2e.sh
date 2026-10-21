@@ -149,10 +149,16 @@ bin/berthier tick
 # More history than the screen holds, on screen, so a read that scrolls shows.
 h agent prompt limited "Print the numbers 1 to 80, one per line, nothing else." --wait --timeout 90000 >/dev/null
 h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')" >/dev/null
-sleep 1
 # The tick reads the newly idle pane for a limit stop; the user's view must not move.
 screen() { tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//'; }
-still=$(screen | md5sum) frames=$work/frames
+# Claude shows its suggested prompt a few seconds after going idle: start from a settled screen.
+still=$(screen | md5sum) steady=0
+for _ in $(seq 60); do
+  sleep 0.5
+  seen=$(screen | md5sum)
+  if [[ $seen == "$still" ]]; then ((++steady >= 8)) && break; else still=$seen steady=0; fi
+done
+frames=$work/frames
 (for _ in $(seq 150); do screen | md5sum; sleep 0.01; done >"$frames") &
 bin/berthier tick
 wait
@@ -214,5 +220,60 @@ BERTHIER_WORKSPACE="$ws" bin/berthier division-done "Dark Mode"
 h workspace list | jq -e 'any(.result.workspaces[]; .label == "dark-mode") | not' >/dev/null || fail "division workspace not removed"
 git -C "$repo" show-ref --verify --quiet refs/heads/dark-mode && fail "merged division branch not deleted"
 jq -e '.["dark-mode"] == null' "$BERTHIER_HOME/divisions.json" >/dev/null || fail "division still recorded"
+
+step "a Corps is warned at 80% of its weekly budget and held at 100%"
+# Quota samples as the status line would send them; the speaker is a stub.
+mkdir -p "$repo/sub"
+printf '#!/bin/sh\necho "$*" >>"%s/spoken"\n' "$work" >"$work/speak" && chmod +x "$work/speak"
+budgeted=$(h workspace create --cwd "$repo/sub" --label budgeted --no-focus | jq -re '.result.root_pane.pane_id')
+h agent start budgeted --kind claude --pane "$budgeted" --timeout 60000 -- --model haiku >/dev/null 2>&1 || {
+  h agent send-keys budgeted down enter >/dev/null
+  h agent wait budgeted --until idle --timeout 60000 >/dev/null
+}
+for try in 1 2 3; do
+  h agent prompt budgeted "Reply with just: pong" --wait --timeout 90000 >/dev/null 2>&1 && break
+  ((try < 3)) || fail "budgeted agent never took its first prompt"
+  sleep 3
+done
+bin/berthier tick
+resets=$(date -d '+3 days' +%s)
+quota() { # cost week_pct: the status line JSON of a session working in the Corps
+  jq -cn --argjson c "$1" --argjson p "$2" --argjson r "$resets" --arg d "$repo/sub" \
+    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: $p, resets_at: $r}}}' \
+    | bin/berthier sample
+}
+tick() { BERTHIER_SPEAK=$work/speak bin/berthier tick; }
+bin/berthier budget budgeted 10 >/dev/null
+quota 0 40
+quota 1 48
+tick
+(($(logged '.kind == "escalated" and .why == "budget_warn" and .corps == "budgeted"'))) || fail "80% not escalated: $(tail -5 "$BERTHIER_HOME/loop.log")"
+(($(logged '.kind == "spoke" and .corps == "budgeted"'))) || fail "80% not logged as spoken"
+grep -q 'budgeted has used 80 percent' "$work/spoken" || fail "80% not spoken"
+for _ in $(seq 30); do
+  h pane read "$budgeted" --source recent-unwrapped --lines 100 | grep -qF "[berthier-loop] Weekly budget:" && break
+  sleep 1
+done
+h pane read "$budgeted" --source recent-unwrapped --lines 100 | grep -qF "[berthier-loop] Weekly budget:" || fail "Main Agent not told"
+tick
+(($(logged '.kind == "escalated" and .why == "budget_warn"') == 1)) || fail "warned more than once"
+bin/berthier budget | grep -q '^budgeted  *8%  *10%  *80%' || fail "budget shows: $(bin/berthier budget)"
+bin/berthier army | jq -e '.budget.corps | any(.name == "budgeted" and .allowance == 10 and .used > 7.9)' >/dev/null || fail "Console view lacks the budget"
+quota 2 51
+tick
+(($(logged '.kind == "budget_exhausted" and .corps == "budgeted"') == 1)) || fail "100% not logged once"
+(($(grep -c 'over its weekly budget' "$work/spoken") == 1)) || fail "100% not spoken once"
+mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+kill -KILL "$(claude_pid "$budgeted")"
+sleep 3
+for _ in 1 2 3; do tick; sleep 1; done
+(($(logged '.kind == "revived" and .pane == $p' "$budgeted" <(tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log")))) && fail "revived a Corps over budget"
+claude_pid "$budgeted" 2>/dev/null | grep -q . && fail "agent over budget was restarted"
+(($(logged '.kind == "budget_exhausted"') == 1)) || fail "100% logged again"
+bin/berthier budget budgeted 50 >/dev/null
+tick
+for _ in $(seq 30); do claude_pid "$budgeted" 2>/dev/null | grep -q . && break; sleep 1; done
+claude_pid "$budgeted" | grep -q . \
+  || fail "not revived once its budget was raised: $(tail -4 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$budgeted" '.agents[$p]' "$BERTHIER_HOME/state.json")"
 
 printf '\nE2E PASSED\n'
