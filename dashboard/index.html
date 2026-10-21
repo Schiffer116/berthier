@@ -305,9 +305,8 @@ const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9',
 const LIVE = { working: ['▶', C.blue], blocked: ['■', C.red], done: ['✓', C.green], idle: ['✓', C.green],
   gone: ['✕', C.purple], unknown: ['?', C.muted] };
 const TAG = { loop: C.faint, revive: C.purple, forget: C.purple, speak: C.accent, escal: C.accent,
-  ask: C.blue, army: C.green, error: C.red, other: C.muted };
+  ask: C.blue, army: C.green, limit: C.sky, error: C.red, other: C.muted };
 const LOG_LINES = 40;
-const KIND = { revive_failed: 'revive failed', division_stopped: 'stopped', long: 'long run', ask_stuck: 'ask stuck' };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -625,7 +624,7 @@ function renderEscalations() {
     const when = new Date(e.at * 1000).toLocaleString();
     return `<li class="esc">
       <span class="muted" title="${esc(when)}">${day(e.at)}</span>
-      <span style="color: ${C.accent}">${esc(KIND[e.kind] || e.kind)}</span>
+      <span style="color: ${C.accent}">${esc(e.label)}</span>
       <span>${e.who ? esc(e.who) + ' ' : ''}<span style="color: ${to[1]}">${esc(to[0])}</span></span>
       <span class="why">${esc(why)}</span>
     </li>`;
@@ -658,7 +657,7 @@ function renderLog() {
   const ol = $('lines'), atEnd = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 8;
   ol.innerHTML = lines.map((l) => `<li class="log">
       <span class="dim">${clock(l.at)}</span>
-      <span style="color: ${TAG[l.tag] || C.muted}">${l.tag === 'other' ? 'info' : esc(l.tag)}</span>
+      <span style="color: ${TAG[l.tag] || C.muted}">${esc(l.label)}</span>
       <span>${esc(logText(l.text))}</span>
     </li>`).join('') + `<li class="log now" id="tick"></li>`;
   renderTick();

@@ -16,6 +16,7 @@ report "<line>"                     (any Agent) one-line status for the user; "n
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
 owners                              who owns what, to know whom to ask
 counts                              Agent count per status plus reports, as JSON for status bars
+log [-n lines] [-f]                 the Main Loop's event log, readable
 army                                the full Army view model as JSON (Corps, Divisions, Agents, asks, log)
 dashboard [server args]             serve the live Army console on 127.0.0.1:8430
 hook-stop                           Claude Code Stop hook: no turn ends without a report
@@ -29,7 +30,7 @@ cmd=${1:-}
 shift
 case $cmd in
   -h|--help|help) usage ;;
-  corps-new|adopt|army|division-new|division-done|report|ask|owners|counts|dashboard|hook-stop|tick|loop)
+  corps-new|adopt|army|division-new|division-done|report|ask|owners|counts|log|dashboard|hook-stop|tick|loop)
     exec "$root/libexec/$cmd" "$@" ;;
   *) usage >&2; exit 2 ;;
 esac

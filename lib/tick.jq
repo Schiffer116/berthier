@@ -12,8 +12,11 @@
 #   $obs   optional: what the caller read from panes this program asked to look
 #          at, {pane: {exited, at_shell, limit_reset}}
 #
-# Output: {state, look: [...], log: [...], revive: [...], rename: [...], resume: [...],
+# Output: {state, look: [...], events: [...], revive: [...], rename: [...], resume: [...],
 #          escalate: [...], notify: [...], speak: [...], deliver: [...]}
+# events are this program's decisions for loop.log ({kind, msg, ...fields}, see
+# `event` in lib/common.sh); each action carries ev, the fields of the event
+# the caller logs for its outcome.
 # A decision that needs a pane read waits: the pane is listed under look
 # ({pane_id, session_id, want: [exited, at_shell, limit_reset]}) and the caller
 # runs this again with $obs. This program alone writes the Army State; the caller
@@ -104,11 +107,17 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
 | ($agents | to_entries | map(select(.value.cwd | is_berthier_cwd))
    | (map(select(.value.status != "gone")) + .) | first | .key? // null) as $berthier
 | (if $berthier then $agents[$berthier].workspace_id else null end) as $berthier_ws
+# Who an event is about, by pane.
+| def about($p): ($agents[$p] // $prev_agents[$p]) as $a
+    | {pane: $p, corps: (if $p == $berthier then "berthier" else $a.workspace_label | corps_name end),
+       name: ($a.name // fallback_name($p))};
+  .
 
 # --- Revive: resume the gone session in the pane it died in, if the pane is
 # back at its shell. Every try counts towards revive_max.
 | ($reviving | map(select($obs[.].at_shell)
-    | {pane_id: ., name: ($agents[.].name // fallback_name(.)), session_id: $agents[.].session_id}))
+    | {pane_id: ., name: ($agents[.].name // fallback_name(.)), session_id: $agents[.].session_id,
+       ev: (about(.) + {session: $agents[.].session_id})}))
   as $revive
 
 # --- Names Herdr lost: give each listed agent back its session's name, unless
@@ -119,7 +128,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     | $live[.pane_id] as $v
     | select($v.name != null and .agent_session.value == $v.session_id)
     | select($v.name as $n | $taken | index($n) | not)
-    | {pane_id, name: $v.name, session_id: $v.session_id}
+    | {pane_id, name: $v.name, session_id: $v.session_id, ev: (about(.pane_id) + {session: $v.session_id})}
   )) as $rename
 
 # --- Usage limits: Claude often never continues by itself once its limit
@@ -141,7 +150,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
              and ($v.limit.resumed | not)
              and $now >= $v.limit.reset_at + $cfg.limit_grace
              and $now >= ($v.limit_resumed_at // 0) + $cfg.limit_retry)
-    | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at}))
+    | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at, ev: about(.key)}))
   as $resume
 
 # --- Panes to read before the decisions above can be made.
@@ -151,12 +160,13 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
    + [$limit_check[] | select(.key | seen("limit_reset") | not)
       | {pane_id: .key, session_id: .value.session_id, want: ["limit_reset"]}]) as $look
 
-| ([$exited[] | $prev_agents[.] as $a
-     | "forgot \($a.name // fallback_name(.)) in \(.): user exited it (session \($a.session_id))"]
-   + [$reviving[] | select($obs[.].at_shell | not) | "revive skipped: pane \(.) is not at a shell prompt"]
-   + [$limit_read[] | select(.value.limit.reset_at != null)
-      | "usage limit: \(.value.name // fallback_name(.key)) in \(.key) stopped until \(.value.limit.reset_at | strflocaltime("%F %R %Z"))"])
-  as $log
+| ([$exited[] | about(.) + {session: $prev_agents[.].session_id}
+     | {kind: "forgot", msg: "forgot \(.name) in \(.pane): user exited it (session \(.session))"} + .]
+   + [$reviving[] | select($obs[.].at_shell | not) | about(.)
+      | {kind: "revive_skipped", msg: "revive skipped: pane \(.pane) is not at a shell prompt"} + .]
+   + [$limit_read[] | select(.value.limit.reset_at != null) | about(.key) + {until: $obs[.key].limit_reset}
+      | {kind: "limit_stop", msg: "usage limit: \(.name) in \(.pane) stopped until \(.until | strflocaltime("%F %R %Z"))"} + .])
+  as $decided
 
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
 | ($agents | to_entries
@@ -179,6 +189,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     | if $o == null then . else
         .used += [$o.pane_id]
         | .deliver += [{id: $m.id, pane_id: $o.pane_id, from: $m.from, to: $to,
+            ev: {pane: $o.pane_id, from: $m.from, to: $to, ask: $m.id},
             text: "[berthier ask] from \($m.from): \($m.text) (Reply or report back with: berthier ask \($m.from) \"...\")"}]
       end
   ) | .deliver) as $deliver
@@ -196,39 +207,42 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     | (if $v.workspace_label | is_division($divisions)
        then $main_of[$divisions[$v.workspace_label | corps_name].corps // ""] else null end) as $to
     | if $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
-        {key: "revive_failed:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
-         text: "revive failed \($v.revive_attempts)x: \($who), session \($v.session_id)"}
+        {why: "revive_failed", reason: "revive failed \($v.revive_attempts)x", also: ", session \($v.session_id)"}
       elif $v.status == "blocked" and $age >= $cfg.blocked_after then
-        {key: "blocked:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
-         text: "blocked \($age / 60 | floor)m on an approval or question: \($who)"}
+        {why: "blocked", reason: "blocked \($age / 60 | floor)m on an approval or question"}
       elif $v.status == "working" and $age >= $cfg.long_after then
-        {key: "long:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
-         text: "working \($age / 60 | floor)m without stopping: \($who)"}
+        {why: "long", reason: "working \($age / 60 | floor)m without stopping"}
       # A spawned Division that stops may be done: its Corps reviews it.
       elif ($divisions[$v.workspace_label | corps_name].worktree // false)
            and ($v.status == "idle" or $v.status == "done")
            and $v.prev_status == "working" and $age >= $cfg.division_settle then
-        {key: "division_stopped:\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
-         text: "division agent stopped working (finished or stalled): \($who)"}
+        {why: "division_stopped", reason: "division agent stopped working (finished or stalled)"}
       else empty end
+    | {key: "\(.why):\($pane):\($v.status_since)", pane_id: $pane, name: $v.name, to: $to,
+       text: "\(.reason): \($who)\(.also // "")", ev: (about($pane) + {why, reason})}
   )
   + ($inbox | map(
       select(($now - .at) >= $cfg.ask_stuck)
       | select(.id as $id | $deliver | any(.id == $id) | not)
+      | "undelivered \(($now - .at) / 60 | floor)m" as $reason
       | {key: "ask_stuck:\(.id)", pane_id: null,
-         text: "ask from \(.from) to \(.to) undelivered \(($now - .at) / 60 | floor)m: \(.text)"}))
+         text: "ask from \(.from) to \(.to) \($reason): \(.text)",
+         ev: {why: "ask_stuck", reason: $reason, ask: .id, ask_from: .from, ask_to: (.to | corps_name)}}))
   # Ping-pong: replies flipping direction again and again; one-way updates don't count,
   # nor a Corps commanding and reviewing its own Division.
   + ($ask_log
      | map(select(.from as $f | .to as $t
          | [[$f, $t], [$t, $f]] | any(($divisions[.[0]].corps // null | corps_name) == .[1]) | not))
-     | map(. + {pair: ([.from, .to] | sort | join(" and "))}) | group_by(.pair)
+     | map(. + {pair: ([.from, .to] | sort)}) | group_by(.pair)
      | map(sort_by(.at) as $l
        | ([range(1; $l | length) | select($l[.].from != $l[. - 1].from)] | length) as $flips
        | select($flips >= $cfg.pingpong_max)
-       | {key: "pingpong:\($l[0].pair):\($now / 3600 | floor)", pane_id: null,
-          text: "asks bouncing between \($l[0].pair): \($flips) back-and-forths in the last hour"}))
-  | map(select($prev_escalated[.key] == null))) as $events
+       | "\($flips) back-and-forths in the last hour" as $reason
+       | {key: "pingpong:\($l[0].pair | join(" and ")):\($now / 3600 | floor)", pane_id: null,
+          text: "asks bouncing between \($l[0].pair | join(" and ")): \($reason)",
+          ev: {why: "pingpong", reason: $reason, ask_from: $l[0].pair[0], ask_to: $l[0].pair[1]}}))
+  | map(select($prev_escalated[.key] == null)
+        | .ev.to = (if .to then $agents[.to].workspace_label | corps_name else "berthier" end))) as $events
 
 # --- Spoken alerts: the user is needed. Faster than escalation, because they
 # skip Berthier's judgment; deduplicated per episode like escalations.
@@ -239,15 +253,16 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     | ($v.workspace_label // $v.workspace_id | spoken
        + (if $parent then " in \($parent | spoken)" else "" end)) as $where
     | if $v.status == "blocked" and $age >= $cfg.speak_after then
-        {key: "speak_blocked:\($pane):\($v.status_since)", text: "\($where) is waiting on you"}
+        {why: "blocked", text: "\($where) is waiting on you"}
       elif $v.status == "gone" and ($v.revive_attempts // 0) >= $cfg.revive_max then
-        {key: "speak_revive_failed:\($pane):\($v.status_since)", text: "\($where) crashed and could not be resumed"}
+        {why: "revive_failed", text: "\($where) crashed and could not be resumed"}
       else empty end
+    | {key: "speak_\(.why):\($pane):\($v.status_since)", text, ev: (about($pane) + {why, to: "you"})}
   ) | map(select($prev_escalated[.key] == null))) as $speak
 
 # Berthier cannot escalate to itself: its own events go to the user instead.
 | ($events | map(select(.pane_id != $berthier))) as $escalate
-| ($events | map(select(.pane_id == $berthier))) as $notify
+| ($events | map(select(.pane_id == $berthier) | .ev.to = "you")) as $notify
 
 | ($prev_escalated
    | with_entries(select(.value > ($now - $cfg.escalation_ttl)))
@@ -299,7 +314,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
       ask_log: $ask_log
     },
     look: $look,
-    log: $log,
+    events: $decided,
     revive: $revive,
     rename: $rename,
     resume: $resume,

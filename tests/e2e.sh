@@ -13,6 +13,8 @@ clean_env=(env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_I
 h() { "${clean_env[@]}" herdr --session "$session" "$@"; }
 step() { printf '\n== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*"; exit 1; }
+# How many loop.log events match a jq condition, e.g. logged '.kind == "revived"'.
+logged() { jq -c --arg p "${2:-}" "select($1)" "${3:-$BERTHIER_HOME/loop.log}" | wc -l; }
 claude_pid() { h pane process-info --pane "$1" | jq -r '.result.process_info.foreground_processes[] | select(.name == "claude") | .pid'; }
 
 cleanup() {
@@ -61,7 +63,7 @@ for _ in $(seq 30); do
   sleep 1
 done
 [[ $(h agent get "$pane" | jq -r '.result.agent.agent_session.value') == "$sid" ]] || fail "agent not revived with session $sid"
-grep -q "revived demo-main in $pane" "$BERTHIER_HOME/loop.log" || fail "revive not logged"
+(($(logged '.kind == "revived" and .pane == $p and .name == "demo-main"' "$pane"))) || fail "revive not logged"
 bin/berthier tick  # the loop's next pass sees the revived agent live
 
 step "the Stop hook makes an Agent report; an ask reaches an idle Agent"
@@ -76,7 +78,7 @@ bin/berthier tick
 HERDR_PANE_ID=$helper bin/berthier ask demo "Reply with just: ack" >/dev/null
 h agent wait demo-main --until idle --timeout 60000 >/dev/null
 bin/berthier tick
-grep -qF "delivered ask helper -> demo ($pane)" "$BERTHIER_HOME/loop.log" || fail "ask not delivered"
+(($(logged '.kind == "delivered" and .pane == $p and .from == "helper" and .to == "demo"' "$pane"))) || fail "ask not delivered"
 h agent wait demo-main --until idle --timeout 90000 >/dev/null
 h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '\[berthier ask\] from helper' || fail "ask not in demo-main's pane"
 [[ -z $(ls "$BERTHIER_HOME/inbox") ]] || fail "delivered ask left in the inbox"
@@ -105,9 +107,10 @@ tmux kill-session -t "$session" 2>/dev/null || true
 attach
 for _ in $(seq 20); do bin/berthier tick; sleep 1; done
 [[ $(names) == "$before" ]] || fail "names or sessions changed across restart: $before -> $(names)"
-since=$(tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log")
-grep -q revive <<<"$since" && fail "Revive attempted after restart: $since"
-grep -q "restored name typed in $typed" <<<"$since" || fail "name restore not logged"
+since=$work/since.log
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$since"
+(($(logged '.kind | startswith("revive")' "" "$since"))) && fail "Revive attempted after restart: $(cat "$since")"
+(($(logged '.kind == "renamed" and .pane == $p and .name == "typed"' "$typed" "$since"))) || fail "name restore not logged"
 
 step "an Agent stopped on its usage limit is nudged once the limit has reset"
 # Haiku plays the stop (Claude renders the line as a real one); without hooks,
@@ -122,10 +125,10 @@ clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
 h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
   --wait --timeout 90000 >/dev/null
 bin/berthier tick
-grep -q "usage limit: limited in $limited stopped until" "$BERTHIER_HOME/loop.log" \
+(($(logged '.kind == "limit_stop" and .pane == $p and .name == "limited"' "$limited"))) \
   || fail "usage-limit stop not detected: $(h pane read "$limited" --source recent-unwrapped --lines 200 | grep -v "^\s*$")"
 bin/berthier tick
-grep -q "resumed limited in $limited: usage limit reset" "$BERTHIER_HOME/loop.log" || fail "limited agent not resumed: $(tail -5 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$limited" ".agents[\$p]" "$BERTHIER_HOME/state.json")"
+(($(logged '.kind == "resumed" and .pane == $p' "$limited"))) || fail "limited agent not resumed: $(tail -5 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$limited" ".agents[\$p]" "$BERTHIER_HOME/state.json")"
 for _ in $(seq 30); do
   h pane read "$limited" --source recent-unwrapped --lines 200 | grep -qF "The usage limit has reset. Continue exactly" && break
   sleep 1
@@ -134,7 +137,7 @@ h pane read "$limited" --source recent-unwrapped --lines 200 | grep -qF "The usa
   || fail "resume prompt not in the pane"
 bin/berthier tick
 bin/berthier tick
-[[ $(grep -c "resumed limited in $limited" "$BERTHIER_HOME/loop.log") == 1 ]] || fail "resumed more than once"
+(($(logged '.kind == "resumed" and .pane == $p' "$limited") == 1)) || fail "resumed more than once"
 
 step "a deliberate /exit must not be Revived"
 h agent wait "$pane" --timeout 60000 >/dev/null
@@ -146,7 +149,7 @@ sleep 1
 bin/berthier tick
 sleep 3
 h agent get "$pane" >/dev/null 2>&1 && fail "deliberately exited agent was revived"
-grep -q "forgot demo-main in $pane: user exited it" "$BERTHIER_HOME/loop.log" || fail "deliberate exit not recognized"
+(($(logged '.kind == "forgot" and .pane == $p and .name == "demo-main"' "$pane"))) || fail "deliberate exit not recognized"
 jq -e --arg p "$pane" '.agents[$p] == null' "$BERTHIER_HOME/state.json" >/dev/null || fail "exited agent still tracked"
 
 step "division-new spawns a worktree Division; division-done removes it"

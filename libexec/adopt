@@ -19,5 +19,5 @@ if [[ $child == */* ]] || is_division "$child"; then die "'$child' is already a 
 if [[ $corps == */* ]] || is_division "$corps"; then die "'$corps' is a Division, not a Corps"; fi
 
 division_set "$(corps_name "$child")" "$(jq -cn --arg c "$corps" '{corps: $c, worktree: false}')"
-log "adopted $child into $corps"
+event adopted "adopted $child into $corps" "$(jq -cn --arg d "$(corps_name "$child")" --arg c "$(corps_name "$corps")" '{corps: $c, division: $d}')"
 echo "'$child' is now a Division of $corps; brief $corps's Main Agent that it commands it"

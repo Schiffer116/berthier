@@ -44,14 +44,14 @@ check "vanished is looked at first" "$(jq -c '[.look, .revive]' <<<"$o")" '[[{"p
 check "gone status" "$(jq -c '.state.agents["w1:p1"] | [.status, .status_since, .revive_attempts]' <<<"$o")" '["gone",1010,0]'
 crashed='{"w1:p1":{"exited":false,"at_shell":true}}'
 o=$(OBS=$crashed tick "$prev" "$s2" 1010)
-check "revive action" "$(jq -c '[.look, .revive]' <<<"$o")" '[[],[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1"}]]'
+check "revive action" "$(jq -c '[.look, .revive]' <<<"$o")" '[[],[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}]]'
 check "revive counted" "$(jq -c '.state.agents["w1:p1"] | [.revive_attempts, .last_revive_at]' <<<"$o")" '[1,1010]'
 o=$(OBS='{"w1:p1":{"exited":false,"at_shell":false}}' tick "$prev" "$s2" 1010)
-check "revive skipped off shell" "$(jq -c '[.revive, .log, .state.agents["w1:p1"].revive_attempts]' <<<"$o")" \
-  '[[],["revive skipped: pane w1:p1 is not at a shell prompt"],1]'
+check "revive skipped off shell" "$(jq -c '[.revive, (.events | map([.kind, .pane])), .state.agents["w1:p1"].revive_attempts]' <<<"$o")" \
+  '[[],[["revive_skipped","w1:p1"]],1]'
 o=$(OBS='{"w1:p1":{"exited":true,"at_shell":true}}' tick "$prev" "$s2" 1010)
-check "deliberate exit forgotten" "$(jq -c '[.revive, .log, (.state.agents | length), .state.corps[0].agents]' <<<"$o")" \
-  '[[],["forgot a-w1-p1 in w1:p1: user exited it (session sid-1)"],0,[]]'
+check "deliberate exit forgotten" "$(jq -c '[.revive, .events, (.state.agents | length), .state.corps[0].agents]' <<<"$o")" \
+  '[[],[{"kind":"forgot","msg":"forgot a-w1-p1 in w1:p1: user exited it (session sid-1)","pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}],0,[]]'
 
 # --- Backoff: a recent attempt suppresses another, and its pane is not read.
 prev=$(jq -c '.state' <<<"$(OBS=$crashed tick "$prev" "$s2" 1010)")
@@ -82,7 +82,7 @@ o=$(tick "$prev" "$(snap "$W" '[]' "[$(held w1:p1 sid-1)]")" 1010)
 check "restoring pane not revived" "$(jq -c '[(.revive | length), (.vanished | length)]' <<<"$o")" '[0,0]'
 check "restoring pane kept" "$(jq -c '.state.agents["w1:p1"] | [.name, .kind, .status, .session_id]' <<<"$o")" '["principal","claude","unknown","sid-1"]'
 o=$(tick "$(jq -c .state <<<"$o")" "$(snap "$W" "[$(agent w1:p1 idle sid-1)]" "[$(pane w1:p1)]")" 1020)
-check "lost name restored" "$(jq -c '.rename' <<<"$o")" '[{"pane_id":"w1:p1","name":"principal","session_id":"sid-1"}]'
+check "lost name restored" "$(jq -c '.rename | map(del(.ev))' <<<"$o")" '[{"pane_id":"w1:p1","name":"principal","session_id":"sid-1"}]'
 check "lost name kept in state" "$(jq -r '.state.agents["w1:p1"].name' <<<"$o")" 'principal'
 check "named agent left alone" "$(jq -c '.rename' <<<"$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-1 principal)]" "[$(pane w1:p1)]")" 1020)")" '[]'
 o=$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-2)]" "[$(pane w1:p1)]")" 1020)
@@ -105,6 +105,8 @@ check "blocked under threshold" "$(jq -c '[(.escalate | length), (.notify | leng
 o=$(tick "$prev" "$sb" 1130)
 check "blocked escalates" "$(jq -c '.escalate | map(.key)' <<<"$o")" '["blocked:w1:p1:1000"]'
 check "berthier blocked notifies" "$(jq -c '.notify | map(.key)' <<<"$o")" '["blocked:w3:p1:1000"]'
+check "escalation event" "$(jq -c '[.escalate[0].ev, .notify[0].ev.to]' <<<"$o")" \
+  '[{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","why":"blocked","reason":"blocked 2m on an approval or question","to":"berthier"},"you"]'
 check "blocked speaks once" "$(jq -c '.speak' <<<"$(tick "$(jq -c .state <<<"$o")" "$sb" 1140)")" '[]'
 check "blocked speech" "$(jq -c '.speak | map(.text)' <<<"$(tick "$prev" "$sb" 1030)")" '["skipli is waiting on you","berthier is waiting on you"]'
 st=$(snap "$W" "[$(agent w2:p1 blocked sid-t)]" "[$(pane w2:p1)]")
@@ -126,7 +128,7 @@ o=$(INBOX='[]' tick "$(jq -c --argjson l "$oneway" '.ask_log = $l' <<<"$prev")" 
 check "one-way updates are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
 flips=$(jq -c '[range(11) | {from: (if . % 2 == 0 then "skipli" else "notes" end), to: (if . % 2 == 0 then "notes" else "skipli" end), at: (1900 + .)}]' <<<null)
 o=$(INBOX='[]' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
-check "pingpong escalates" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
+check "pingpong escalates" "$(jq -c '.escalate | map([.text, .ev.ask_from, .ev.ask_to])' <<<"$o")" '[["asks bouncing between notes and skipli: 10 back-and-forths in the last hour","notes","skipli"]]'
 o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"Skipli","worktree":true}}' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
 check "corps and its own division are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
 o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"learning","worktree":true},"skipli":{"corps":"learning","worktree":true}}' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
@@ -139,7 +141,8 @@ sd=$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 blocked sid-6),$(agent
 prev=$(jq -c .state <<<"$(INBOX='[]' tick '{}' "$sd" 1000)")
 o=$(INBOX='[]' tick "$prev" "$sd" 1130)
 check "division nested" "$(jq -c '.state.corps | map({name, divisions: (.divisions | map(.name))})' <<<"$o")" '[{"name":"learning","divisions":["tailscale"]}]'
-check "division escalates to its corps" "$(jq -c '.escalate | map([.key, .to])' <<<"$o")" '[["blocked:w6:p1:1000","w1:p1"]]'
+check "division escalates to its corps" "$(jq -c '.escalate | map([.key, .to, .ev.to, .ev.corps])' <<<"$o")" '[["blocked:w6:p1:1000","w1:p1","learning","tailscale"]]'
+check "division speech event" "$(jq -c '.speak | map(.ev | [.why, .to, .corps])' <<<"$o")" '[["blocked","you","tailscale"]]'
 check "division speech" "$(jq -c '.speak | map(.text)' <<<"$o")" '["tailscale in learning is waiting on you"]'
 check "orphan division stays a corps" "$(DIVISIONS='{}' tick "$prev" "$sd" 1130 | jq -c '.state.corps | map(.name)')" '["learning","tailscale"]'
 check "division addressable" "$(INBOX='[{"id":"9","from":"skipli","to":"tailscale","text":"t","at":1100}]' tick "$prev" "$(snap "$WD" "[$(agent w1:p1 idle sid-1),$(agent w6:p1 idle sid-6)]" "[$(pane w1:p1),$(pane w6:p1)]")" 1130 | jq -c '.deliver | map(.pane_id)')" '["w6:p1"]'
@@ -177,14 +180,14 @@ check "working is not read" "$(jq -c '.look' <<<"$(tick "$prev" "$sw" 1010)")" '
 o=$(tick "$prev" "$si" 1100)
 check "idle is read" "$(jq -c '[.look, .state.agents["w1:p1"].limit]' <<<"$o")" '[[{"pane_id":"w1:p1","session_id":"sid-1","want":["limit_reset"]}],null]'
 o=$(OBS='{"w1:p1":{"limit_reset":5000}}' TZ=UTC tick "$prev" "$si" 1100)
-check "limit stop recorded" "$(jq -c '[.look, .log, .resume, .state.agents["w1:p1"].limit]' <<<"$o")" \
-  '[[],["usage limit: skipli in w1:p1 stopped until 1970-01-01 01:23 UTC"],[],{"episode":"2:1100","since":1100,"reset_at":5000}]'
+check "limit stop recorded" "$(jq -c '[.look, (.events | map([.kind, .name, .until, .msg])), .resume, .state.agents["w1:p1"].limit]' <<<"$o")" \
+  '[[],[["limit_stop","skipli",5000,"usage limit: skipli in w1:p1 stopped until 1970-01-01 01:23 UTC"]],[],{"episode":"2:1100","since":1100,"reset_at":5000}]'
 limited=$(jq -c .state <<<"$o")
 check "read once per episode" "$(jq -c '.look' <<<"$(tick "$limited" "$si" 1110)")" '[]'
-check "no limit stop recorded" "$(OBS='{"w1:p1":{"limit_reset":null}}' tick "$prev" "$si" 1100 | jq -c '[.log, .state.agents["w1:p1"].limit.reset_at]')" '[[],null]'
+check "no limit stop recorded" "$(OBS='{"w1:p1":{"limit_reset":null}}' tick "$prev" "$si" 1100 | jq -c '[.events, .state.agents["w1:p1"].limit.reset_at]')" '[[],null]'
 check "no resume before reset" "$(jq -c '.resume' <<<"$(tick "$limited" "$si" 5050)")" '[]'
 o=$(tick "$limited" "$si" 5060)
-check "resume after reset" "$(jq -c '.resume' <<<"$o")" '[{"pane_id":"w1:p1","name":"skipli","reset_at":5000}]'
+check "resume after reset" "$(jq -c '.resume' <<<"$o")" '[{"pane_id":"w1:p1","name":"skipli","reset_at":5000,"ev":{"pane":"w1:p1","corps":"skipli","name":"skipli"}}]'
 resumed=$(jq -c .state <<<"$o")
 check "resume recorded" "$(jq -c '.agents["w1:p1"] | [.limit.resumed, .limit_resumed_at]' <<<"$resumed")" '[true,5060]'
 check "resume once per episode" "$(jq -c '.resume' <<<"$(tick "$resumed" "$si" 5070)")" '[]'

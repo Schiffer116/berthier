@@ -68,51 +68,50 @@ if [[ $(jq '.look | length' <<<"$out") != 0 ]]; then
   done < <(jq -r '.look[] | [.pane_id, (.session_id // "-"), (.want | join(" "))] | @tsv' <<<"$out") | jq -cs 'add // {}')
   out=$(decide "$obs")
 fi
-while IFS= read -r l; do
-  [[ -n $l ]] && log "$l"
-done < <(jq -r '.log[]' <<<"$out")
+# --- Log the decisions, then carry out the actions and log their outcomes.
+# Each action comes as a line of fields and a line of its event's fields (ev).
+while IFS= read -r e; do
+  [[ -n $e ]] && jq -c --argjson ts "$(date +%s)" '{ts: $ts} + .' <<<"$e" >>"$BERTHIER_LOG"
+done < <(jq -c '.events[]' <<<"$out")
+actions() { jq -r ".$1[] | ($2 | @tsv), (.ev | tojson)" <<<"$out"; }
 
 # --- Revive: resume the gone session in the pane it died in.
-while IFS=$'\t' read -r pane name sid; do
-  [[ -n $pane ]] || continue
+while IFS=$'\t' read -r pane name sid && IFS= read -r ev; do
   if hd agent start "$name" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
        -- --resume "$sid" >/dev/null 2>&1; then
-    log "revived $name in $pane (session $sid)"
+    event revived "revived $name in $pane (session $sid)" "$ev"
   else
-    log "revive failed: $name in $pane (session $sid)"
+    event revive_failed "revive failed: $name in $pane (session $sid)" "$ev"
   fi
-done < <(jq -r '.revive[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+done < <(actions revive '[.pane_id, .name, .session_id]')
 
 # --- Give agents back the names Herdr forgot (e.g. across a restart).
-while IFS=$'\t' read -r pane name sid; do
-  [[ -n $pane ]] || continue
+while IFS=$'\t' read -r pane name sid && IFS= read -r ev; do
   if hd agent rename "$pane" "$name" >/dev/null 2>&1; then
-    log "restored name $name in $pane (session $sid)"
+    event renamed "restored name $name in $pane (session $sid)" "$ev"
   else
-    log "name restore failed: $name in $pane (session $sid)"
+    event rename_failed "name restore failed: $name in $pane (session $sid)" "$ev"
   fi
-done < <(jq -r '.rename[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+done < <(actions rename '[.pane_id, .name, .session_id]')
 
 # --- Usage limits: nudge an Agent on once its limit has reset.
-while IFS=$'\t' read -r pane name; do
-  [[ -n $pane ]] || continue
+while IFS=$'\t' read -r pane name && IFS= read -r ev; do
   if hd agent prompt "$pane" "$BERTHIER_LIMIT_PROMPT" >/dev/null 2>&1; then
-    log "resumed $name in $pane: usage limit reset"
+    event resumed "resumed $name in $pane: usage limit reset" "$ev"
   else
-    log "resume failed: $name in $pane (usage limit reset)"
+    event resume_failed "resume failed: $name in $pane (usage limit reset)" "$ev"
   fi
-done < <(jq -r '.resume[] | [.pane_id, .name] | @tsv' <<<"$out")
+done < <(actions resume '[.pane_id, .name]')
 
 # --- Deliver asks; a delivered ask leaves the inbox.
-while IFS=$'\t' read -r id pane from to text; do
-  [[ -n $id ]] || continue
+while IFS=$'\t' read -r id pane from to text && IFS= read -r ev; do
   if hd agent prompt "$pane" "$text" >/dev/null 2>&1; then
     rm -f "$BERTHIER_INBOX/$id.json"
-    log "delivered ask $from -> $to ($pane)"
+    event delivered "delivered ask $from -> $to ($pane)" "$ev"
   else
-    log "ask delivery failed: $from -> $to ($pane), ask $id"
+    event delivery_failed "ask delivery failed: $from -> $to ($pane), ask $id" "$ev"
   fi
-done < <(jq -r '.deliver[] | [.id, .pane_id, .from, .to, .text] | @tsv' <<<"$out")
+done < <(actions deliver '[.id, .pane_id, .from, .to, .text]')
 
 # --- Escalate: a Division's events go to its Corps's Main Agent, the rest to
 # Berthier, one prompt each. Fall back to the user if the target cannot take it.
@@ -120,35 +119,37 @@ berthier=$(jq -r '.state.berthier // empty' <<<"$out")
 while IFS= read -r group; do
   [[ -n $group ]] || continue
   to=$(jq -r '.[0].to // "-"' <<<"$group")
+  who=$(jq -r '.[0].ev.to' <<<"$group")
   mapfile -t lines < <(jq -r '.[].text' <<<"$group")
-  mapfile -t kinds < <(jq -r '.[].key | split(":")[0]' <<<"$group")
-  if [[ $to == - ]]; then target=$berthier who=berthier msg="[berthier-loop] Army events:"
-  else target=$to who=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
+  mapfile -t evs < <(jq -c '.[].ev' <<<"$group")
+  if [[ $to == - ]]; then target=$berthier msg="[berthier-loop] Army events:"
+  else target=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
   if [[ -n $target ]] && hd agent prompt "$target" "$msg" >/dev/null 2>&1; then
-    for i in "${!lines[@]}"; do log "escalated ${kinds[i]} to $who: ${lines[i]}"; done
+    for i in "${!lines[@]}"; do
+      event escalated "escalated $(jq -r .why <<<"${evs[i]}") to $who: ${lines[i]}" "${evs[i]}"
+    done
   else
     hd notification show "Berthier unreachable" --body "$msg" --sound request >/dev/null 2>&1 || true
-    log "$who unreachable; notified user of ${#lines[@]} event(s)"
+    event unreachable "$who unreachable; notified user of ${#lines[@]} event(s)" \
+      "$(jq -cn --arg to "$who" --argjson n "${#lines[@]}" '{to: $to, events: $n}')"
   fi
 done < <(jq -c '.escalate | group_by(.to // "-")[]' <<<"$out")
 
 # --- Berthier's own trouble goes straight to the user.
-while IFS= read -r l; do
-  [[ -n $l ]] || continue
+while IFS=$'\t' read -r l && IFS= read -r ev; do
   hd notification show "Berthier needs you" --body "$l" --sound request >/dev/null 2>&1 || true
-  log "notified user: $l"
-done < <(jq -r '.notify[].text' <<<"$out")
+  event notified "notified user: $l" "$ev"
+done < <(actions notify '[.text]')
 
 # --- Say it out loud when the user is needed; one utterance per tick.
 mapfile -t spoken < <(jq -r '.speak[].text' <<<"$out")
+mapfile -t evs < <(jq -c '.speak[].ev' <<<"$out")
 if ((${#spoken[@]})); then
   msg=$(printf '%s. ' "${spoken[@]}")
-  if [[ -x $BERTHIER_SPEAK ]] && "$BERTHIER_SPEAK" "${msg% }" >/dev/null 2>&1; then
-    log "spoke: ${msg% }"
-  else
-    log "speak failed ($BERTHIER_SPEAK): ${msg% }"
-  fi
+  kind=spoke said=spoke
+  [[ -x $BERTHIER_SPEAK ]] && "$BERTHIER_SPEAK" "${msg% }" >/dev/null 2>&1 || kind=speak_failed said="speak failed ($BERTHIER_SPEAK)"
+  for i in "${!spoken[@]}"; do event "$kind" "$said: ${spoken[i]}." "${evs[i]}"; done
 fi
 
 tmp=$(mktemp "$BERTHIER_HOME/state.json.XXXXXX")
