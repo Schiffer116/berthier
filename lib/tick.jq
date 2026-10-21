@@ -9,10 +9,15 @@
 #           ask_stuck, pingpong_max, limit_grace, limit_retry}
 #   $divisions {division name: {corps: label, worktree: bool}} (division-new, adopt)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
+#   $obs   optional: what the caller read from panes this program asked to look
+#          at, {pane: {exited, at_shell, limit_reset}}
 #
-# Output: {state, vanished: [...], revive: [...], rename: [...], limit_check: [...],
-#          resume: [...], escalate: [...], notify: [...], speak: [...], deliver: [...]}
-# The caller performs the actions; this program never touches the world.
+# Output: {state, look: [...], log: [...], revive: [...], rename: [...], resume: [...],
+#          escalate: [...], notify: [...], speak: [...], deliver: [...]}
+# A decision that needs a pane read waits: the pane is listed under look
+# ({pane_id, session_id, want: [exited, at_shell, limit_reset]}) and the caller
+# runs this again with $obs. This program alone writes the Army State; the caller
+# performs the actions and never touches the state.
 
 include "names";
 # Berthier is whichever agent runs in Berthier's own repository.
@@ -21,8 +26,12 @@ def is_berthier_cwd: (. // "") as $c | $c == $cfg.berthier_root or ($c | startsw
 # Herdr agent names must match [a-z][a-z0-9_-]{0,31}.
 def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"));
 
+# Has the caller read this pane for $what?
+def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
+
+($ARGS.named.obs // {}) as $obs
 # Herdr's own workspace order, which every view of the Army follows.
-($snap.workspaces // [] | sort_by(.number // 0)) as $workspaces
+| ($snap.workspaces // [] | sort_by(.number // 0)) as $workspaces
 | ($workspaces | map({key: .workspace_id, value: .}) | from_entries) as $ws
 | ($snap.panes // [] | map(.pane_id)) as $pane_ids
 | ($prev.agents // {}) as $prev_agents
@@ -78,26 +87,29 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       )
   ) | from_entries) as $gone
 
+# --- Agents that vanished this very tick, and gone ones due a Revive.
+| ($gone | keys | map(select($prev_agents[.].status != "gone"))) as $vanished
+| ($gone | to_entries | map(
+    select((.value.revive_attempts // 0) < $cfg.revive_max)
+    | select(($now - (.value.last_revive_at // 0)) >= $cfg.revive_backoff) | .key)) as $due
+# A clean exit is the user's choice: forget the agent instead of Reviving.
+# Read when it vanishes, while the evidence is still at the bottom of its
+# pane, and again right before any Revive.
+| ($vanished + $due | unique) as $exit_check
+| ($exit_check | map(select($obs[.].exited == true))) as $exited
+| ($gone | with_entries(select(.key as $k | $exited | index($k) | not))) as $gone
+| ($due | map(select($obs[.].exited == false and seen("at_shell")))) as $reviving
+
 | ($live + $gone) as $agents
 | ($agents | to_entries | map(select(.value.cwd | is_berthier_cwd))
    | (map(select(.value.status != "gone")) + .) | first | .key? // null) as $berthier
 | (if $berthier then $agents[$berthier].workspace_id else null end) as $berthier_ws
 
-# --- Agents that vanished this very tick: the caller checks each for a
-# deliberate exit while the evidence is still at the bottom of its pane.
-| ($gone | to_entries | map(
-    select($prev_agents[.key].status != "gone")
-    | {pane_id: .key, name: (.value.name // fallback_name(.key)), session_id: .value.session_id}
-  )) as $vanished
-
-# --- Revive actions.
-| ($gone | to_entries | map(
-    select((.value.revive_attempts // 0) < $cfg.revive_max)
-    | select(($now - (.value.last_revive_at // 0)) >= $cfg.revive_backoff)
-    | {pane_id: .key,
-       name: (.value.name // fallback_name(.key)),
-       session_id: .value.session_id}
-  )) as $revive
+# --- Revive: resume the gone session in the pane it died in, if the pane is
+# back at its shell. Every try counts towards revive_max.
+| ($reviving | map(select($obs[.].at_shell)
+    | {pane_id: ., name: ($agents[.].name // fallback_name(.)), session_id: $agents[.].session_id}))
+  as $revive
 
 # --- Names Herdr lost: give each listed agent back its session's name, unless
 # another agent took it meanwhile.
@@ -113,13 +125,16 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
 # --- Usage limits: Claude often never continues by itself once its limit
 # resets. Read each idle episode's pane once for a limit stop; once the limit
 # has reset, nudge it once per episode, and never twice within limit_retry.
+# An episode is read on its first tick, so it stopped about now.
 | ($live | to_entries
    | map(select(.value.status == "idle" or .value.status == "done")
          | .value.episode = "\(.value.state_seq):\(.value.status_since)"))
   as $idle
-| ($idle | map(select(.value.limit.episode != .value.episode)
-    | {pane_id: .key, name: (.value.name // fallback_name(.key)), episode: .value.episode}))
-  as $limit_check
+| ($idle | map(select(.value.limit.episode != .value.episode))) as $limit_check
+| ($limit_check | map(select(.key | seen("limit_reset"))
+    | .value.limit = {episode: .value.episode, since: $now, reset_at: $obs[.key].limit_reset}))
+  as $limit_read
+| ($idle | map(.key as $k | ($limit_read | map(select(.key == $k)) | first) // .)) as $idle
 | ($idle | map(
     .value as $v
     | select($v.limit.episode == $v.episode and $v.limit.reset_at != null
@@ -128,6 +143,20 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
              and $now >= ($v.limit_resumed_at // 0) + $cfg.limit_retry)
     | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at}))
   as $resume
+
+# --- Panes to read before the decisions above can be made.
+| ([$exit_check[] | select(seen("exited") | not)
+    | {pane_id: ., session_id: $prev_agents[.].session_id,
+       want: (if $due | index(.) then ["exited", "at_shell"] else ["exited"] end)}]
+   + [$limit_check[] | select(.key | seen("limit_reset") | not)
+      | {pane_id: .key, session_id: .value.session_id, want: ["limit_reset"]}]) as $look
+
+| ([$exited[] | $prev_agents[.] as $a
+     | "forgot \($a.name // fallback_name(.)) in \(.): user exited it (session \($a.session_id))"]
+   + [$reviving[] | select($obs[.].at_shell | not) | "revive skipped: pane \(.) is not at a shell prompt"]
+   + [$limit_read[] | select(.value.limit.reset_at != null)
+      | "usage limit: \(.value.name // fallback_name(.key)) in \(.key) stopped until \(.value.limit.reset_at | strflocaltime("%F %R %Z"))"])
+  as $log
 
 # --- Each Corps's Main Agent: a live Agent in the Corps's own workspace.
 | ($agents | to_entries
@@ -250,6 +279,13 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
     path: (.worktree.checkout_path // null),
     agents: ($by_ws[.workspace_id] // [])})) as $berthier_divisions
 
+# --- The Army State: what was decided above, recorded.
+| ($agents
+   | reduce $limit_read[] as $e (.; .[$e.key].limit = $e.value.limit)
+   | reduce $reviving[] as $p (.; .[$p].revive_attempts += 1 | .[$p].last_revive_at = $now)
+   | reduce $resume[] as $r (.; .[$r.pane_id].limit.resumed = true | .[$r.pane_id].limit_resumed_at = $now))
+  as $recorded
+
 | {
     state: {
       version: 1,
@@ -258,14 +294,14 @@ def fallback_name($pane): "a-" + ($pane | ascii_downcase | gsub("[^a-z0-9]"; "-"
       corps: $corps,
       berthier_divisions: $berthier_divisions,
       order: [$workspaces[].workspace_id],
-      agents: $agents,
+      agents: $recorded,
       escalated: $escalated,
       ask_log: $ask_log
     },
-    vanished: $vanished,
+    look: $look,
+    log: $log,
     revive: $revive,
     rename: $rename,
-    limit_check: $limit_check,
     resume: $resume,
     escalate: $escalate,
     notify: $notify,

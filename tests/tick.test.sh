@@ -7,7 +7,8 @@ CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"
 pass=0 fail=0
 
 tick() { # prev snap now
-  jq -cn --argjson prev "$1" --argjson snap "$2" --argjson now "$3" --argjson cfg "$CFG" --argjson inbox "${INBOX:-[]}" --argjson divisions "${DIVISIONS:-{\}}" -L lib -f lib/tick.jq
+  jq -cn --argjson prev "$1" --argjson snap "$2" --argjson now "$3" --argjson cfg "$CFG" --argjson inbox "${INBOX:-[]}" --argjson divisions "${DIVISIONS:-{\}}" \
+    ${OBS:+--argjson obs "$OBS"} -L lib -f lib/tick.jq
 }
 check() { # name actual expected
   if [[ $2 == "$3" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL %s\n  got:  %s\n  want: %s\n' "$1" "$2" "$3"; fi
@@ -35,30 +36,42 @@ o=$(tick '{}' "$s1" 1000)
 check "first run status" "$(jq -c '.state.agents["w1:p1"] | [.status, .status_since, .session_id]' <<<"$o")" '["idle",1000,"sid-1"]'
 check "first run no actions" "$(jq -c '[.revive, .escalate, .notify] | map(length)' <<<"$o")" '[0,0,0]'
 
-# --- Vanished agent whose pane survived: gone + revive.
+# --- Vanished agent whose pane survived: read its pane, then gone + revive.
 prev=$(jq -c .state <<<"$o")
 s2=$(snap "$W" '[]' "[$(pane w1:p1)]")
 o=$(tick "$prev" "$s2" 1010)
-check "gone status" "$(jq -c '.state.agents["w1:p1"] | [.status, .status_since]' <<<"$o")" '["gone",1010]'
-check "revive action" "$(jq -c '.revive' <<<"$o")" '[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1"}]'
-check "vanished this tick" "$(jq -c '.vanished | map(.pane_id)' <<<"$o")" '["w1:p1"]'
+check "vanished is looked at first" "$(jq -c '[.look, .revive]' <<<"$o")" '[[{"pane_id":"w1:p1","session_id":"sid-1","want":["exited","at_shell"]}],[]]'
+check "gone status" "$(jq -c '.state.agents["w1:p1"] | [.status, .status_since, .revive_attempts]' <<<"$o")" '["gone",1010,0]'
+crashed='{"w1:p1":{"exited":false,"at_shell":true}}'
+o=$(OBS=$crashed tick "$prev" "$s2" 1010)
+check "revive action" "$(jq -c '[.look, .revive]' <<<"$o")" '[[],[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1"}]]'
+check "revive counted" "$(jq -c '.state.agents["w1:p1"] | [.revive_attempts, .last_revive_at]' <<<"$o")" '[1,1010]'
+o=$(OBS='{"w1:p1":{"exited":false,"at_shell":false}}' tick "$prev" "$s2" 1010)
+check "revive skipped off shell" "$(jq -c '[.revive, .log, .state.agents["w1:p1"].revive_attempts]' <<<"$o")" \
+  '[[],["revive skipped: pane w1:p1 is not at a shell prompt"],1]'
+o=$(OBS='{"w1:p1":{"exited":true,"at_shell":true}}' tick "$prev" "$s2" 1010)
+check "deliberate exit forgotten" "$(jq -c '[.revive, .log, (.state.agents | length), .state.corps[0].agents]' <<<"$o")" \
+  '[[],["forgot a-w1-p1 in w1:p1: user exited it (session sid-1)"],0,[]]'
 
-# --- Backoff: a recent attempt suppresses another.
-prev=$(jq -c '.state | .agents["w1:p1"].revive_attempts = 1 | .agents["w1:p1"].last_revive_at = 1010' <<<"$o")
+# --- Backoff: a recent attempt suppresses another, and its pane is not read.
+prev=$(jq -c '.state' <<<"$(OBS=$crashed tick "$prev" "$s2" 1010)")
 o=$(tick "$prev" "$s2" 1030)
-check "revive backoff" "$(jq -c '.revive | length' <<<"$o")" '0'
-check "vanished only once" "$(jq -c '.vanished | length' <<<"$o")" '0'
+check "revive backoff" "$(jq -c '[.revive, .look]' <<<"$o")" '[[],[]]'
 o=$(tick "$prev" "$s2" 1071)
-check "revive after backoff" "$(jq -c '.revive | length' <<<"$o")" '1'
+check "revive after backoff looks again" "$(jq -c '.look | map(.want)' <<<"$o")" '[["exited","at_shell"]]'
+check "revive after backoff" "$(OBS=$crashed tick "$prev" "$s2" 1071 | jq -c '.revive | length')" '1'
 
 # --- Max attempts: escalate once, never revive again.
-prev=$(jq -c '.state | .agents["w1:p1"].revive_attempts = 3 | .agents["w1:p1"].last_revive_at = 1000' <<<"$o")
+prev=$(jq -c '.agents["w1:p1"].revive_attempts = 3 | .agents["w1:p1"].last_revive_at = 1000' <<<"$prev")
 o=$(tick "$prev" "$s2" 2000)
-check "revive exhausted" "$(jq -c '[(.revive | length), (.escalate | map(.key))]' <<<"$o")" '[0,["revive_failed:w1:p1:1010"]]'
+check "revive exhausted" "$(jq -c '[(.revive | length), (.look | length), (.escalate | map(.key))]' <<<"$o")" '[0,0,["revive_failed:w1:p1:1010"]]'
 check "revive_failed speech" "$(jq -c '.speak | map(.text)' <<<"$o")" '["skipli crashed and could not be resumed"]'
 o=$(tick "$(jq -c .state <<<"$o")" "$s2" 2010)
 check "revive_failed spoken once" "$(jq -c '.speak' <<<"$o")" '[]'
 check "revive_failed escalates once" "$(jq -c '.escalate | length' <<<"$o")" '0'
+# The last try is not a failure until the next tick still finds it gone.
+o=$(OBS=$crashed tick "$(jq -c '.agents["w1:p1"].revive_attempts = 2' <<<"$prev")" "$s2" 2000)
+check "last try escalates nothing yet" "$(jq -c '[(.revive | length), .escalate, .state.agents["w1:p1"].revive_attempts]' <<<"$o")" '[1,[],3]'
 
 # --- Herdr restart: it resumes sessions itself, briefly listing a pane that
 # holds a session with no agent, and forgets names it did not assign at start.
@@ -160,23 +173,29 @@ changed() { jq -c --argjson n "$1" '. + {state_change_seq: $n}' <<<"$2"; }
 sw=$(snap "$W" "[$(changed 1 "$(agent w1:p1 working sid-1 skipli)")]" "[$(pane w1:p1)]")
 si=$(snap "$W" "[$(changed 2 "$(agent w1:p1 idle sid-1 skipli)")]" "[$(pane w1:p1)]")
 prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
-check "working is not read" "$(jq -c '.limit_check' <<<"$(tick "$prev" "$sw" 1010)")" '[]'
+check "working is not read" "$(jq -c '.look' <<<"$(tick "$prev" "$sw" 1010)")" '[]'
 o=$(tick "$prev" "$si" 1100)
-check "idle is read" "$(jq -c '.limit_check' <<<"$o")" '[{"pane_id":"w1:p1","name":"skipli","episode":"2:1100"}]'
-limited=$(jq -c '.state | .agents["w1:p1"].limit = {episode: "2:1100", since: 1100, reset_at: 5000}' <<<"$o")
-check "read once per episode" "$(jq -c '.limit_check' <<<"$(tick "$limited" "$si" 1110)")" '[]'
+check "idle is read" "$(jq -c '[.look, .state.agents["w1:p1"].limit]' <<<"$o")" '[[{"pane_id":"w1:p1","session_id":"sid-1","want":["limit_reset"]}],null]'
+o=$(OBS='{"w1:p1":{"limit_reset":5000}}' TZ=UTC tick "$prev" "$si" 1100)
+check "limit stop recorded" "$(jq -c '[.look, .log, .resume, .state.agents["w1:p1"].limit]' <<<"$o")" \
+  '[[],["usage limit: skipli in w1:p1 stopped until 1970-01-01 01:23 UTC"],[],{"episode":"2:1100","since":1100,"reset_at":5000}]'
+limited=$(jq -c .state <<<"$o")
+check "read once per episode" "$(jq -c '.look' <<<"$(tick "$limited" "$si" 1110)")" '[]'
+check "no limit stop recorded" "$(OBS='{"w1:p1":{"limit_reset":null}}' tick "$prev" "$si" 1100 | jq -c '[.log, .state.agents["w1:p1"].limit.reset_at]')" '[[],null]'
 check "no resume before reset" "$(jq -c '.resume' <<<"$(tick "$limited" "$si" 5050)")" '[]'
-check "resume after reset" "$(jq -c '.resume' <<<"$(tick "$limited" "$si" 5060)")" '[{"pane_id":"w1:p1","name":"skipli","reset_at":5000}]'
-resumed=$(jq -c '.agents["w1:p1"] += {limit_resumed_at: 5060} | .agents["w1:p1"].limit.resumed = true' <<<"$limited")
+o=$(tick "$limited" "$si" 5060)
+check "resume after reset" "$(jq -c '.resume' <<<"$o")" '[{"pane_id":"w1:p1","name":"skipli","reset_at":5000}]'
+resumed=$(jq -c .state <<<"$o")
+check "resume recorded" "$(jq -c '.agents["w1:p1"] | [.limit.resumed, .limit_resumed_at]' <<<"$resumed")" '[true,5060]'
 check "resume once per episode" "$(jq -c '.resume' <<<"$(tick "$resumed" "$si" 5070)")" '[]'
-check "no limit, no resume" "$(jq -c '.resume' <<<"$(tick "$(jq -c '.agents["w1:p1"].limit.reset_at = null' <<<"$limited")" "$si" 9000)")" '[]'
+check "resume on the tick it is read" "$(OBS='{"w1:p1":{"limit_reset":1000}}' tick "$prev" "$si" 2000 | jq -c '.resume | length')" '1'
 check "working ends the episode" "$(jq -c '.resume' <<<"$(tick "$limited" "$sw" 5070)")" '[]'
 # A turn between two ticks: same status, but Herdr bumped its sequence.
 si3=$(snap "$W" "[$(changed 3 "$(agent w1:p1 idle sid-1 skipli)")]" "[$(pane w1:p1)]")
 o=$(tick "$resumed" "$si3" 5080)
-check "turn between ticks is a new episode" "$(jq -c '[(.limit_check | map(.episode)), .resume]' <<<"$o")" '[["3:1100"],[]]'
+check "turn between ticks is a new episode" "$(jq -c '[(.look | map(.pane_id)), .resume]' <<<"$o")" '[["w1:p1"],[]]'
 # It stopped on the limit again right after the nudge: wait out limit_retry.
-again=$(jq -c '.state | .agents["w1:p1"].limit = {episode: "3:1100", since: 5080, reset_at: 5000}' <<<"$o")
+again=$(OBS='{"w1:p1":{"limit_reset":5000}}' tick "$resumed" "$si3" 5080 | jq -c .state)
 check "retry waits" "$(jq -c '.resume' <<<"$(tick "$again" "$si3" 6000)")" '[]'
 check "retry after limit_retry" "$(jq -c '.resume | length' <<<"$(tick "$again" "$si3" 6860)")" '1'
 check "gone is never resumed" "$(jq -c '.resume' <<<"$(tick "$limited" "$(snap "$W" '[]' "[$(pane w1:p1)]")" 9000)")" '[]'

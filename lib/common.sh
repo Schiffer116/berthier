@@ -104,13 +104,13 @@ slug() {
 }
 
 # Did Claude end by a deliberate exit (/exit, Ctrl+C) rather than a crash?
-# Only a clean exit prints its resume hint; a killed process leaves none. The
-# loop checks on the first tick after the agent vanished, so the hint is still
-# at the bottom of the pane.
-exited_deliberately() {
+# Reads its pane's tail on stdin. Only a clean exit prints its resume hint; a
+# killed process leaves none. The loop reads the pane on the first tick after
+# the agent vanished, so the hint is still at the bottom.
+exited_deliberately() { # session id
   local tail
-  tail=$(hd pane read "$1" --source recent-unwrapped --lines 20 | grep -v '^[[:space:]]*$' | tail -6)
-  grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $2" <<<"$tail"
+  tail=$(grep -v '^[[:space:]]*$' | tail -6)
+  grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $1" <<<"$tail"
 }
 
 # When does the usage limit an idle Agent stopped on reset? Reads its pane's

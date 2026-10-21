@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for usage_limit_reset: a pane's tail in, the limit's reset time out.
+# Unit tests for the pane-tail classifiers: a pane's tail in, a verdict out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -69,6 +69,31 @@ check "limit typed in the input box" "$(reset "$(at '2026-10-20 09:00')" <<<"●
 ──────────────────────────────────────────────────
 ❯ what if you hit your session limit · resets 11pm?
 ──────────────────────────────────────────────────")" ''
+
+# --- exited_deliberately: a clean exit's resume hint at the bottom of the pane.
+sid=0b6f2c1e-6a1d-4c55-9d1f-3f1e2a7c9b10
+exited() { exited_deliberately "$sid" && echo yes || echo no; }
+quit="● Pushed PR #18.
+
+$box
+
+Resume this session with:
+claude --resume $sid
+
+~/r/skipli main ❯"
+check "clean exit" "$(exited <<<"$quit")" yes
+check "clean exit, blank lines below" "$(exited <<<"$quit$(printf '\n%.0s' {1..15})")" yes
+check "another session's hint" "$(exited <<<"${quit//$sid/11111111-2222-3333-4444-555555555555}")" no
+check "killed process" "$(exited <<<"● Pushed PR #18.
+$box
+zsh: killed     claude
+~/r/skipli main ❯")" no
+check "old hint scrolled up" "$(exited <<<"$quit
+❯ claude --resume $sid
+● Back again.
+$box
+zsh: killed     claude
+~/r/skipli main ❯")" no
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

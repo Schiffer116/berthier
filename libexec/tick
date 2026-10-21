@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One Main Loop pass: observe Herdr, decide (lib/tick.jq), act, write state.
-# The Main Loop is the only writer of the Army State.
+# Only lib/tick.jq writes the Army State; this script gathers the observations
+# it asks for and carries out its actions.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -31,35 +32,49 @@ cfg=$(jq -cn \
 inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
   | xargs -0r jq -c '. + {id: (input_filename | split("/") | last | rtrimstr(".json"))}' | jq -cs .)
 
-out=$(jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
-  --argjson inbox "$inbox" --argjson divisions "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
-  -L "$BERTHIER_ROOT/lib" -f "$BERTHIER_ROOT/lib/tick.jq")
-state=$(jq -c '.state' <<<"$out")
-
-# --- A clean exit is the user's choice: forget the agent instead of Reviving.
-# Checked when it vanishes, and again right before any Revive.
-declare -A exited=()
-forget_if_exited() { # pane name sid
-  exited_deliberately "$1" "$3" || return 1
-  exited[$1]=1
-  state=$(jq -c --arg p "$1" 'del(.agents[$p])' <<<"$state")
-  log "forgot $2 in $1: user exited it (session $3)"
+decide() { # [obs]
+  jq -cn --argjson prev "$prev" --argjson snap "$snap" --argjson now "$now" --argjson cfg "$cfg" \
+    --argjson inbox "$inbox" --argjson divisions "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
+    ${1:+--argjson obs "$1"} -L "$BERTHIER_ROOT/lib" -f "$BERTHIER_ROOT/lib/tick.jq"
 }
-while IFS=$'\t' read -r pane name sid; do
-  [[ -n $pane ]] || continue
-  forget_if_exited "$pane" "$name" "$sid" || true
-done < <(jq -r '.vanished[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
+
+# --- Observe what the decisions need: most ticks need nothing, else one more run.
+# A pane that cannot be read for a limit stop is left unobserved: read next tick.
+look() { # pane sid want...
+  local pane=$1 sid=$2 w o='{}' r
+  shift 2
+  for w; do
+    case $w in
+      exited)
+        r=false
+        hd pane read "$pane" --source recent-unwrapped --lines 20 2>/dev/null | exited_deliberately "$sid" && r=true
+        o=$(jq -c --argjson r "$r" '.exited = $r' <<<"$o") ;;
+      at_shell)
+        r=false
+        pane_at_shell "$pane" 2>/dev/null && r=true
+        o=$(jq -c --argjson r "$r" '.at_shell = $r' <<<"$o") ;;
+      limit_reset)
+        r=$(hd pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null | usage_limit_reset "$now") || continue
+        o=$(jq -c --arg r "$r" '.limit_reset = ($r | if . == "" then null else tonumber end)' <<<"$o") ;;
+    esac
+  done
+  jq -cn --arg p "$pane" --argjson o "$o" '{($p): $o}'
+}
+out=$(decide)
+if [[ $(jq '.look | length' <<<"$out") != 0 ]]; then
+  obs=$(while IFS=$'\t' read -r pane sid want; do
+    # shellcheck disable=SC2086  # want is a space-separated list
+    look "$pane" "$sid" $want
+  done < <(jq -r '.look[] | [.pane_id, (.session_id // "-"), (.want | join(" "))] | @tsv' <<<"$out") | jq -cs 'add // {}')
+  out=$(decide "$obs")
+fi
+while IFS= read -r l; do
+  [[ -n $l ]] && log "$l"
+done < <(jq -r '.log[]' <<<"$out")
 
 # --- Revive: resume the gone session in the pane it died in.
 while IFS=$'\t' read -r pane name sid; do
-  [[ -n $pane && -z ${exited[$pane]:-} ]] || continue
-  forget_if_exited "$pane" "$name" "$sid" && continue
-  state=$(jq -c --arg p "$pane" --argjson now "$now" \
-    '.agents[$p].revive_attempts += 1 | .agents[$p].last_revive_at = $now' <<<"$state")
-  if ! pane_at_shell "$pane"; then
-    log "revive skipped: pane $pane is not at a shell prompt"
-    continue
-  fi
+  [[ -n $pane ]] || continue
   if hd agent start "$name" --kind claude --pane "$pane" --timeout "$BERTHIER_START_TIMEOUT_MS" \
        -- --resume "$sid" >/dev/null 2>&1; then
     log "revived $name in $pane (session $sid)"
@@ -78,20 +93,9 @@ while IFS=$'\t' read -r pane name sid; do
   fi
 done < <(jq -r '.rename[] | [.pane_id, .name, .session_id] | @tsv' <<<"$out")
 
-# --- Usage limits: read a newly idle Agent's pane once for a limit stop, and
-# nudge it on once the limit has reset.
-# An episode is read on its first tick, so it stopped about now.
-while IFS=$'\t' read -r pane name episode; do
-  [[ -n $pane ]] || continue
-  reset=$(hd pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null | usage_limit_reset "$now") || continue
-  state=$(jq -c --arg p "$pane" --arg e "$episode" --argjson now "$now" --arg r "$reset" \
-    '.agents[$p].limit = {episode: $e, since: $now, reset_at: ($r | if . == "" then null else tonumber end)}' <<<"$state")
-  [[ -z $reset ]] || log "usage limit: $name in $pane stopped until $(date -d "@$reset" '+%F %R %Z')"
-done < <(jq -r '.limit_check[] | [.pane_id, .name, .episode] | @tsv' <<<"$out")
+# --- Usage limits: nudge an Agent on once its limit has reset.
 while IFS=$'\t' read -r pane name; do
   [[ -n $pane ]] || continue
-  state=$(jq -c --arg p "$pane" --argjson now "$now" \
-    '.agents[$p].limit.resumed = true | .agents[$p].limit_resumed_at = $now' <<<"$state")
   if hd agent prompt "$pane" "$BERTHIER_LIMIT_PROMPT" >/dev/null 2>&1; then
     log "resumed $name in $pane: usage limit reset"
   else
@@ -112,7 +116,7 @@ done < <(jq -r '.deliver[] | [.id, .pane_id, .from, .to, .text] | @tsv' <<<"$out
 
 # --- Escalate: a Division's events go to its Corps's Main Agent, the rest to
 # Berthier, one prompt each. Fall back to the user if the target cannot take it.
-berthier=$(jq -r '.berthier // empty' <<<"$state")
+berthier=$(jq -r '.state.berthier // empty' <<<"$out")
 while IFS= read -r group; do
   [[ -n $group ]] || continue
   to=$(jq -r '.[0].to // "-"' <<<"$group")
@@ -148,5 +152,5 @@ if ((${#spoken[@]})); then
 fi
 
 tmp=$(mktemp "$BERTHIER_HOME/state.json.XXXXXX")
-jq . <<<"$state" >"$tmp"
+jq '.state' <<<"$out" >"$tmp"
 mv "$tmp" "$BERTHIER_STATE"
