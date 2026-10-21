@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serve the Army console (dashboard/) on 127.0.0.1:8430, rebuilding the Go
+# Serve the Grand Army console (dashboard/) on 127.0.0.1:8430, rebuilding the Go
 # server first whenever its sources changed. Extra args go to the server
 # (e.g. -addr :9000).
 # shellcheck source=lib/common.sh

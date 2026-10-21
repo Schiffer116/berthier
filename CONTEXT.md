@@ -1,13 +1,13 @@
 # Berthier
 
-Berthier is the user's chief of staff for coding agents. It runs the Army of Agents in Herdr: it starts them on the user's command, keeps them alive, checks on them, and tells the user where things stand. The user talks to Agents directly; Berthier is never in that loop.
+Berthier is the user's chief of staff for coding agents. It runs the Grand Army of Agents in Herdr: it starts them on the user's command, keeps them alive, checks on them, and tells the user where things stand. The user talks to Agents directly; Berthier is never in that loop.
 
 ## Language
 
 ### Who
 
 **Berthier**:
-The chief-of-staff agent: whichever coding agent runs in Berthier's own repository, distinguished only by its goal of keeping the Army moving and learning how the user works.
+The chief-of-staff agent: whichever coding agent runs in Berthier's own repository, distinguished only by its goal of keeping the Grand Army moving and learning how the user works.
 _Avoid_: orchestrator, controller, first mate
 
 **Notes**:
@@ -15,7 +15,7 @@ Berthier's running record of open threads, commitments, and recent decisions, ke
 _Avoid_: memory, journal, log
 
 **Main Loop**:
-The deterministic, always-running process that observes the Army, Revives gone Agents, and Escalates everything else to Berthier.
+The deterministic, always-running process that observes the Grand Army, Revives gone Agents, and Escalates everything else to Berthier.
 _Avoid_: daemon, watcher, supervisor
 
 **Corps**:
@@ -34,11 +34,11 @@ _Avoid_: worker, crewmate, bot
 The Agent working a Corps on its main branch, in the Corps's own workspace; it decides when to spawn Divisions.
 _Avoid_: lead, primary
 
-**Army**:
-Every Agent currently known to Berthier.
-_Avoid_: fleet, crew, swarm
+**Grand Army**:
+Every Agent currently known to Berthier, after Napoleon's Grande Armée, whose chief of staff was Berthier.
+_Avoid_: Army, fleet, crew, swarm
 
-**Army State**:
+**Grand Army State**:
 The Main Loop's latest record of every Corps and Agent; only the Main Loop writes it.
 _Avoid_: status file, snapshot
 

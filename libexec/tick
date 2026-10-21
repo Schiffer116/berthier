@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One Main Loop pass: observe Herdr, decide (lib/tick.jq), act, write state.
-# Only lib/tick.jq writes the Army State; this script gathers the observations
-# it asks for and carries out its actions.
+# Only lib/tick.jq writes the Grand Army State; this script gathers the
+# observations it asks for and carries out its actions.
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
@@ -122,7 +122,7 @@ while IFS= read -r group; do
   who=$(jq -r '.[0].ev.to' <<<"$group")
   mapfile -t lines < <(jq -r '.[].text' <<<"$group")
   mapfile -t evs < <(jq -c '.[].ev' <<<"$group")
-  if [[ $to == - ]]; then target=$berthier msg="[berthier-loop] Army events:"
+  if [[ $to == - ]]; then target=$berthier msg="[berthier-loop] Grand Army events:"
   else target=$to msg="[berthier-loop] Events in your Divisions (you command them):"; fi
   for l in "${lines[@]}"; do msg+=$'\n'"- $l"; done
   if [[ -n $target ]] && prompt_agent "$target" "$msg" 2>/dev/null; then

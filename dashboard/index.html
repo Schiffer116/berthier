@@ -42,7 +42,7 @@ section { min-width: 0; border: 1px solid var(--line); background: var(--panel);
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
-/* The Army list takes the room; the selected unit and its chat sit beside it.
+/* The Grand Army list takes the room; the selected unit and its chat sit beside it.
    Wide screens fill the viewport and scroll inside the panels; narrow ones stack. */
 .top { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 680px); }
 .top > section { min-height: 0; max-height: 100%; }
@@ -51,7 +51,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
   main { min-height: 0; }
   .top { flex: 1 1 0; min-height: 420px; }
 }
-/* Stacked, the Army list grows with its rows up to most of the screen. */
+/* Stacked, the Grand Army list grows with its rows up to most of the screen. */
 @media (max-width: 1099px) {
   .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 85vh; }
   .top > #army { min-height: 260px; max-height: 75vh; }
@@ -90,7 +90,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 #show-loop { accent-color: var(--blue); }
 .table { min-width: 480px; }
 .grid { display: grid; grid-template-columns: 14px minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
-/* A narrow Army panel drops the PANE and FOR columns instead of scrolling. */
+/* A narrow Grand Army panel drops the PANE and FOR columns instead of scrolling. */
 #army { container-type: inline-size; }
 @container (max-width: 559px) {
   .table { min-width: 0; }
@@ -199,7 +199,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 <div class="app">
   <header class="bar">
     <span class="brand">berthier</span>
-    <span class="dim">▸ army</span>
+    <span class="dim">▸ grand army</span>
     <span class="loop" id="loop"><span class="dim">connecting…</span></span>
     <span class="muted" id="fresh"></span>
     <span class="grow"></span>
@@ -215,7 +215,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
     <div class="top">
       <section id="army" class="panel-col" aria-labelledby="army-h">
         <div class="ph">
-          <h2 id="army-h">ARMY <small id="army-sub"></small></h2>
+          <h2 id="army-h">GRAND ARMY <small id="army-sub"></small></h2>
           <div class="controls">
             <label class="filter">
               <span aria-hidden="true">/</span>
@@ -368,7 +368,7 @@ function renderHeader(all) {
     : `<span style="color: ${C.red}" aria-hidden="true">■</span>main loop not writing state`;
   const link = connected ? '' : ` · <span style="color: ${C.red}">console disconnected</span>`;
   $('fresh').classList.toggle('wide', fresh && connected); // narrow screens show it only when something is wrong
-  $('fresh').innerHTML = `army state ${clock(army.updated_at)} · ${fresh ? 'fresh' : `<span style="color: ${C.accent}">stale</span>`}${link}`;
+  $('fresh').innerHTML = `grand army state ${clock(army.updated_at)} · ${fresh ? 'fresh' : `<span style="color: ${C.accent}">stale</span>`}${link}`;
   const tally = (n, label, color) => n
     ? `<span class="tally"><b style="color: ${color}">${n}</b> ${label}</span>`
     : `<span class="tally zero"><b>0</b> ${label}</span>`;

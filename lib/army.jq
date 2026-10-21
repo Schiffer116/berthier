@@ -1,5 +1,5 @@
-# The Army view model: Army State + Agents' reports + inbox + loop.log, joined
-# for the bar, the desktop widget and the dashboard. Pure.
+# The Grand Army view model: Grand Army State + Agents' reports + inbox +
+# loop.log, joined for the bar, the desktop widget and the dashboard. Pure.
 #
 # Inputs (--argjson): $state (state.json or {}), $reports {session_id: {line, at}},
 #   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log, JSON Lines],
