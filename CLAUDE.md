@@ -52,6 +52,7 @@ Check-in first, then:
 - `blocked`: tell the user which Agent and what it asks; never answer for them.
 - `working Nm`: progressing -> leave; stuck -> Nudge or tell the user.
 - `revive failed`: tell the user.
+- `Weekly budget` (a Corps without a Main Agent): tell the user; `berthier budget` shows usage.
 - `ask undelivered` / `asks bouncing`: read both sides; settle or tell the user.
 
 ## Judgment

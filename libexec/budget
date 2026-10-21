@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Weekly quota budgets, soft: `budget` prints each Corps's share of the account's
+# seven-day quota against its allowance (state/budgets.json, % of the week);
+# `budget <corps> <pct>` sets one, `budget <corps> off` drops it. The Main Loop
+# enforces them (lib/tick.jq); lib/usage.jq does the accounting.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+usage='usage: berthier budget [<corps> <pct>|off]'
+case $# in
+  0) ;;
+  2)
+    corps=$(corps_name "$1")
+    [[ -n $corps ]] || die "$usage"
+    budgets=$(cat "$BERTHIER_BUDGETS" 2>/dev/null || echo '{}')
+    if [[ $2 == off ]]; then
+      jq -e --arg c "$corps" 'has($c)' <<<"$budgets" >/dev/null || die "no budget set for '$corps'"
+    else
+      jq -en --arg p "$2" '$p | tonumber? | . > 0 and . <= 100' >/dev/null 2>&1 || die "pct must be a number in (0, 100], or off: $usage"
+      if [[ -s $BERTHIER_STATE ]]; then
+        names=$(jqn -r '[(if .berthier then "berthier" else empty end), (.corps[].name | corps_name)] | unique | .[]' <"$BERTHIER_STATE")
+        grep -qxF "$corps" <<<"$names" || jq -e --arg c "$corps" 'has($c)' <<<"$budgets" >/dev/null \
+          || die "no Corps '$corps'; known: $(tr '\n' ' ' <<<"$names")"
+      fi
+    fi
+    tmp=$(mktemp "$BERTHIER_HOME/.budgets.XXXXXX")
+    jq --arg c "$corps" --arg p "$2" 'if $p == "off" then del(.[$c]) else .[$c] = ($p | tonumber) end' \
+      <<<"$budgets" >"$tmp"
+    mv "$tmp" "$BERTHIER_BUDGETS"
+    if [[ $2 == off ]]; then echo "budget for $corps dropped"; else echo "budget for $corps: $2% of the week"; fi
+    exit 0 ;;
+  *) die "$usage" ;;
+esac
+
+usage=$(usage_update) || die "could not read the quota ledger"
+jq -rn --argjson usage "$usage" --argjson budgets "$(cat "$BERTHIER_BUDGETS" 2>/dev/null || echo '{}')" \
+  --argjson now "$(date +%s)" -L "$BERTHIER_ROOT/lib" 'include "names"; include "usage";
+  def pct: if . == null then "-" else "\(. * 10 | round / 10)%" end;
+  (usage_view($usage; $budgets; $now)) as $v
+  | if $v.week_pct == null then "no quota samples yet: wire `berthier sample` into the status line"
+    else "week resets \($v.resets_at // 0 | strflocaltime("%a %d %b %H:%M")), account at \($v.week_pct | pct)" end,
+    (["corps", "used", "budget", "of budget"], ($v.corps[] | [.name, (.used | pct), (.allowance | pct),
+       (if .allowance then "\(.ratio * 100 | round)%" else "-" end)]) | @tsv)' \
+  | { IFS= read -r head; echo "$head"; column -t -s $'\t'; }

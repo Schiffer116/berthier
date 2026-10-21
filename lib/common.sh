@@ -34,6 +34,14 @@ BERTHIER_LIMIT_PROMPT=${BERTHIER_LIMIT_PROMPT:-"The usage limit has reset. Conti
 BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
+# Weekly quota: `sample` appends to the ledger, usage_update folds it into the
+# usage record, budgets.json is {corps: % of the week} (`berthier budget`).
+BERTHIER_LEDGER=$BERTHIER_HOME/ledger.jsonl
+BERTHIER_USAGE=$BERTHIER_HOME/usage.json
+BERTHIER_BUDGETS=$BERTHIER_HOME/budgets.json
+BERTHIER_LEDGER_MAX=${BERTHIER_LEDGER_MAX:-4194304}
+# Share of its budget at which a Corps's Main Agent is told and the user hears (percent).
+BERTHIER_BUDGET_WARN=${BERTHIER_BUDGET_WARN:-80}
 # Claude model of spawned Divisions (division-new --model overrides); Main Agents and Berthier use claude's own default.
 BERTHIER_DIVISION_MODEL=${BERTHIER_DIVISION_MODEL:-sonnet}
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
@@ -172,6 +180,36 @@ usage_limit_reset() { # since (epoch the Agent went idle)
     t=$((since + 18000))
   fi
   echo "$t"
+}
+
+# Fold the ledger rows added since last time into state/usage.json (lib/usage.jq)
+# and print the record. Locked, so the Main Loop and `berthier budget` never
+# fold the same rows twice. A ledger past BERTHIER_LEDGER_MAX is moved aside once
+# folded: new samples start a fresh file.
+usage_update() {
+  local u size offset rows map moved=0
+  {
+    flock 8
+    u=$(cat "$BERTHIER_USAGE" 2>/dev/null) || u=
+    [[ -n $u ]] || u='{}'
+    size=$(stat -c %s "$BERTHIER_LEDGER" 2>/dev/null) || size=0
+    offset=$(jq -r '.offset // 0' <<<"$u")
+    ((offset <= size)) || offset=0 # the ledger was replaced
+    if ((size > offset)); then
+      rows=$(tail -c "+$((offset + 1))" "$BERTHIER_LEDGER" | head -c "$((size - offset))")
+      map=$(jqn -c --argjson d "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
+        'include "usage"; path_map(.; $d)' <"$BERTHIER_STATE" 2>/dev/null) || map='[]'
+      if ((size > BERTHIER_LEDGER_MAX)); then
+        mv "$BERTHIER_LEDGER" "$BERTHIER_LEDGER.prev"
+        moved=1
+      fi
+      u=$(jq -cnR -L "$BERTHIER_ROOT/lib" --argjson u "$u" --argjson m "$map" --argjson o "$((moved ? 0 : size))" \
+        'include "usage"; $u | fold([inputs | fromjson? | objects]; $m; $o)' <<<"$rows") || return 1
+      printf '%s\n' "$u" >"$BERTHIER_USAGE.tmp" && mv "$BERTHIER_USAGE.tmp" "$BERTHIER_USAGE"
+    fi
+    find "$BERTHIER_HOME/sampled" -type f -mtime +14 -delete 2>/dev/null || true
+    printf '%s\n' "$u"
+  } 8>"$BERTHIER_HOME/usage.lock"
 }
 
 # Herdr's message from its JSON error output, to stderr.

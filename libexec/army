@@ -25,5 +25,7 @@ jq -cn -L "$BERTHIER_ROOT/lib" \
   --argjson state "$(cat "$BERTHIER_STATE" 2>/dev/null || echo '{}')" \
   --argjson reports "$reports" --argjson inbox "$inbox" \
   --argjson log "$(tail -n 2000 "$BERTHIER_LOG" 2>/dev/null | jq -Rcs 'split("\n") | map(select(. != ""))')" \
-  --argjson available "$available" --argjson now "$now" --argjson interval "$BERTHIER_INTERVAL" --argjson revive_max "$BERTHIER_REVIVE_MAX" \
+  --argjson usage "$(jq -c 'del(.sessions, .acc)' "$BERTHIER_USAGE" 2>/dev/null || echo '{}')" \
+  --argjson budgets "$(jq -c . "$BERTHIER_BUDGETS" 2>/dev/null || echo '{}')" \
+  --argjson budget_warn "$BERTHIER_BUDGET_WARN" --argjson available "$available" --argjson now "$now" --argjson interval "$BERTHIER_INTERVAL" --argjson revive_max "$BERTHIER_REVIVE_MAX" \
   -f "$BERTHIER_ROOT/lib/army.jq"

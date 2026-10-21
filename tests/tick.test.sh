@@ -3,12 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10,"limit_grace":60,"limit_retry":1800}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10,"limit_grace":60,"limit_retry":1800,"budget_warn":80}'
 pass=0 fail=0
 
 tick() { # prev snap now
   jq -cn --argjson prev "$1" --argjson snap "$2" --argjson now "$3" --argjson cfg "$CFG" --argjson inbox "${INBOX:-[]}" --argjson divisions "${DIVISIONS:-{\}}" \
-    ${OBS:+--argjson obs "$OBS"} -L lib -f lib/tick.jq
+    ${OBS:+--argjson obs "$OBS"} ${USAGE:+--argjson usage "$USAGE"} ${BUDGETS:+--argjson budgets "$BUDGETS"} -L lib -f lib/tick.jq
 }
 check() { # name actual expected
   if [[ $2 == "$3" ]]; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL %s\n  got:  %s\n  want: %s\n' "$1" "$2" "$3"; fi
@@ -133,6 +133,7 @@ o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"Skipli","worktree":true}}' tick "$(
 check "corps and its own division are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
 o=$(INBOX='[]' DIVISIONS='{"notes":{"corps":"learning","worktree":true},"skipli":{"corps":"learning","worktree":true}}' tick "$(jq -c --argjson l "$flips" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
 check "sibling divisions still pingpong" "$(jq -c '.escalate | map(.text)' <<<"$o")" '["asks bouncing between notes and skipli: 10 back-and-forths in the last hour"]'
+unset INBOX
 
 # --- Divisions: nested under their Corps; their trouble goes to the Corps's Main Agent.
 WD="[$(ws w1 learning),$(ws w6 tailscale),$(ws w3 berthier)]"
@@ -222,6 +223,61 @@ o=$(tick '{}' "$sn" 1000)
 check "herdr order recorded" "$(jq -c '.state.order' <<<"$o")" '["w3","w1","w2","w4","w5"]'
 check "corps in herdr order" "$(jq -c '.state.corps | map([.name, (.divisions | map(.name))])' <<<"$o")" '[["skipli",["dark-mode","light-mode"]],["notes",[]]]'
 DIVISIONS=$D0
+
+
+# --- Weekly budgets: warn at 80% of the allowance, hold Revives, resumes and asks at 100%.
+used() { jq -cn --argjson s "$1" --argjson d "$2" '{resets_at: 9000, week_pct: 50, by_corps: {skipli: $s, dotfiles: $d}}'; }
+BUDGETS='{"skipli":10,"dotfiles":5}'
+sb=$(snap "$W" "[$(agent w1:p1 idle sid-1),$(agent w2:p1 idle sid-2),$(agent w4:p1 idle sid-4)]" "[$(pane w1:p1),$(pane w2:p1),$(pane w4:p1)]")
+prev=$(jq -c .state <<<"$(tick '{}' "$sb" 1000)")
+USAGE=$(used 7.9 0)
+check "under 80% is quiet" "$(tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events]')" '[[],[],[]]'
+USAGE=$(used 8 0)
+o=$(tick "$prev" "$sb" 1010)
+check "80% tells the main agent" "$(jq -c '.escalate | map([.key, .to, .head, .text, .ev])' <<<"$o")" \
+  '[["budget_warn:skipli:9000","w1:p1","[berthier-loop] Weekly budget:","skipli has used 8% of the week, 80% of its 10% budget: wind down low-value work, since at 100% its Revives, usage-limit resumes and ask delivery are held",{"why":"budget_warn","reason":"80% of weekly budget","corps":"skipli","pct":80,"to":"skipli"}]]'
+check "80% speaks" "$(jq -c '.speak | map([.key, .text])' <<<"$o")" '[["speak_budget_warn:skipli:9000","skipli has used 80 percent of its weekly budget"]]'
+o=$(tick "$(jq -c '.escalated = {"budget_warn:skipli:9000": 1010, "speak_budget_warn:skipli:9000": 1010}' <<<"$prev")" "$sb" 1020)
+check "warned once per week" "$(jq -c '[.escalate, .speak]' <<<"$o")" '[[],[]]'
+check "next week warns again" "$(USAGE=$(used 8 0 | jq -c '.resets_at = 99000') tick "$(jq -c '.escalated = {"budget_warn:skipli:9000": 1010}' <<<"$prev")" "$sb" 1020 | jq -c '.escalate | map(.key)')" '["budget_warn:skipli:99000"]'
+o=$(tick "$prev" "$(snap "$W" '[]' '[]')" 1010)
+check "no main agent: berthier hears" "$(jq -c '.escalate | map([.key, .to, .ev.to])' <<<"$o")" '[["budget_warn:skipli:9000",null,"berthier"]]'
+check "a division's use counts for its corps" "$(USAGE=$(used 8 0) tick "$prev" "$sb" 1010 | jq -c '.escalate | map(.ev.corps)')" '["skipli"]'
+check "expired week counts for nothing" "$(USAGE=$(used 20 20 | jq -c '.resets_at = 1000') tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events, .revive]')" '[[],[],[],[]]'
+check "no budget set, no event" "$(USAGE=$(used 20 20) BUDGETS='{}' tick "$prev" "$sb" 1010 | jq -c '[.escalate, .speak, .events]')" '[[],[],[]]'
+
+# At 100%: logged and spoken once, no warning on top.
+USAGE=$(used 10.5 0)
+o=$(tick "$prev" "$sb" 1010)
+check "100% logs once" "$(jq -c '.events | map([.kind, .corps, .msg])' <<<"$o")" \
+  '[["budget_exhausted","skipli","skipli used 10.5% of the week, over its 10% budget: holding Revives, usage-limit resumes and ask delivery for it and its Divisions until the week resets"]]'
+check "100% speaks" "$(jq -c '[.escalate, (.speak | map(.text))]' <<<"$o")" '[[],["skipli is over its weekly budget"]]'
+o2=$(tick "$(jq -c .state <<<"$o")" "$sb" 1020)
+check "100% is not repeated" "$(jq -c '[.events, .speak]' <<<"$o2")" '[[],[]]'
+check "100% keys survive the next tick" "$(jq -c '.state.escalated | keys' <<<"$o")" '["budget_block:skipli:9000","speak_budget_block:skipli:9000"]'
+check "block key kept for the week" "$(tick "$(jq -c .state <<<"$o")" "$sb" 1020 | jq -c '.state.escalated | keys')" '["budget_block:skipli:9000","speak_budget_block:skipli:9000"]'
+
+# Revives are skipped for the Corps and its Divisions, not for others.
+gone=$(snap "$W" '[]' "[$(pane w1:p1),$(pane w2:p1),$(pane w4:p1)]")
+crashed='{"w1:p1":{"exited":false,"at_shell":true},"w2:p1":{"exited":false,"at_shell":true},"w4:p1":{"exited":false,"at_shell":true}}'
+check "revive held at 100%" "$(OBS=$crashed tick "$prev" "$gone" 1010 | jq -c '.revive | map(.pane_id)')" '["w4:p1"]'
+check "revive resumes under budget" "$(USAGE=$(used 9 0) OBS=$crashed tick "$prev" "$gone" 1010 | jq -c '.revive | map(.pane_id)')" '["w1:p1","w2:p1","w4:p1"]'
+check "held revive costs no attempt" "$(OBS=$crashed tick "$prev" "$gone" 1010 | jq -c '.state.agents["w1:p1"].revive_attempts')" '0'
+
+# Usage-limit resumes wait.
+changed() { jq -c --argjson n "$1" '. + {state_change_seq: $n}' <<<"$2"; }
+swl=$(snap "$W" "[$(changed 1 "$(agent w1:p1 working sid-1 skipli)"),$(changed 1 "$(agent w2:p1 working sid-2)")]" "[$(pane w1:p1),$(pane w2:p1)]")
+sil=$(snap "$W" "[$(changed 2 "$(agent w1:p1 idle sid-1 skipli)"),$(changed 2 "$(agent w2:p1 idle sid-2)")]" "[$(pane w1:p1),$(pane w2:p1)]")
+pl=$(jq -c .state <<<"$(tick '{}' "$swl" 1000)")
+lim='{"w1:p1":{"limit_reset":1000},"w2:p1":{"limit_reset":1000}}'
+check "resume held at 100%" "$(OBS=$lim tick "$pl" "$sil" 2000 | jq -c '.resume | length')" '0'
+check "resume under budget" "$(USAGE=$(used 1 0) OBS=$lim tick "$pl" "$sil" 2000 | jq -c '.resume | length')" '2'
+
+# Ask delivery to the Corps and its Divisions waits; other Corps are unaffected.
+INBOX='[{"id":"1","from":"notes","to":"skipli","text":"a","at":900},{"id":"2","from":"notes","to":"dark-mode","text":"b","at":901},{"id":"3","from":"skipli","to":"notes","text":"c","at":902}]'
+check "asks held at 100%" "$(INBOX=$INBOX tick "$prev" "$sb" 1010 | jq -c '.deliver | map(.id)')" '["3"]'
+check "asks delivered under budget" "$(USAGE=$(used 1 0) INBOX=$INBOX tick "$prev" "$sb" 1010 | jq -c '.deliver | map(.id)')" '["1","2","3"]'
+unset USAGE BUDGETS INBOX
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

@@ -77,6 +77,14 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .ph .end { display: inline-flex; align-items: center; gap: 12px; }
 .x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
 .x:hover { color: var(--bright); }
+/* One bar per Corps with a weekly budget: its use of the account's seven-day quota against its allowance. */
+#budget { padding: 6px 12px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 20px; }
+#budget[hidden] { display: none; }
+.bud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; color: var(--muted); font-size: 12px; }
+.bud .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; }
+.bud .fill { position: absolute; inset: 0 auto 0 0; }
+.bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 #army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
@@ -228,6 +236,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
             </label>
           </div>
         </div>
+        <div id="budget" aria-label="weekly quota budgets" hidden></div>
         <div class="scroll">
           <div class="table">
             <div class="grid thead" aria-hidden="true"><span></span><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
@@ -305,7 +314,7 @@ const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9',
 const LIVE = { working: ['▶', C.blue], blocked: ['■', C.red], done: ['✓', C.green], idle: ['✓', C.green],
   gone: ['✕', C.purple], unknown: ['?', C.muted] };
 const TAG = { loop: C.faint, revive: C.purple, forget: C.purple, speak: C.accent, escal: C.accent,
-  ask: C.blue, army: C.green, limit: C.sky, error: C.red, other: C.muted };
+  ask: C.blue, army: C.green, limit: C.sky, error: C.red, budget: C.accent, other: C.muted };
 const LOG_LINES = 40;
 
 const $ = (id) => document.getElementById(id);
@@ -377,6 +386,22 @@ function renderHeader(all) {
   const corps = army.corps.length, divs = army.corps.reduce((n, c) => n + c.divisions.length, 0) + army.berthier_divisions.length;
   $('army-sub').textContent = `· ${all.length} agent${all.length === 1 ? '' : 's'} · ${corps} corps`
     + (divs ? ` · ${divs} division${divs === 1 ? '' : 's'}` : '') + (army.berthier ? ' + berthier' : '');
+}
+
+// A bar per Corps with a budget; the tick marks the share of the allowance at which its Main Agent is told.
+function renderBudget() {
+  const b = army.budget, corps = (b?.corps || []).filter((c) => c.allowance != null);
+  $('budget').hidden = !corps.length;
+  const pct = (n) => (Math.round(n * 10) / 10) + '%';
+  $('budget').innerHTML = corps.map((c) => {
+    const warn = b.warn / 100, color = c.ratio >= 1 ? C.red : c.ratio >= warn ? C.accent : C.green;
+    const title = `${c.name}: ${pct(c.used)} of the week used, budget ${pct(c.allowance)}${c.ratio >= 1 ? ' · Revives, resumes and asks held' : ''}`;
+    return `<div class="bud" title="${esc(title)}" role="meter" aria-label="${esc(c.name)} weekly budget" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.ratio * 100)}">
+      <span class="name">${esc(c.name)}</span>
+      <span style="color: ${color}">${pct(c.used)} / ${pct(c.allowance)}</span>
+      <span class="track"><span class="fill" style="width: ${Math.min(100, c.ratio * 100)}%; background: ${color}"></span><span class="warn" style="left: ${b.warn}%"></span></span>
+    </div>`;
+  }).join('');
 }
 
 function renderRows(rows) {
@@ -683,6 +708,7 @@ function render() {
   const rows = visible(all);
   if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
   renderHeader(all);
+  renderBudget();
   renderRows(rows);
   renderDetail(all.find((a) => a.pane_id === ui.sel), all);
   renderEscalations();
