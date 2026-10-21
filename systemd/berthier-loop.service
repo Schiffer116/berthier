@@ -3,7 +3,7 @@ Description=Berthier Main Loop (Grand Army supervision in Herdr)
 
 [Service]
 Type=simple
-ExecStart=%h/Documents/berthier/bin/berthier loop
+ExecStart=%h/Documents/grand-army/bin/berthier loop
 Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=5
