@@ -34,6 +34,8 @@ BERTHIER_LIMIT_PROMPT=${BERTHIER_LIMIT_PROMPT:-"The usage limit has reset. Conti
 BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
+# Claude model of spawned Divisions (division-new --model overrides); Main Agents and Berthier use claude's own default.
+BERTHIER_DIVISION_MODEL=${BERTHIER_DIVISION_MODEL:-sonnet}
 BERTHIER_START_TIMEOUT_MS=${BERTHIER_START_TIMEOUT_MS:-45000}
 # How often prompt_agent checks that Claude took a prompt (seconds).
 BERTHIER_PROMPT_POLL=${BERTHIER_PROMPT_POLL:-0.5}
@@ -74,7 +76,7 @@ caller_name() {
     else (.agents[$p].workspace_label // empty | corps_name) end' <"$BERTHIER_STATE"
 }
 
-# Record a Division's Corps in divisions.json ({name: {corps, worktree}});
+# Record a Division's Corps in divisions.json ({name: {corps, worktree, model?}});
 # a null entry forgets it. Atomic, so the Main Loop never reads half a file.
 division_set() { # name json-or-null
   local tmp
@@ -82,6 +84,12 @@ division_set() { # name json-or-null
   jq --arg n "$1" --argjson v "$2" 'if $v == null then del(.[$n]) else .[$n] = $v end' \
     <<<"$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" >"$tmp"
   mv "$tmp" "$BERTHIER_DIVISIONS"
+}
+
+# The model recorded for the Division labelled $1 (empty: none, claude's default).
+division_model() { # workspace-label
+  jqn -r --arg l "$1" --argjson d "$(cat "$BERTHIER_DIVISIONS" 2>/dev/null || echo '{}')" \
+    '$d[$l | corps_name].model // empty' <<<null
 }
 
 die() { printf 'berthier: %s\n' "$*" >&2; exit 1; }
@@ -222,9 +230,10 @@ prompt_agent() { # pane text
 # prompt_agent: Herdr refuses multi-line start arguments. Behind a startup
 # dialog (folder trust), a background waiter sends the Brief once the user
 # answers it. Prints ready, blocked or failed; why it failed goes to stderr.
-start_claude() { # name pane [brief]
+start_claude() { # name pane [brief [model]]
   local err status=started
-  err=$(hd agent start "$1" --kind claude --pane "$2" --timeout "$BERTHIER_START_TIMEOUT_MS" 2>&1 >/dev/null) \
+  err=$(hd agent start "$1" --kind claude --pane "$2" --timeout "$BERTHIER_START_TIMEOUT_MS" \
+    ${4:+-- --model "$4"} 2>&1 >/dev/null) \
     || status=$(hd agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_status // ""')
   case $status in
     blocked)
