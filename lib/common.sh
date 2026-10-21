@@ -84,7 +84,14 @@ division_set() { # name json-or-null
 
 die() { printf 'berthier: %s\n' "$*" >&2; exit 1; }
 
-log() { printf '%s %s\n' "$(date -Is)" "$*" >>"$BERTHIER_LOG"; }
+# Append one event to loop.log, JSON Lines: {ts, kind, msg} + fields, where
+# fields are whichever of pane, corps, name, session, to, why, ... the event
+# has. msg is the English line; readers match on kind and fields, never msg.
+# `berthier log` pretty-prints it; lib/army.jq labels each event for the Console.
+event() { # kind msg [fields-json]
+  jq -cn --arg kind "$1" --arg msg "$2" --argjson f "${3:-"{}"}" --argjson ts "$(date +%s)" \
+    '{ts: $ts, kind: $kind} + $f + {msg: $msg}' >>"$BERTHIER_LOG"
+}
 
 # Talk to Herdr from inside or outside a Herdr pane. Inherited pane context
 # would otherwise pin us to whichever session spawned this process.
@@ -104,13 +111,13 @@ slug() {
 }
 
 # Did Claude end by a deliberate exit (/exit, Ctrl+C) rather than a crash?
-# Only a clean exit prints its resume hint; a killed process leaves none. The
-# loop checks on the first tick after the agent vanished, so the hint is still
-# at the bottom of the pane.
-exited_deliberately() {
+# Reads its pane's tail on stdin. Only a clean exit prints its resume hint; a
+# killed process leaves none. The loop reads the pane on the first tick after
+# the agent vanished, so the hint is still at the bottom.
+exited_deliberately() { # session id
   local tail
-  tail=$(hd pane read "$1" --source recent-unwrapped --lines 20 | grep -v '^[[:space:]]*$' | tail -6)
-  grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $2" <<<"$tail"
+  tail=$(grep -v '^[[:space:]]*$' | tail -6)
+  grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $1" <<<"$tail"
 }
 
 # When does the usage limit an idle Agent stopped on reset? Reads its pane's

@@ -5,19 +5,24 @@
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
-log "loop started (interval ${BERTHIER_INTERVAL}s, session ${BERTHIER_HERDR_SESSION:-default})"
-trap 'log "loop stopped"; exit 0' TERM INT
+# loop.log used to be prose: set it aside once, so the log is all JSON Lines.
+if [[ -s $BERTHIER_LOG ]] && grep -qv '^{' "$BERTHIER_LOG"; then
+  mv "$BERTHIER_LOG" "$BERTHIER_LOG.pre-json"
+fi
+event loop_started "loop started (interval ${BERTHIER_INTERVAL}s, session ${BERTHIER_HERDR_SESSION:-default})" \
+  "$(jq -cn --argjson i "$BERTHIER_INTERVAL" --arg s "${BERTHIER_HERDR_SESSION:-default}" '{interval: $i, session: $s}')"
+trap 'event loop_stopped "loop stopped"; exit 0' TERM INT
 failing=
 while :; do
   rc=0
   "$BERTHIER_ROOT/libexec/tick" || rc=$?
   if ((rc == 0)); then
-    [[ -n $failing ]] && log "loop recovered after: $failing"
+    [[ -n $failing ]] && event loop_recovered "loop recovered after: $failing" "$(jq -cn --arg w "$failing" '{why: $w}')"
     failing=
   else
     why="tick failed (exit $rc)"
     ((rc == 3)) && why="herdr unreachable"
-    [[ $why != "$failing" ]] && log "error: $why; retrying every ${BERTHIER_INTERVAL}s"
+    [[ $why != "$failing" ]] && event loop_error "error: $why; retrying every ${BERTHIER_INTERVAL}s" "$(jq -cn --arg w "$why" '{why: $w}')"
     failing=$why
   fi
   sleep "$BERTHIER_INTERVAL" &

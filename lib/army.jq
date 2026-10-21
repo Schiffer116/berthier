@@ -2,7 +2,7 @@
 # for the bar, the desktop widget and the dashboard. Pure.
 #
 # Inputs (--argjson): $state (state.json or {}), $reports {session_id: {line, at}},
-#   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log],
+#   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log, JSON Lines],
 #   $available, $now, $interval (Main Loop seconds), $revive_max
 include "names";
 
@@ -22,33 +22,27 @@ def agent_view($pane):
 
 def unit_view: {name: (.name | corps_name), workspace_id, agents: [.agents[] | agent_view(.)]};
 
-# "2026-10-17T13:02:57+07:00" -> epoch seconds (jq's mktime ignores offsets).
-def iso_epoch:
-  capture("^(?<d>.{19})(?<s>[+-])(?<h>\\d\\d):(?<m>\\d\\d)$")
-  | (.d + "Z" | fromdateiso8601) - ((if .s == "+" then 1 else -1 end) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60));
-
-# "2026-10-17T13:02:57+07:00 delivered ask ..." -> {at (epoch), text, tag}
+# A loop.log event ({ts, kind, msg, ...fields}; see `event` in lib/common.sh)
+# with its Console category (tag) and display label.
 def log_entry:
-  capture("^(?<ts>\\S+) (?<text>.*)$")?
-  | . + {at: (.ts | iso_epoch)}
-  | .tag = (.text | if test("^loop ") then "loop"
-                    elif test("^revive") then "revive"
-                    elif test("^forgot ") then "forget"
-                    elif test("^(spoke|speak)") then "speak"
-                    elif test("^(escalated|notified|.* unreachable)") then "escal"
-                    elif test("^(delivered ask|ask )") then "ask"
-                    elif test("^(adopted|relabelled)") then "army"
-                    elif test("^(error|tick failed)") then "error"
-                    else "other" end)
-  | del(.ts);
+  .kind as $k
+  | ({loop_started: "loop", loop_stopped: "loop", loop_recovered: "loop", loop_error: "error",
+      revived: "revive", revive_failed: "revive", revive_skipped: "revive", forgot: "forget",
+      spoke: "speak", speak_failed: "speak", escalated: "escal", notified: "escal", unreachable: "escal",
+      delivered: "ask", delivery_failed: "ask", adopted: "army", renamed: "army", rename_failed: "army",
+      limit_stop: "limit", resumed: "limit", resume_failed: "limit"}[$k] // "other") as $tag
+  | . + {at: .ts, tag: $tag, text: .msg, label: (if $tag == "other" then "info" else $tag end)};
 
-# An escalation line's subject, split off its reason, as the dashboard shows it:
-# {who: "learning wR:p1", why: "blocked 3m on an approval or question"}.
+# An escalation's condition as the Console labels it.
+def escalation_label:
+  {revive_failed: "revive failed", division_stopped: "stopped", long: "long run", ask_stuck: "ask stuck"}[.] // .;
+
+# Who an escalation is about, as the Console shows it: "dark-mode d:p1",
+# "dotfiles ⇄ skipli" (asks bouncing), "skipli → notes" (an ask stuck).
 def escalation_who:
-  (capture("^(?<why>.*): agent '[^']*' in (?<w>.*) \\(pane (?<p>[^)]+)\\)$") | {who: "\(.w | corps_name) \(.p)", why})
-  // (capture("^asks bouncing between (?<a>\\S+) and (?<b>\\S+): (?<why>.*)$") | {who: "\(.a) ⇄ \(.b)", why})
-  // (capture("^ask from (?<a>\\S+) to (?<b>\\S+) (?<why>undelivered .*)$") | {who: "\(.a) → \(.b)", why})
-  // {who: null, why: .};
+  if .ask_from then "\(.ask_from) \(if .why == "pingpong" then "⇄" else "→" end) \(.ask_to)"
+  elif .pane then "\(.corps) \(.pane)"
+  else null end;
 
 ($state.agents // {}) as $agents
 | [($state.corps // [])[] | unit_view
@@ -67,12 +61,13 @@ def escalation_who:
 | [$corps[] | ., .divisions[] | .agents[]]
   + (if $state.berthier then [agent_view($state.berthier)] else [] end)
   + [$bdivs[] | .agents[]] as $all
-| [$log[] | log_entry] as $entries
+# Lines that are not events (a stray prose line) are skipped.
+| [$log[] | fromjson? | objects | log_entry] as $entries
 | {
     available: $available,
     updated_at: ($state.updated_at // null),
     loop: {interval: $interval, revive_max: $revive_max,
-           started_at: ([$entries[] | select(.text | test("^loop started"))] | last | .at // null)},
+           started_at: ([$entries[] | select(.kind == "loop_started")] | last | .at // null)},
     counts: ([["working","blocked","done","idle","unknown","gone"][] as $k
               | {($k): ([$agents[].status] | map(select(. == $k)) | length)}] | add),
     needs_you: [$all[] | select(.needs_you)] | sort_by(.status_since // 0, .who),
@@ -83,14 +78,9 @@ def escalation_who:
     asks: ($inbox | sort_by(.at)),
     ask_log: (($state.ask_log // []) | sort_by(.at) | reverse),
     escalations: [$entries[]
-      | select(.at >= $now - 7 * 86400) | .at as $at
-      | (.text | (capture("^escalated (?<kind>\\S+) to (?<to>\\S+): (?<why>.*)$")
-                  | . + (.why | escalation_who)
-                  | .to = (if $agents[.to] then agent_view(.to).who else .to end))
-                 // (capture("^spoke: (?<why>.*)$")
-                     | {kind: "speak", to: "you", why,
-                        who: (.why | capture("^(?<w>.+?) (is waiting|crashed)").w)})?)
-      | {at: $at, kind, to, who, why}
+      | select(.at >= $now - 7 * 86400 and (.kind == "escalated" or .kind == "notified" or .kind == "spoke"))
+      | if .kind == "spoke" then {at, kind: "speak", label: "speak", to: "you", who: .corps, why: (.msg | ltrimstr("spoke: "))}
+        else {at, kind: .why, label: (.why | escalation_label), to, who: escalation_who, why: .reason} end
       ] | reverse,
     activity: ($entries[-200:] | reverse)
   }

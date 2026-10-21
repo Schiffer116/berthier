@@ -65,8 +65,11 @@ check "berthier asks as berthier" "$(jq -r 'select(.to == "skipli") | .from' "$h
 
 # --- loop: a Herdr outage logs once, not every tick.
 lh=$(mktemp -d)
+echo "2026-10-17T13:02:57+07:00 loop started (interval 10s, session default)" >"$lh/loop.log"
 BERTHIER_HOME=$lh BERTHIER_INTERVAL=0.2 BERTHIER_HERDR_SESSION=berthier-no-such-session timeout 2 bin/berthier loop 2>/dev/null || true
-check "outage logged once" "$(grep -c 'herdr unreachable' "$lh/loop.log")" '1'
+check "outage logged once" "$(jq -c 'select(.kind == "loop_error") | .why' "$lh/loop.log")" '"herdr unreachable"'
+check "prose log set aside" "$(cat "$lh/loop.log.pre-json")" '2026-10-17T13:02:57+07:00 loop started (interval 10s, session default)'
+check "log pretty-prints" "$(BERTHIER_HOME=$lh bin/berthier log -n 1 | cut -c22-)" 'loop_stopped     loop stopped'
 rm -rf "$lh"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
