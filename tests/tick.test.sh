@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10,"limit_grace":60,"limit_retry":1800}'
 pass=0 fail=0
 
 tick() { # prev snap now
@@ -154,6 +154,32 @@ prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
 prev=$(jq -c .state <<<"$(tick "$prev" "$si" 1100)")
 check "division settle wait" "$(jq -c '.escalate | length' <<<"$(tick "$prev" "$si" 1110)")" '0'
 check "division stopped" "$(jq -c '.escalate | map([.key, .to])' <<<"$(tick "$prev" "$si" 1131)")" '[["division_stopped:w2:p1:1100","w1:p1"]]'
+
+# --- Usage limits: each idle episode is read once; nudged once after the reset.
+changed() { jq -c --argjson n "$1" '. + {state_change_seq: $n}' <<<"$2"; }
+sw=$(snap "$W" "[$(changed 1 "$(agent w1:p1 working sid-1 skipli)")]" "[$(pane w1:p1)]")
+si=$(snap "$W" "[$(changed 2 "$(agent w1:p1 idle sid-1 skipli)")]" "[$(pane w1:p1)]")
+prev=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
+check "working is not read" "$(jq -c '.limit_check' <<<"$(tick "$prev" "$sw" 1010)")" '[]'
+o=$(tick "$prev" "$si" 1100)
+check "idle is read" "$(jq -c '.limit_check' <<<"$o")" '[{"pane_id":"w1:p1","name":"skipli","episode":"2:1100"}]'
+limited=$(jq -c '.state | .agents["w1:p1"].limit = {episode: "2:1100", since: 1100, reset_at: 5000}' <<<"$o")
+check "read once per episode" "$(jq -c '.limit_check' <<<"$(tick "$limited" "$si" 1110)")" '[]'
+check "no resume before reset" "$(jq -c '.resume' <<<"$(tick "$limited" "$si" 5050)")" '[]'
+check "resume after reset" "$(jq -c '.resume' <<<"$(tick "$limited" "$si" 5060)")" '[{"pane_id":"w1:p1","name":"skipli","reset_at":5000}]'
+resumed=$(jq -c '.agents["w1:p1"] += {limit_resumed_at: 5060} | .agents["w1:p1"].limit.resumed = true' <<<"$limited")
+check "resume once per episode" "$(jq -c '.resume' <<<"$(tick "$resumed" "$si" 5070)")" '[]'
+check "no limit, no resume" "$(jq -c '.resume' <<<"$(tick "$(jq -c '.agents["w1:p1"].limit.reset_at = null' <<<"$limited")" "$si" 9000)")" '[]'
+check "working ends the episode" "$(jq -c '.resume' <<<"$(tick "$limited" "$sw" 5070)")" '[]'
+# A turn between two ticks: same status, but Herdr bumped its sequence.
+si3=$(snap "$W" "[$(changed 3 "$(agent w1:p1 idle sid-1 skipli)")]" "[$(pane w1:p1)]")
+o=$(tick "$resumed" "$si3" 5080)
+check "turn between ticks is a new episode" "$(jq -c '[(.limit_check | map(.episode)), .resume]' <<<"$o")" '[["3:1100"],[]]'
+# It stopped on the limit again right after the nudge: wait out limit_retry.
+again=$(jq -c '.state | .agents["w1:p1"].limit = {episode: "3:1100", since: 5080, reset_at: 5000}' <<<"$o")
+check "retry waits" "$(jq -c '.resume' <<<"$(tick "$again" "$si3" 6000)")" '[]'
+check "retry after limit_retry" "$(jq -c '.resume | length' <<<"$(tick "$again" "$si3" 6860)")" '1'
+check "gone is never resumed" "$(jq -c '.resume' <<<"$(tick "$limited" "$(snap "$W" '[]' "[$(pane w1:p1)]")" 9000)")" '[]'
 
 # --- Corps: Divisions nested under their Corps, Berthier excluded.
 o=$(tick '{}' "$si" 1000)

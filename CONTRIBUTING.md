@@ -4,7 +4,7 @@
 
 ## Commands
 
-- Unit tests (pure, instant): `tests/tick.test.sh`, `tests/counts.test.sh`, `tests/commands.test.sh`
+- Unit tests (pure, instant): `tests/tick.test.sh`, `tests/limit.test.sh`, `tests/counts.test.sh`, `tests/commands.test.sh`
 - E2E (real Herdr + Claude haiku, isolated `berthier-e2e-<pid>` session, so runs can overlap, ~1 min): `tests/e2e.sh`
 - Lint: `shellcheck bin/berthier libexec/* lib/common.sh tests/*.sh` (`.shellcheckrc` resolves sources)
 - Try against a scratch Herdr session: `BERTHIER_HERDR_SESSION=<name> BERTHIER_HOME=<tmpdir> bin/berthier <cmd>`
@@ -21,6 +21,7 @@
 - Reports: `report` writes `state/reports/<claude session id>.json`; `counts` joins them with live Agents for the bar. `hook-stop` is a Claude Code Stop hook (wired globally by the dotfiles) that blocks a turn's end in a Herdr pane until the Agent has reported during it.
 - Berthier = the agent whose cwd is this repo; the loop prompts escalations into its pane, and sends Berthier's own problems to `herdr notification show`.
 - Revive = `herdr agent start <name> --kind claude --pane <pane> -- --resume <session>`, only when the pane survived at a shell prompt. Deliberate stops are forgotten, never Revived: a closed pane, or a clean Claude exit (it prints `Resume this session with: claude --resume <id>`; a killed process does not), checked on the tick the agent vanishes and again before any Revive. A pane still holding the session with no agent listed is Herdr resuming it after a restart, not a crash: never Revived.
+- Usage limits: Claude rarely continues by itself after its usage limit resets. `tick.jq` asks for each idle episode (Herdr's `state_change_seq` + `status_since`, so a turn between two ticks counts) to be read once; `usage_limit_reset` (`lib/common.sh`) finds a limit stop as the last output above the input box and parses its reset time and zone; after the reset (+`BERTHIER_LIMIT_GRACE`) `tick` prompts `BERTHIER_LIMIT_PROMPT` once per episode, never twice within `BERTHIER_LIMIT_RETRY`.
 - Names: Herdr forgets agent names across a restart unless it assigned them at `agent start`, and drops the name when `agent start` times out. `tick` renames an unnamed agent back to the name its session had in `state.json`.
 - Divisions are the workspaces `state/divisions.json` (`division_set`) records, as `{corps, worktree}`; that record, not the label, makes one a Division (`is_division`). `division-new`/`division-done` create and remove worktree Divisions (`herdr worktree create`, default `~/.herdr/worktrees/`); `adopt` records an existing workspace. `tick.jq` nests Divisions under their Corps and routes their escalations (`to`) to the Corps's Main Agent; only a spawned Division's stop escalates.
 - Runtime data is gitignored: `state/` (loop) and `notes.md` (Berthier's Notes for session continuity, imported by `CLAUDE.md`; Berthier edits the "How the user works" section of `CLAUDE.md` itself). Berthier's skills go in `.claude/skills/`.
