@@ -51,7 +51,13 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
   main { min-height: 0; }
   .top { flex: 1 1 0; min-height: 420px; }
 }
-@media (max-width: 1099px) { .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(220px, 40vh) 85vh; } #det { max-height: 35%; } }
+/* Stacked, the Army list grows with its rows up to most of the screen. */
+@media (max-width: 1099px) {
+  .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 85vh; }
+  .top > #army { min-height: 260px; max-height: 75vh; }
+  .top > #army .scroll { flex: 1 1 auto; }
+  #det { max-height: 35%; }
+}
 /* Logs open from the top bar in a drawer over the page, never moving it. */
 .logs { display: flex; gap: 6px; }
 .logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
@@ -388,7 +394,7 @@ function renderRows(rows) {
         : `<span class="clip" style="color: ${a.needs_you ? C.bright : C.muted}">${esc(a.report ?? 'on an approval or question dialog')}</span>`}
     </button>`;
   }).join('') || `<div class="empty">${army.corps.length || army.berthier ? 'no agents match' : 'no agents'}</div>`;
-  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"]`)?.focus();
+  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
 
 // A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
@@ -433,6 +439,7 @@ function renderDetail(a, all) {
         ${on ? `<span class="mate-m dim">${esc(m.kind ?? '-')} · session ${esc((m.session_id ?? '-').slice(0, 8))}${revived}</span>` : ''}
       </button></li>`;
   };
+  const focused = $('det').contains(document.activeElement) ? document.activeElement.dataset?.pane : null;
   $('det').innerHTML = `
     <div class="ph">
       <h2 id="det-h">${kind} <span>${esc(u.name)}</span></h2>
@@ -447,6 +454,7 @@ function renderDetail(a, all) {
       <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
       <ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>
     </div>`;
+  if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
 
 // The message box follows the selected Agent, keeping each pane's draft.
@@ -666,8 +674,12 @@ function renderTick() {
     : `<span class="dim">${clock(army.updated_at)}</span><span style="color: ${C.red}">tick</span><span>no tick since ${army.updated_at ? clock(army.updated_at) : 'ever'} · is berthier-loop running?</span>`;
 }
 
+// Updates arrive every few seconds: they must leave the page and its panels
+// where the viewer scrolled them (the logs and chat follow their newest line
+// themselves).
 function render() {
   if (!army) return;
+  const kept = [document.scrollingElement, document.querySelector('#army .scroll'), $('det')].map((el) => [el, el.scrollTop]);
   const all = agents();
   const rows = visible(all);
   if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
@@ -677,6 +689,7 @@ function render() {
   renderEscalations();
   renderAsks();
   renderLog();
+  for (const [el, top] of kept) if (el.scrollTop !== top) el.scrollTop = top;
 }
 
 const select = (e) => {
