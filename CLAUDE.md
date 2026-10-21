@@ -38,6 +38,7 @@ commitments to the user, recent decisions. Update as you go; prune resolved.
 - Army: `state/state.json`, `herdr agent list`, `herdr workspace list`;
   `herdr --skill` for the CLI.
 - Check-in: `herdr agent read <pane> --source recent-unwrapped --lines 80`.
+  Text after an idle `❯` is Claude Code's suggested prompt, not a user draft.
 - Nudge: `herdr agent prompt <pane> "<text>"`.
 - Speak when you end a turn needing the user:
   `~/.claude/skills/notify-user/speak.sh "<corps>: <what>"` (loop already speaks
