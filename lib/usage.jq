@@ -9,7 +9,7 @@
 # no session's cost explains goes to "other". The first row ever seen is only a
 # baseline: what the account used before sampling started belongs to no one.
 #
-# Usage record: {resets_at, week_pct, by_corps: {corps: pct}, acc: {session: Δcost
+# Usage record: {resets_at, week_pct, [five_pct, five_resets_at], by_corps: {corps: pct}, acc: {session: Δcost
 # since the last rise}, sessions: {session: {cost, corps, ts}}, offset: ledger bytes folded}
 include "names";
 
@@ -52,7 +52,8 @@ def step($r; $map):
   | (if .week_pct == null then .week_pct = $r.week_pct
      elif $r.week_pct > .week_pct then rise($r.week_pct - .week_pct) | .week_pct = $r.week_pct
      else . end)
-  | .resets_at = ($r.resets_at // .resets_at);
+  | .resets_at = ($r.resets_at // .resets_at)
+  | (if ($r.five_pct | type) == "number" then .five_pct = $r.five_pct | .five_resets_at = $r.five_resets_at else . end);
 
 # $usage (or {}) folded over $rows, in ledger order; sessions idle for two weeks forgotten.
 def fold($rows; $map; $offset):
@@ -71,6 +72,8 @@ def usage_view($usage; $budgets; $now):
   | ($budgets | with_entries(.key |= corps_name)) as $b
   | {resets_at: $usage.resets_at,
      week_pct: (if $live then $usage.week_pct else null end),
+     five_hour: (if ($usage.five_pct | type) == "number" and (($usage.five_resets_at // $now + 1) > $now)
+                 then {pct: $usage.five_pct, resets_at: $usage.five_resets_at} else null end),
      corps: ([($used | keys[]), ($b | keys[])] | unique | map(
        . as $n | ($used[$n] // 0) as $u | ($b[$n] // null) as $a
        | {name: $n, used: $u, allowance: $a, ratio: (if $a then $u / $a else null end)})

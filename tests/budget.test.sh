@@ -87,6 +87,17 @@ status r1 /r/dot 2 74 null | BERTHIER_HOME="$base" bin/berthier sample
 check "rise after a baseline-only record" "$(BERTHIER_HOME="$base" bin/berthier budget >/dev/null; jq -c '.by_corps' "$base/usage.json")" '{"dotfiles":1}'
 rm -rf "$base"
 
+# --- The five-hour window rides along on rows; old rows without it still fold.
+five=$(mktemp -d)
+echo '{"agents": {}}' >"$five/state.json"
+jq -cn '{session_id: "f1", cwd: "/r/dot", cost: {total_cost_usd: 1}, rate_limits: {seven_day: {used_percentage: 5, resets_at: 1800000000}, five_hour: {used_percentage: 31, resets_at: 1799990000}}}' | BERTHIER_HOME="$five" bin/berthier sample
+check "five-hour in row" "$(jq -c '[.five_pct, .five_resets_at]' "$five/ledger.jsonl")" '[31,1799990000]'
+check "five-hour in view" "$(BERTHIER_HOME="$five" bin/berthier budget >/dev/null; BERTHIER_HOME="$five" bin/berthier army | jq -c '.budget.five_hour')" '{"pct":31,"resets_at":1799990000}'
+echo '{"ts":1,"session":"f1","cwd":"/r/dot","cost":2,"week_pct":6,"resets_at":1800000000}' >>"$five/ledger.jsonl"
+check "old row folds, keeps five-hour" "$(BERTHIER_HOME="$five" bin/berthier budget >/dev/null; BERTHIER_HOME="$five" bin/berthier army | jq -c '[.budget.week_pct, .budget.five_hour.pct]')" '[6,31]'
+check "five-hour unchanged does not add a row" "$(jq -cn '{session_id: "f1", cwd: "/r/dot", cost: {total_cost_usd: 1}, rate_limits: {seven_day: {used_percentage: 5, resets_at: 1800000000}, five_hour: {used_percentage: 40, resets_at: 1799990000}}}' | BERTHIER_HOME="$five" bin/berthier sample; wc -l <"$five/ledger.jsonl")" '2'
+rm -rf "$five"
+
 # --- A new window starts over.
 sample a /r/skipli 7 3 1900000000
 b budget >/dev/null
