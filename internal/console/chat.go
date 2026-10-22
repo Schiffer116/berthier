@@ -1,4 +1,4 @@
-package main
+package console
 
 // The chat view of one Agent: its Claude Code session transcript, read-only,
 // or the pane's recent terminal output for any other kind of Agent.

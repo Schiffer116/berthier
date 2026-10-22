@@ -29,9 +29,21 @@ loop                                run the Main Loop forever
 EOF
 }
 
+# Commands already ported to Go run from the Go binary (.bin/berthier, rebuilt
+# when its sources change); the rest still run libexec/<cmd>.
+go_cmds=" corps-new adopt army division-new division-done report ask owners counts sample budget log dashboard hook-stop tick loop "
+go_berthier() {
+  local bin=$root/.bin/berthier
+  if [[ ! -x $bin ]] || [[ -n $(find "$root/cmd" "$root/internal" "$root/go.mod" -type f -newer "$bin" -print -quit) ]]; then
+    (cd "$root" && go build -o "$bin" ./cmd/berthier) || { echo "berthier: go build failed" >&2; exit 1; }
+  fi
+  exec "$bin" "$@"
+}
+
 cmd=${1:-}
 [[ -n $cmd ]] || { usage; exit 2; }
 shift
+if [[ $go_cmds == *" $cmd "* ]]; then go_berthier "$cmd" "$@"; fi
 case $cmd in
   -h|--help|help) usage ;;
   corps-new|adopt|army|division-new|division-done|report|ask|owners|counts|sample|budget|log|dashboard|hook-stop|tick|loop)

@@ -1,4 +1,4 @@
-package main
+package console
 
 // The Console as an installable app: a web app manifest, an app-shell service
 // worker, and icons drawn here so the repo holds no image files.

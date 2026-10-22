@@ -1,6 +1,7 @@
-package main
+package console
 
 import (
+	"berthier/internal/herdr"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -126,7 +127,7 @@ func TestChatShowsTranscriptOrTerminal(t *testing.T) {
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 
-	srv := httptest.NewServer(Handler(a, fakeChatHerdr(t, "claude", "s1"), NewTranscripts(dir)))
+	srv := httptest.NewServer(Handler(a, herdr.Client{Bin: fakeChatHerdr(t, "claude", "s1")}, NewTranscripts(dir)))
 	defer srv.Close()
 	v := getChat(t, srv.URL+"/api/chat?pane=wA:p1")
 	if v["source"] != "transcript" || v["session"] != "s1" || v["status"] != "working" || len(v["items"].([]any)) != 1 {
@@ -136,7 +137,7 @@ func TestChatShowsTranscriptOrTerminal(t *testing.T) {
 		t.Fatalf("unknown pane = %d", res.StatusCode)
 	}
 
-	srv2 := httptest.NewServer(Handler(a, fakeChatHerdr(t, "codex", ""), NewTranscripts(dir)))
+	srv2 := httptest.NewServer(Handler(a, herdr.Client{Bin: fakeChatHerdr(t, "codex", "")}, NewTranscripts(dir)))
 	defer srv2.Close()
 	if v := getChat(t, srv2.URL+"/api/chat?pane=wA:p1"); v["source"] != "terminal" || v["text"] != "terminal text\n" {
 		t.Fatalf("other agent: %v", v)

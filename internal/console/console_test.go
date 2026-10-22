@@ -1,6 +1,7 @@
-package main
+package console
 
 import (
+	"berthier/internal/herdr"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,23 +16,34 @@ import (
 	"time"
 )
 
-// fakeBerthier writes a script whose `army` output is a file the test changes.
-func fakeBerthier(t *testing.T, json string) (script, data string) {
-	dir := t.TempDir()
-	data = filepath.Join(dir, "army.json")
+// fakeSource is an army source whose output is a file the test changes.
+func fakeSource(t *testing.T, json string) (source func() ([]byte, error), data string) {
+	data = filepath.Join(t.TempDir(), "army.json")
 	os.WriteFile(data, []byte(json), 0o644)
-	script = filepath.Join(dir, "berthier")
-	os.WriteFile(script, []byte("#!/bin/sh\ncat "+data+"\n"), 0o755)
-	return script, data
+	return func() ([]byte, error) { return os.ReadFile(data) }, data
+}
+
+// fakeClaude copies tests/fake-herdr, a Herdr whose one Claude takes prompts
+// the given way, into a temp dir that also holds its state.
+func fakeClaude(t *testing.T, mode string) (h herdr.Client, dir string) {
+	src, err := os.ReadFile("../../tests/fake-herdr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir = t.TempDir()
+	script := filepath.Join(dir, "herdr")
+	os.WriteFile(script, src, 0o755)
+	os.WriteFile(filepath.Join(dir, "mode"), []byte(mode), 0o644)
+	return herdr.Client{Bin: script, PromptPoll: time.Millisecond}, dir
 }
 
 func TestServesLatestAndPushesChanges(t *testing.T) {
-	script, data := fakeBerthier(t, `{"v":1}`)
+	source, data := fakeSource(t, `{"v":1}`)
 	a := NewArmy()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go Poll(ctx, a, script, 20*time.Millisecond)
-	srv := httptest.NewServer(Handler(a, "herdr", nil))
+	go Poll(ctx, a, source, 20*time.Millisecond)
+	srv := httptest.NewServer(Handler(a, herdr.Client{}, nil))
 	defer srv.Close()
 
 	for a.Latest() == nil {
@@ -70,7 +82,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 }
 
 func TestServesPage(t *testing.T) {
-	srv := httptest.NewServer(Handler(NewArmy(), "herdr", nil))
+	srv := httptest.NewServer(Handler(NewArmy(), herdr.Client{}, nil))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/")
 	if err != nil {
@@ -96,10 +108,10 @@ func postPrompt(t *testing.T, url, ctype, body string) *http.Response {
 }
 
 func TestPromptSendsToKnownAgents(t *testing.T) {
-	herdr, dir := fakeClaude(t, "takes")
+	h, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr, nil))
+	srv := httptest.NewServer(Handler(a, h, nil))
 	defer srv.Close()
 	t.Setenv("BERTHIER_HERDR_SESSION", "")
 
@@ -120,12 +132,12 @@ func TestPromptSendsToKnownAgents(t *testing.T) {
 }
 
 func TestPromptUsesBerthierSession(t *testing.T) {
-	herdr, dir := fakeClaude(t, "takes")
+	h, dir := fakeClaude(t, "takes")
+	h.Session = "scratch"
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr, nil))
+	srv := httptest.NewServer(Handler(a, h, nil))
 	defer srv.Close()
-	t.Setenv("BERTHIER_HERDR_SESSION", "scratch")
 
 	if res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"go"}`); res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d", res.StatusCode)
@@ -136,10 +148,10 @@ func TestPromptUsesBerthierSession(t *testing.T) {
 }
 
 func TestPromptRejects(t *testing.T) {
-	herdr, dir := fakeClaude(t, "takes")
+	h, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr, nil))
+	srv := httptest.NewServer(Handler(a, h, nil))
 	defer srv.Close()
 
 	for _, c := range []struct {
@@ -162,10 +174,10 @@ func TestPromptRejects(t *testing.T) {
 }
 
 func TestPromptReportsHerdrFailure(t *testing.T) {
-	herdr, _ := fakeClaude(t, "error")
+	h, _ := fakeClaude(t, "error")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, herdr, nil))
+	srv := httptest.NewServer(Handler(a, h, nil))
 	defer srv.Close()
 
 	res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"hi"}`)

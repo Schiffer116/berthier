@@ -236,16 +236,22 @@ for try in 1 2 3; do
   sleep 3
 done
 bin/berthier tick
-resets=$(date -d '+3 days' +%s)
-quota() { # cost week_pct: the status line JSON of a session working in the Corps
-  jq -cn --argjson c "$1" --argjson p "$2" --argjson r "$resets" --arg d "$repo/sub" \
-    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: $p, resets_at: $r}}}' \
+resets=$(date -d '+3 days' +%s) base=40
+# The Agents' own status lines sample into this home too, reporting the real
+# account: continue its week, or their rows would start a new window.
+real=$(jq -cs 'map(select(.session != "e2e-quota" and .resets_at != null)) | last // empty' "$BERTHIER_HOME/ledger.jsonl" 2>/dev/null) || real=
+[[ -z $real ]] || { base=$(jq .week_pct <<<"$real"); resets=$(jq .resets_at <<<"$real"); }
+rm -rf "$BERTHIER_HOME"/{ledger.jsonl,usage.json,sampled}
+quota() { # cost week_pct_gain: the status line JSON of a session working in the Corps
+  # A real status line carries the five-hour window; a row without it is ignored.
+  jq -cn --argjson c "$1" --argjson p "$2" --argjson b "$base" --argjson r "$resets" --arg d "$repo/sub" \
+    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: ($b + $p), resets_at: $r}, five_hour: {used_percentage: 1, resets_at: ($r - 200000)}}}' \
     | bin/berthier sample
 }
 tick() { BERTHIER_SPEAK=$work/speak bin/berthier tick; }
 bin/berthier budget budgeted 10 >/dev/null
-quota 0 40
-quota 1 48
+quota 0 0
+quota 1 8
 tick
 (($(logged '.kind == "escalated" and .why == "budget_warn" and .corps == "budgeted"'))) || fail "80% not escalated: $(tail -5 "$BERTHIER_HOME/loop.log")"
 (($(logged '.kind == "spoke" and .corps == "budgeted"'))) || fail "80% not logged as spoken"
@@ -259,7 +265,7 @@ tick
 (($(logged '.kind == "escalated" and .why == "budget_warn"') == 1)) || fail "warned more than once"
 bin/berthier budget | grep -q '^budgeted  *8%  *10%  *80%' || fail "budget shows: $(bin/berthier budget)"
 bin/berthier army | jq -e '.budget.corps | any(.name == "budgeted" and .allowance == 10 and .used > 7.9)' >/dev/null || fail "Console view lacks the budget"
-quota 2 51
+quota 2 11
 tick
 (($(logged '.kind == "budget_exhausted" and .corps == "budgeted"') == 1)) || fail "100% not logged once"
 (($(grep -c 'over its weekly budget' "$work/spoken") == 1)) || fail "100% not spoken once"

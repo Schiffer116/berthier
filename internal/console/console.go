@@ -1,27 +1,26 @@
-// berthier-dashboard serves the Grand Army view model (`berthier army`) as a
+// Package console serves the Grand Army view model (`berthier army`) as a
 // live console page. It holds no state and no logic of its own: it polls the
-// command and pushes each change to open pages over server-sent events. The one
+// view model and pushes each change to open pages over server-sent events. The one
 // write is POST /api/prompt, which sends the user's text to a known Agent; GET
 // /api/chat shows that Agent's conversation (chat.go). app.go makes the page an
 // installable app.
-package main
+package console
 
 import (
 	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"mime"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"berthier/internal/herdr"
 	"sync"
 	"time"
 )
@@ -72,12 +71,12 @@ func (a *Army) Subscribe() (<-chan []byte, func()) {
 	}
 }
 
-// Poll runs `<berthier> army` every interval until ctx ends.
-func Poll(ctx context.Context, a *Army, berthier string, every time.Duration) {
+// Poll reads the view model from source every interval until ctx ends.
+func Poll(ctx context.Context, a *Army, source func() ([]byte, error), every time.Duration) {
 	for {
-		out, err := exec.CommandContext(ctx, berthier, "army").Output()
+		out, err := source()
 		if err != nil {
-			log.Printf("berthier army: %v", err)
+			log.Printf("army: %v", err)
 		} else {
 			a.Set(bytes.TrimSpace(out))
 		}
@@ -130,25 +129,10 @@ func (a *Army) Panes() map[string]bool {
 	return panes
 }
 
-// Herdr runs `herdr` against the Grand Army's session (BERTHIER_HERDR_SESSION,
-// as lib/common.sh's hd does).
-func Herdr(herdr string, args ...string) *exec.Cmd {
-	if s := os.Getenv("BERTHIER_HERDR_SESSION"); s != "" {
-		cmd := exec.Command(herdr, append([]string{"--session", s}, args...)...)
-		for _, e := range os.Environ() {
-			if !strings.HasPrefix(e, "HERDR_SOCKET_PATH=") {
-				cmd.Env = append(cmd.Env, e)
-			}
-		}
-		return cmd
-	}
-	return exec.Command(herdr, args...)
-}
-
 // unscrolledLines caps a read of pane at want lines to what its screen and
 // host scrollback hold: asked for more, Herdr scrolls an idle alt-screen
 // Agent's view up and back to collect its history, and the user sees it jump.
-func unscrolledLines(herdr, pane string, want int) int {
+func unscrolledLines(h herdr.Client, pane string, want int) int {
 	var got struct {
 		Result struct {
 			Pane struct {
@@ -159,14 +143,14 @@ func unscrolledLines(herdr, pane string, want int) int {
 			}
 		}
 	}
-	out, err := Herdr(herdr, "pane", "get", pane).Output()
+	out, err := h.Command("pane", "get", pane).Output()
 	if err != nil || json.Unmarshal(out, &got) != nil || got.Result.Pane.Scroll.Rows == 0 {
 		return want
 	}
 	return min(want, got.Result.Pane.Scroll.Rows+got.Result.Pane.Scroll.Back)
 }
 
-func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
+func Handler(a *Army, h herdr.Client, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -202,7 +186,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 			http.Error(w, "no such agent: "+req.Pane, http.StatusNotFound)
 			return
 		}
-		if err := PromptAgent(herdr, req.Pane, req.Text); err != nil {
+		if err := h.PromptAgent(req.Pane, req.Text); err != nil {
 			log.Printf("prompt %s: %v", req.Pane, err)
 			http.Error(w, "prompt: "+err.Error(), http.StatusBadGateway)
 			return
@@ -227,7 +211,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 				} `json:"agent"`
 			} `json:"result"`
 		}
-		out, err := Herdr(herdr, "agent", "get", pane).Output()
+		out, err := h.Command("agent", "get", pane).Output()
 		if err != nil || json.Unmarshal(out, &got) != nil {
 			http.Error(w, fmt.Sprintf("herdr agent get: %v", err), http.StatusBadGateway)
 			return
@@ -243,7 +227,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 			}
 		}
 		if res["source"] == nil {
-			text, err := Herdr(herdr, "agent", "read", pane, "--source", "recent-unwrapped", "--lines", strconv.Itoa(unscrolledLines(herdr, pane, 200))).Output()
+			text, err := h.Command("agent", "read", pane, "--source", "recent-unwrapped", "--lines", strconv.Itoa(unscrolledLines(h, pane, 200))).Output()
 			if err != nil {
 				http.Error(w, fmt.Sprintf("herdr agent read: %v", err), http.StatusBadGateway)
 				return
@@ -289,21 +273,10 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 	return mux
 }
 
-func main() {
-	addr := flag.String("addr", "127.0.0.1:8430", "listen address")
-	berthier := flag.String("berthier", "berthier", "path to the berthier command")
-	herdr := flag.String("herdr", "herdr", "path to the herdr command")
-	claudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if claudeDir == "" {
-		home, _ := os.UserHomeDir()
-		claudeDir = filepath.Join(home, ".claude")
-	}
-	claude := flag.String("claude-dir", claudeDir, "Claude Code's directory (sessions and transcripts)")
-	every := flag.Duration("every", 2*time.Second, "how often to refresh the view model")
-	flag.Parse()
-
+// Serve runs the Console on addr until it fails.
+func Serve(addr string, source func() ([]byte, error), h herdr.Client, claudeDir string, every time.Duration) error {
 	a := NewArmy()
-	go Poll(context.Background(), a, *berthier, *every)
-	log.Printf("serving the Grand Army console on http://%s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, Handler(a, *herdr, NewTranscripts(*claude))))
+	go Poll(context.Background(), a, source, every)
+	log.Printf("serving the Grand Army console on http://%s", addr)
+	return http.ListenAndServe(addr, Handler(a, h, NewTranscripts(claudeDir)))
 }

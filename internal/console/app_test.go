@@ -1,6 +1,7 @@
-package main
+package console
 
 import (
+	"berthier/internal/herdr"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -29,7 +30,7 @@ func get(t *testing.T, url string) (*http.Response, []byte) {
 // The page links a manifest whose icons are all served at their stated size,
 // and every file the service worker keeps exists.
 func TestInstallable(t *testing.T) {
-	srv := httptest.NewServer(Handler(NewArmy(), "herdr", nil))
+	srv := httptest.NewServer(Handler(NewArmy(), herdr.Client{}, nil))
 	defer srv.Close()
 
 	_, page := get(t, srv.URL+"/")
