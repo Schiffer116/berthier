@@ -170,7 +170,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(indexHTML)
+		w.Write(themed(indexHTML))
 	})
 	appRoutes(mux)
 	mux.HandleFunc("GET /api/army", func(w http.ResponseWriter, r *http.Request) {

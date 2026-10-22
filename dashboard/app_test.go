@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -93,8 +95,10 @@ func TestInstallable(t *testing.T) {
 	}
 }
 
-// The icon is the accent "B" on the page background, centered in the safe zone.
-func TestIconDrawsB(t *testing.T) {
+// The icon is the accent eagle on the page background, centered in the safe zone.
+func TestIconDrawsEagle(t *testing.T) {
+	t.Setenv("BERTHIER_THEME", filepath.Join(t.TempDir(), "none.css"))
+	iconBg, iconAccent := themeRGBA("bg"), themeRGBA("accent")
 	img, err := png.Decode(bytes.NewReader(Icon(192)))
 	if err != nil {
 		t.Fatal(err)
@@ -103,15 +107,42 @@ func TestIconDrawsB(t *testing.T) {
 		t.Fatalf("size %v", img.Bounds())
 	}
 	at := func(x, y float64) uint32 { r, _, _, _ := img.At(int(x*192), int(y*192)).RGBA(); return r >> 8 }
-	if c, stem := at(0.02, 0.02), at(0.37, 0.4); c != uint32(iconBg.R) || stem != uint32(iconAccent.R) {
+	if c, stem := at(0.02, 0.02), at(0.5, 0.5); c != uint32(iconBg.R) || stem != uint32(iconAccent.R) {
 		t.Errorf("corner %d, stem %d", c, stem)
 	}
 	// Maskable safe zone: nothing drawn outside the central 80% circle.
 	for y := 0.0; y < 1; y += 0.01 {
 		for x := 0.0; x < 1; x += 0.01 {
-			if inB(x, y) && (x-0.5)*(x-0.5)+(y-0.5)*(y-0.5) > 0.4*0.4 {
-				t.Fatalf("B reaches %.2f,%.2f, outside the safe zone", x, y)
+			if inEagle(x, y) && (x-0.5)*(x-0.5)+(y-0.5)*(y-0.5) > 0.4*0.4 {
+				t.Fatalf("eagle reaches %.2f,%.2f, outside the safe zone", x, y)
 			}
 		}
+	}
+}
+
+// /theme.css is the dotfiles palette when present, else the embedded copy;
+// served pages carry its colours and no stray hex.
+func TestThemeServedFromPalette(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "palette.css")
+	t.Setenv("BERTHIER_THEME", path)
+	srv := httptest.NewServer(Handler(NewArmy(), "herdr", nil))
+	defer srv.Close()
+
+	res, css := get(t, srv.URL+"/theme.css")
+	if !bytes.Equal(css, themeFallback) || res.Header.Get("Cache-Control") != "no-cache" {
+		t.Errorf("missing palette: want fallback, no-cache; got %q", res.Header.Get("Cache-Control"))
+	}
+	os.WriteFile(path, []byte(":root { --base: #010203; --crust: #040506; }"), 0o644)
+	if _, css = get(t, srv.URL+"/theme.css"); !strings.Contains(string(css), "#010203") {
+		t.Errorf("palette not served: %s", css)
+	}
+	if _, page := get(t, srv.URL+"/"); !strings.Contains(string(page), `content="#010203"`) || strings.Contains(string(page), "{{") {
+		t.Error("theme-color not filled from palette")
+	}
+	if _, m := get(t, srv.URL+"/manifest.webmanifest"); !strings.Contains(string(m), "#040506") {
+		t.Errorf("manifest colours: %s", m)
+	}
+	if hex := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`).FindString(string(indexHTML)); hex != "" {
+		t.Errorf("index.html has raw hex %s", hex)
 	}
 }
