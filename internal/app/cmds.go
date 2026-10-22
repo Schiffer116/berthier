@@ -730,18 +730,27 @@ func (e *Env) callerWorkspace() (id, label string, err error) {
 // on the Brief. The Corps commands it.
 func cmdDivisionNew(e *Env, args []string, io IO) error {
 	const usage = "usage: berthier division-new <name> [--model <m>] <brief>"
-	if len(args) < 2 {
+	// --model may come anywhere; anything else beyond <name> <brief> is an error.
+	model := e.DivisionModel
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--model":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return die("%s", usage)
+			}
+			model = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--"):
+			return die("%s", usage)
+		default:
+			pos = append(pos, args[i])
+		}
+	}
+	if len(pos) != 2 {
 		return die("%s", usage)
 	}
-	name, args := args[0], args[1:]
-	model := e.DivisionModel
-	if args[0] == "--model" {
-		if len(args) < 3 {
-			return die("%s", usage)
-		}
-		model, args = args[1], args[2:]
-	}
-	brief := strings.Join(args, " ")
+	name, brief := pos[0], pos[1]
 	wsID, corps, err := e.callerWorkspace()
 	if err != nil {
 		return err
