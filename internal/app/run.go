@@ -103,6 +103,7 @@ func init() {
 		"corps-new":          cmdCorpsNew,
 		"adopt":              cmdAdopt,
 		"army":               cmdArmy,
+		"dashboard":          cmdDashboard,
 		"division-new":       cmdDivisionNew,
 		"division-done":      cmdDivisionDone,
 		"report":             cmdReport,
