@@ -224,11 +224,13 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
         .used += [$o.pane_id]
         | .deliver += [{id: $m.id, pane_id: $o.pane_id, from: $m.from, to: $to,
             ev: {pane: $o.pane_id, from: $m.from, to: $to, ask: $m.id},
-            text: "[berthier ask] from \($m.from): \($m.text) (Reply or report back with: berthier ask \($m.from) \"...\")"}]
+            oneway: ($m.kind == "notify"),
+            text: (if $m.kind == "notify" then "[berthier notify] from \($m.from): \($m.text)"
+                   else "[berthier ask] from \($m.from): \($m.text) (Reply or report back with: berthier ask \($m.from) \"...\")" end)}]
       end
   ) | .deliver) as $deliver
 | ((($prev.ask_log // []) | map(select(.at > $now - 3600)))
-   + ($deliver | map({from, to, at: $now}))) as $ask_log
+   + ($deliver | map(select(.oneway | not) | {from, to, at: $now}))) as $ask_log
 
 # --- Escalation candidates. Keys embed status_since so a new episode of the
 # same condition escalates again, but one episode escalates only once.
@@ -256,7 +258,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
        text: "\(.reason): \($who)\(.also // "")", ev: (about($pane) + {why, reason})}
   )
   + ($inbox | map(
-      select(($now - .at) >= $cfg.ask_stuck)
+      select(.kind != "notify" and ($now - .at) >= $cfg.ask_stuck)
       | select(.id as $id | $deliver | any(.id == $id) | not)
       | "undelivered \(($now - .at) / 60 | floor)m" as $reason
       | {key: "ask_stuck:\(.id)", pane_id: null,

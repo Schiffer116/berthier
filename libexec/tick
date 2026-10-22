@@ -114,13 +114,14 @@ done < <(actions resume '[.pane_id, .name]')
 
 # --- Deliver asks; a delivered ask leaves the inbox.
 while IFS=$'\t' read -r id pane from to text && IFS= read -r ev; do
+  text=$(base64 -d <<<"$text")
   if err=$(prompt_agent "$pane" "$text" 2>&1); then
     rm -f "$BERTHIER_INBOX/$id.json"
     event delivered "delivered ask $from -> $to ($pane)" "$ev"
   else
     event delivery_failed "ask delivery failed: $from -> $to ($pane), ask $id: $err" "$(with_why "$ev" "$err")"
   fi
-done < <(actions deliver '[.id, .pane_id, .from, .to, .text]')
+done < <(actions deliver '[.id, .pane_id, .from, .to, (.text | @base64)]')
 
 # --- Escalate: a Division's events go to its Corps's Main Agent, the rest to
 # Berthier, one prompt each. Fall back to the user if the target cannot take it.

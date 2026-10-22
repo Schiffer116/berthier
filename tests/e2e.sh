@@ -108,6 +108,20 @@ h agent wait demo-main --timeout 90000 >/dev/null
 h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '⎿.*\[Image #' \
   || fail "image ask not submitted: $(h pane read "$pane" --source recent-unwrapped --lines 60)"
 
+step "a notify from a service (no pane, bare PATH) reaches the idle Main Agent, multi-line, one-way"
+env -i PATH="$PWD/bin:$HOME/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin" HOME="$HOME" BERTHIER_HOME="$BERTHIER_HOME" berthier notify demo $'Learner answered:\nline two. Reply with just: noted' >/dev/null
+for _ in $(seq 30); do # the Agent may still be answering the previous ask
+  bin/berthier tick
+  (($(logged '.kind == "delivered" and .from == "service"'))) && break
+  sleep 2
+done
+(($(logged '.kind == "delivered" and .pane == $p and .from == "service" and .to == "demo"' "$pane"))) || fail "notify not delivered: $(tail -3 "$BERTHIER_HOME/loop.log"; ls "$BERTHIER_HOME/inbox")"
+h agent wait demo-main --timeout 90000 >/dev/null
+out=$(h pane read "$pane" --source recent-unwrapped --lines 80)
+grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail "notify not in demo-main's pane"
+grep -q 'berthier ask service' <<<"$out" && fail "notify told the Agent to ask back"
+grep -qsF '"from":"service"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered notify left in the inbox"
+
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
 bin/berthier tick

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# One-way message to a Corps's Main Agent from something that is not an Agent
+# (a systemd service). Same inbox as `ask`, kind "notify": no reply expected,
+# never counted for ask-stuck or ping-pong. Needs no Herdr pane.
+# shellcheck source=lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+
+BERTHIER_NOTIFY_MAX=${BERTHIER_NOTIFY_MAX:-2000}
+[[ $# -eq 2 && -n $2 ]] || die 'usage: berthier notify <corps> "<text>"'
+[[ -s $BERTHIER_STATE ]] || die "no Grand Army State yet; is berthier-loop running?"
+
+to=$(corps_name "$1")
+jqn -e --arg to "$to" '.berthier as $b | [.agents | to_entries[] | select(.value.status != "gone")
+  | if .key == $b then "berthier" else (.value.workspace_label | corps_name) end] | index($to)' \
+  <"$BERTHIER_STATE" >/dev/null || die "no Corps '$to'"
+
+id="$(date +%s%N)-service"
+tmp=$(mktemp "$BERTHIER_INBOX/.ask.XXXXXX")
+jq -cn --arg to "$to" --arg text "$2" --argjson max "$BERTHIER_NOTIFY_MAX" --argjson at "$(date +%s)" \
+  '{kind: "notify", from: "service", to: $to, at: $at,
+    text: (if ($text | length) > $max then $text[:$max] + " [truncated]" else $text end)}' >"$tmp"
+mv "$tmp" "$BERTHIER_INBOX/$id.json"
+echo "notified $to; delivered when its Agent is ready for input"

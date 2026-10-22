@@ -64,6 +64,16 @@ check "ask queued" "$(jq -c '[.from, .to, .text]' "$home"/inbox/*.json)" '["skip
 b HERDR_PANE_ID=b:p1 bin/berthier ask skipli "all done" >/dev/null
 check "berthier asks as berthier" "$(jq -r 'select(.to == "skipli") | .from' "$home"/inbox/*.json)" 'berthier'
 
+# --- notify: no pane needed, one-way, capped, multi-line kept
+check "notify unknown corps" "$(b bin/berthier notify old hi 2>&1)" "berthier: no Corps 'old'"
+rm -f "$home"/inbox/*.json
+b bin/berthier notify .Skipli $'answer:\n42' >/dev/null
+check "notify queued" "$(jq -c '[.kind, .from, .to, .text]' "$home"/inbox/*.json)" '["notify","service","skipli","answer:\n42"]'
+rm -f "$home"/inbox/*.json
+b BERTHIER_NOTIFY_MAX=5 bin/berthier notify skipli abcdefgh >/dev/null
+check "notify capped" "$(jq -r .text "$home"/inbox/*.json)" 'abcde [truncated]'
+rm -f "$home"/inbox/*.json
+
 # --- loop: a Herdr outage logs once, not every tick.
 lh=$(mktemp -d)
 echo "2026-10-17T13:02:57+07:00 loop started (interval 10s, session default)" >"$lh/loop.log"
