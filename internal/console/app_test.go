@@ -96,28 +96,35 @@ func TestInstallable(t *testing.T) {
 	}
 }
 
-// The icon is the accent eagle on the page background, centered in the safe zone.
+// The icon is the imperial eagle in the accent and peach on the page
+// background, wings inside the maskable safe zone.
 func TestIconDrawsEagle(t *testing.T) {
 	t.Setenv("BERTHIER_THEME", filepath.Join(t.TempDir(), "none.css"))
-	iconBg, iconAccent := themeRGBA("bg"), themeRGBA("accent")
-	img, err := png.Decode(bytes.NewReader(Icon(192)))
-	if err != nil {
-		t.Fatal(err)
+	const n = 512
+	img, err := png.Decode(bytes.NewReader(Icon(n)))
+	if err != nil || img.Bounds().Dx() != n {
+		t.Fatalf("decode: %v %v", err, img.Bounds())
 	}
-	if img.Bounds().Dx() != 192 {
-		t.Fatalf("size %v", img.Bounds())
+	bg := themeRGBA("bg")
+	if r, g, b, _ := img.At(2, 2).RGBA(); uint8(r>>8) != bg.R || uint8(g>>8) != bg.G || uint8(b>>8) != bg.B {
+		t.Errorf("corner is not the background: %d %d %d", r>>8, g>>8, b>>8)
 	}
-	at := func(x, y float64) uint32 { r, _, _, _ := img.At(int(x*192), int(y*192)).RGBA(); return r >> 8 }
-	if c, stem := at(0.02, 0.02), at(0.5, 0.5); c != uint32(iconBg.R) || stem != uint32(iconAccent.R) {
-		t.Errorf("corner %d, stem %d", c, stem)
-	}
-	// Maskable safe zone: nothing drawn outside the central 80% circle.
-	for y := 0.0; y < 1; y += 0.01 {
-		for x := 0.0; x < 1; x += 0.01 {
-			if inEagle(x, y) && (x-0.5)*(x-0.5)+(y-0.5)*(y-0.5) > 0.4*0.4 {
-				t.Fatalf("eagle reaches %.2f,%.2f, outside the safe zone", x, y)
+	ink := 0
+	for y := range n {
+		for x := range n {
+			r, _, _, _ := img.At(x, y).RGBA()
+			if uint8(r>>8) == bg.R {
+				continue
+			}
+			ink++
+			dx, dy := float64(x)/n-0.5, float64(y)/n-0.5
+			if dx*dx+dy*dy > 0.41*0.41 {
+				t.Fatalf("ink at %d,%d outside the safe zone", x, y)
 			}
 		}
+	}
+	if ink < n*n/10 {
+		t.Errorf("only %d ink pixels", ink)
 	}
 }
 
@@ -142,6 +149,9 @@ func TestThemeServedFromPalette(t *testing.T) {
 	}
 	if _, m := get(t, srv.URL+"/manifest.webmanifest"); !strings.Contains(string(m), "#040506") {
 		t.Errorf("manifest colours: %s", m)
+	}
+	if _, svg := get(t, srv.URL+"/icon.svg"); !strings.Contains(string(svg), "fill=\"#b4befe\"") || strings.Contains(string(svg), "{{") {
+		t.Error("icon.svg not themed")
 	}
 	if hex := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`).FindString(string(indexHTML)); hex != "" {
 		t.Errorf("index.html has raw hex %s", hex)
