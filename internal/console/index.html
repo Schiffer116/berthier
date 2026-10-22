@@ -92,6 +92,13 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; margin: 2px 0; }
 .bud .fill { position: absolute; inset: 0 auto 0 0; }
 .bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
+.bud .set { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0 10px; min-height: 44px; }
+.bud .set input[type=range] { width: 100%; height: 44px; margin: 0; accent-color: var(--accent); cursor: pointer; touch-action: pan-y; }
+.bud .set output { text-align: right; white-space: nowrap; min-width: 6.5em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.bud .set button { min-height: 44px; min-width: 44px; padding: 0 10px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.bud .set button:hover { color: var(--bright); }
+.bud .set button[hidden] { display: none; }
+.bud .err { grid-column: 1 / -1; color: var(--red); }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 #army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
@@ -414,7 +421,8 @@ function renderHeader(all) {
 // week. With a budget the bar is the share of the allowance (the tick marks
 // where its Main Agent is told); without, the share of the week.
 function renderBudget() {
-  const b = army.budget, el = $('usage');
+  if (ui.budgetDrag) return; // a slider being dragged must not be rebuilt under the finger
+  const b = army.budget, el = $('usage'), focus = document.activeElement?.dataset?.budget;
   const corps = b?.corps || [], five = b?.five_hour;
   el.hidden = !(five || b?.week_pct != null || corps.length);
   if (el.hidden) return;
@@ -425,24 +433,60 @@ function renderBudget() {
     const s = Math.max(0, Math.floor(t - now())), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
     return `resets in ${h >= 24 ? Math.floor(h / 24) + 'd ' + (h % 24) + 'h' : h ? h + 'h ' + m + 'm' : m + 'm'} · ${sameDay(t) ? '' : day(t) + ' '}${clock(t, false)}`;
   };
-  const bar = (name, text, ratio, color, sub, label, warn) => `<div class="bud" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}">
+  const slider = (c) => `<div class="set"><input type="range" min="0" max="100" step="1" value="${c.allowance == null ? 0 : Math.round(c.allowance)}" data-budget="${esc(c.name)}" data-was="${c.allowance == null ? 0 : 1}" aria-label="${esc(c.name)} weekly budget, % of the week (0 = none)" aria-valuetext="${c.allowance == null ? 'no budget' : Math.round(c.allowance) + '%'}">
+      <output>${c.allowance == null ? 'no budget' : Math.round(c.allowance) + '% of week'}</output>
+      <button type="button" data-budget-off="${esc(c.name)}" aria-label="turn off ${esc(c.name)} budget"${c.allowance == null ? ' hidden' : ''}>off</button></div>`;
+  const bar = (name, text, ratio, color, sub, label, warn, extra = '') => `<div class="bud">
       <span class="name">${esc(name)}</span><span style="color: ${color}">${text}</span>
-      <span class="track"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>
-      ${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
+      <span class="track" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>
+      ${sub ? `<span class="sub">${sub}</span>` : ''}${extra}</div>`;
   const level = (p) => p >= 90 ? C.red : p >= 70 ? C.accent : C.green;
   const win = (name, p, t) => p == null ? '' : bar(name, pct(p), p / 100, level(p), until(t), `${name} account quota`);
   const rows = corps.map((c) => {
     if (c.allowance == null) {
-      return bar(c.name, `${pct(c.used)} of week`, c.used / 100, C.blue, null, `${c.name} share of the week`);
+      return bar(c.name, `${pct(c.used)} of week`, c.used / 100, C.blue, null, `${c.name} share of the week`, null, slider(c));
     }
     const color = c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
     return bar(c.name, `${pct(c.used)} / ${pct(c.allowance)} · ${Math.round(c.ratio * 100)}%`, c.ratio, color,
-      c.ratio >= 1 ? 'budget spent · Revives, resumes and asks held' : null, `${c.name} weekly budget`, b.warn);
+      c.ratio >= 1 ? 'budget spent · Revives, resumes and asks held' : null, `${c.name} weekly budget`, b.warn, slider(c));
   }).join('');
   el.innerHTML = `<summary><h2>QUOTA</h2>${five ? `<span>5h ${pct(five.pct)}</span>` : ''}${b.week_pct != null ? `<span>7d ${pct(b.week_pct)}</span>` : ''}</summary>
     <div class="body"><div class="win">${win('5h', five?.pct, five?.resets_at)}${win('7d', b.week_pct, b.resets_at)}</div>
     ${rows ? `<div class="cs">${rows}</div>` : ''}</div>`;
+  if (focus) el.querySelector(`input[data-budget="${CSS.escape(focus)}"]`)?.focus();
 }
+
+// Budget sliders: drag shows the value, release commits (0 drops the budget),
+// the same write as `berthier budget <corps> <pct>|off`.
+async function setBudget(corps, pct) {
+  const el = $('usage');
+  try {
+    const res = await fetch('api/budget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps, pct }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  } catch (err) {
+    renderBudget();
+    const row = [...el.querySelectorAll('.bud')].find((r) => r.querySelector('[data-budget]')?.dataset.budget === corps);
+    row?.insertAdjacentHTML('beforeend', `<span class="err">not saved: ${esc(err.message)}</span>`);
+  }
+}
+$('usage').addEventListener('pointerdown', (e) => { if (e.target.matches('input[data-budget]')) ui.budgetDrag = true; });
+const dragEnd = () => { if (ui.budgetDrag) { ui.budgetDrag = false; setTimeout(renderBudget, 0); } };
+document.addEventListener('pointerup', dragEnd);
+document.addEventListener('pointercancel', dragEnd);
+$('usage').addEventListener('input', (e) => {
+  if (!e.target.matches('input[data-budget]')) return;
+  const v = +e.target.value;
+  e.target.nextElementSibling.textContent = v ? v + '% of week' : 'no budget';
+});
+$('usage').addEventListener('change', (e) => {
+  if (!e.target.matches('input[data-budget]')) return;
+  const v = +e.target.value;
+  if (v || e.target.dataset.was === '1') setBudget(e.target.dataset.budget, v || null); // 0 on an unset budget: nothing to drop
+});
+$('usage').addEventListener('click', (e) => {
+  const off = e.target.closest('button[data-budget-off]');
+  if (off) setBudget(off.dataset.budgetOff, null);
+});
 
 function renderRows(rows) {
   const focused = document.activeElement?.dataset?.pane;
