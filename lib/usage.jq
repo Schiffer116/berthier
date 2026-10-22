@@ -28,11 +28,17 @@ def corps_of($cwd; $map):
   [$map[] | . as [$path] | select($cwd != null and ($cwd == $path or ($cwd | startswith($path + "/"))))]
   | max_by(.[0] | length) | .[1];
 
-# A row from another window: resets_at moved, or (no resets_at) the quota fell.
+# A row from another window: resets_at moved or the quota fell sharply (a manual
+# reset keeps resets_at), or (no resets_at) the quota fell at all.
 def new_window($r):
   .week_pct != null
-  and (if $r.resets_at != null and .resets_at != null then (($r.resets_at - .resets_at) | fabs) > 3600
+  and (if $r.resets_at != null and .resets_at != null
+       then (($r.resets_at - .resets_at) | fabs) > 3600 or .week_pct - $r.week_pct >= 10 or $r.week_pct < .week_pct / 2
        else $r.week_pct < .week_pct end);
+
+# A row without five_pct once the record has seen it: a session's first render,
+# carrying a cached week_pct. Its cost counts, its week_pct does not.
+def stale($r): (.five_pct | type) == "number" and ($r.five_pct | type) != "number";
 
 def rise($amt):
   ((.acc // {}) | to_entries) as $a
@@ -43,16 +49,18 @@ def rise($amt):
   | .acc = {};
 
 def step($r; $map):
-  (if new_window($r) then .week_pct = 0 | .by_corps = {} | .acc = {} else . end)
+  stale($r) as $stale
+  | (if ($stale | not) and new_window($r) then .week_pct = 0 | .by_corps = {} | .acc = {} else . end)
   | .sessions[$r.session] as $s
   | (corps_of($r.cwd; $map) // $s.corps // "other") as $corps
   | ($s | if . == null then 0 else [$r.cost - .cost, 0] | max end) as $d
   | .sessions[$r.session] = {cost: $r.cost, corps: $corps, ts: $r.ts}
   | (if $d > 0 then .acc[$r.session] += $d else . end)
-  | (if .week_pct == null then .week_pct = $r.week_pct
+  | (if $stale then .
+     elif .week_pct == null then .week_pct = $r.week_pct
      elif $r.week_pct > .week_pct then rise($r.week_pct - .week_pct) | .week_pct = $r.week_pct
      else . end)
-  | .resets_at = ($r.resets_at // .resets_at)
+  | (if $stale then . else .resets_at = ($r.resets_at // .resets_at) end)
   | (if ($r.five_pct | type) == "number" then .five_pct = $r.five_pct | .five_resets_at = $r.five_resets_at else . end);
 
 # $usage (or {}) folded over $rows, in ledger order; sessions idle for two weeks forgotten.

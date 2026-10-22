@@ -94,9 +94,22 @@ jq -cn '{session_id: "f1", cwd: "/r/dot", cost: {total_cost_usd: 1}, rate_limits
 check "five-hour in row" "$(jq -c '[.five_pct, .five_resets_at]' "$five/ledger.jsonl")" '[31,1799990000]'
 check "five-hour in view" "$(BERTHIER_HOME="$five" bin/berthier budget >/dev/null; BERTHIER_HOME="$five" bin/berthier army | jq -c '.budget.five_hour')" '{"pct":31,"resets_at":1799990000}'
 echo '{"ts":1,"session":"f1","cwd":"/r/dot","cost":2,"week_pct":6,"resets_at":1800000000}' >>"$five/ledger.jsonl"
-check "old row folds, keeps five-hour" "$(BERTHIER_HOME="$five" bin/berthier budget >/dev/null; BERTHIER_HOME="$five" bin/berthier army | jq -c '[.budget.week_pct, .budget.five_hour.pct]')" '[6,31]'
+check "row without five-hour folds, its week_pct ignored" "$(BERTHIER_HOME="$five" bin/berthier budget >/dev/null; BERTHIER_HOME="$five" bin/berthier army | jq -c '[.budget.week_pct, .budget.five_hour.pct]')" '[5,31]'
 check "five-hour unchanged does not add a row" "$(jq -cn '{session_id: "f1", cwd: "/r/dot", cost: {total_cost_usd: 1}, rate_limits: {seven_day: {used_percentage: 5, resets_at: 1800000000}, five_hour: {used_percentage: 40, resets_at: 1799990000}}}' | BERTHIER_HOME="$five" bin/berthier sample; wc -l <"$five/ledger.jsonl")" '2'
 rm -rf "$five"
+
+# --- A manual reset keeps resets_at but drops week_pct; stale rows without
+# five_pct (a session's first render) neither reset nor fake a rise.
+rst=$(mktemp -d)
+echo '{"agents": {}}' >"$rst/state.json"
+row() { # ts session cost week_pct [five_pct]
+  jq -cn --argjson t "$1" --arg s "$2" --argjson c "$3" --argjson p "$4" --argjson f "${5:-null}" \
+    '{ts: $t, session: $s, cwd: "/r/dot", cost: $c, week_pct: $p, resets_at: 1792900800} + (if $f then {five_pct: $f, five_resets_at: 1792700000} else {} end)'
+}
+{ row 1 s1 1 80 10; row 2 s1 2 81 11; row 3 s2 0 75; row 4 s1 3 81 12; row 5 s1 4 92 14; row 6 s3 0 92
+  row 7 s1 5 0 1; row 8 s1 6 1 2; } >"$rst/ledger.jsonl"
+check "manual reset starts a new window" "$(BERTHIER_HOME="$rst" bin/berthier budget >/dev/null; jq -c '[.week_pct, (.by_corps | map_values(round))]' "$rst/usage.json")" '[1,{"other":1}]'
+rm -rf "$rst"
 
 # --- A new window starts over.
 sample a /r/skipli 7 3 1900000000
