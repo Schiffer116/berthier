@@ -1,4 +1,3 @@
 state/
 notes.md
-dashboard/.bin/
-.bin/
+/bin/berthier

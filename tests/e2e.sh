@@ -4,6 +4,7 @@
 #   tests/e2e.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+go build -o bin/berthier ./cmd/berthier
 
 session=berthier-e2e-$$
 work=$(mktemp -d)

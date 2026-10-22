@@ -1,4 +1,0 @@
-source-path=SCRIPTDIR/..
-external-sources=true
-# jqn (lib/common.sh) wraps jq; its single-quoted programs are jq, not shell.
-disable=SC2016

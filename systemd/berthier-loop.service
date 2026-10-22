@@ -3,6 +3,8 @@ Description=Berthier Main Loop (Grand Army supervision in Herdr)
 
 [Service]
 Type=simple
+WorkingDirectory=%h/Documents/grand-army
+ExecStartPre=/usr/bin/env go build -o bin/berthier ./cmd/berthier
 ExecStart=%h/Documents/grand-army/bin/berthier loop
 Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
