@@ -40,7 +40,8 @@ commitments to the user, recent decisions. Update as you go; prune resolved.
 - Check-in: `herdr agent read <pane> --source visible` (more lines than the
   screen make Herdr scroll the user's view of an idle Agent).
   Text after an idle `❯` is Claude Code's suggested prompt, not a user draft.
-- Nudge: `herdr agent prompt <pane> "<text>"`.
+- Nudge: `berthier prompt <pane> "<text>"` (confirms Claude took it; a bare
+  `herdr agent prompt` can leave a draft).
 - Speak when you end a turn needing the user:
   `~/.claude/skills/notify-user/speak.sh "<corps>: <what>"` (loop already speaks
   blocked Agents and failed Revives).

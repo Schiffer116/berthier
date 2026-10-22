@@ -879,3 +879,12 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 	}
 	return console.Serve(*addr, source, e.H, *claude, *every)
 }
+
+// cmdPrompt prompts the Agent in a pane and makes sure Claude took it
+// (herdr.Client.PromptAgent): a bare `herdr agent prompt` can leave a draft.
+func cmdPrompt(e *Env, args []string, io IO) error {
+	if len(args) < 2 || strings.TrimSpace(strings.Join(args[1:], " ")) == "" {
+		return die(`usage: berthier prompt <pane> "<text>"`)
+	}
+	return e.H.PromptAgent(args[0], strings.Join(args[1:], " "))
+}
