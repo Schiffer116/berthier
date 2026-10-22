@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Berthier console</title>
-<meta name="theme-color" content="#141A22">
+<meta name="theme-color" content="{{base}}">
+<link rel="stylesheet" href="theme.css">
 <meta name="color-scheme" content="dark">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png" type="image/png">
@@ -16,17 +17,17 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
 :root {
-  --accent: #F2A93B; --bg: #0A0D11; --panel: #0E1217; --bar: #141A22; --head: #11161D;
-  --line: #263140; --rule: #1C242E; --field: #2E3A49; --sel: #1D2733;
-  --fg: #D6DCE4; --bright: #E6E9EE; --soft: #C9D0D9; --muted: #9AA5B4; --dim: #7C8796; --faint: #5B6573;
-  --blue: #7FB8F2; --sky: #A9C9EC; --green: #5FC48A; --red: #F06B6B; --purple: #B39DF0;
+  --panel: var(--mantle); --bar: var(--base); --head: var(--base);
+  --line: var(--surface1); --rule: var(--surface0); --field: var(--surface2); --sel: var(--surface0);
+  --fg: var(--text); --bright: var(--text); --soft: var(--subtext1); --muted: var(--overlay1); --dim: var(--overlay0); --faint: var(--surface2);
+  --purple: var(--mauve);
   /* Installed on a phone the page runs edge to edge, under notch and home bar. */
   --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
-a { color: var(--blue); } a:hover { color: #A9D0F7; }
+a { color: var(--blue); } a:hover { color: var(--sky); }
 .app { font-variant-ligatures: none; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', 'Symbols Nerd Font Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 8px 16px; background: var(--bar); }
 header.bar { padding: calc(8px + var(--sat)) calc(16px + var(--sar)) 8px calc(16px + var(--sal)); border-bottom: 1px solid var(--line); }
@@ -69,7 +70,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .badge { min-width: 20px; padding: 0 5px; background: var(--field); color: var(--fg); font-size: 11px; font-weight: 700; text-align: center; }
 .badge.hot { background: var(--accent); color: var(--bg); }
 .badge.bad { background: var(--red); color: var(--bg); }
-.drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
+.drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px color-mix(in srgb, var(--crust) 55%, transparent); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
 .drawer { padding: 0 var(--sar) var(--sab) 0; background: var(--panel); }
 .drawer.open { transform: none; visibility: visible; transition: transform 0.15s ease-out; }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer.open { transition: none; } }
@@ -114,7 +115,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 }
 .thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
 .agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
-.agent:hover { background: #121820; }
+.agent:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
 .agent[aria-pressed="true"] { background: var(--sel); }
 .agent:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -126,10 +127,10 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 #detail h2 span { color: var(--fg); }
 .body { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
 .link { padding: 0; margin-right: 8px; background: none; border: 0; color: var(--blue); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.link:hover { color: #A9D0F7; }
+.link:hover { color: var(--sky); }
 .mates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
 .mate { display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 5px 6px; text-align: left; font: inherit; color: var(--fg); background: transparent; border: 0; border-bottom: 1px solid var(--rule); cursor: pointer; }
-.mate:hover { background: #121820; }
+.mate:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
 .mate[aria-pressed="true"] { background: var(--sel); }
 .mate:focus-visible, .link:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .mate-l { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
@@ -149,8 +150,8 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .md ul, .md ol { padding: 0 0 0 20px; list-style: disc; }
 .md ol { list-style: decimal; }
 .md .mh { margin: 8px 0 4px; font-weight: 700; color: var(--accent); }
-.md code { padding: 0 3px; background: #000; color: var(--sky); }
-.md pre { padding: 6px 8px; background: #000; border: 1px solid var(--rule); overflow-x: auto; font-size: 12px; }
+.md code { padding: 0 3px; background: var(--crust); color: var(--sky); }
+.md pre { padding: 6px 8px; background: var(--crust); border: 1px solid var(--rule); overflow-x: auto; font-size: 12px; }
 .md pre code { padding: 0; color: var(--soft); }
 .md blockquote { padding-left: 8px; border-left: 2px solid var(--field); color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--rule); margin: 8px 0; }
@@ -165,7 +166,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .tool summary:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
 .tool .tn { color: var(--purple); }
 .tool.err .tn { color: var(--red); }
-.tool pre, pre.term { margin: 4px 0 0; padding: 6px 8px; background: #000; border: 1px solid var(--rule); font: inherit; font-size: 11px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool pre, pre.term { margin: 4px 0 0; padding: 6px 8px; background: var(--crust); border: 1px solid var(--rule); font: inherit; font-size: 11px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
 .tool pre { max-height: 280px; overflow: auto; }
 pre.term { margin: 0; border: 0; background: transparent; }
 #chat-state { font-size: 12px; }
@@ -175,20 +176,21 @@ pre.term { margin: 0; border: 0; background: transparent; }
   header.bar { gap: 4px 12px; padding: calc(6px + var(--sat)) calc(12px + var(--sar)) 6px calc(12px + var(--sal)); }
   .logbtn { padding: 2px 6px; }
 }
-.needs { border: 1px solid #5A4318; background: #1E1A12; padding: 6px 10px; }
+.needs { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--base)); background: color-mix(in srgb, var(--accent) 8%, var(--mantle)); padding: 6px 10px; }
 .needs div:first-child { color: var(--accent); font-weight: 700; }
 .needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
 dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
+dl.ainfo { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
 dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
-.cmd { margin-top: 4px; padding: 6px 10px; background: #000; border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
+.cmd { margin-top: 4px; padding: 6px 10px; background: var(--crust); border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
 .cmd.run { color: var(--bright); }
 ol { margin: 0; padding: 6px 12px; list-style: none; }
 .esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
 .esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
 @media (max-width: 480px) { .esc { grid-template-columns: 40px 64px minmax(0, 1fr); } }
 .ask { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 1px 0; }
-#log { background: #000; }
+#log { background: var(--crust); }
 #log .ph { padding: 0 12px; }
 #log h2 { padding: 6px 0; }
 #log ol { padding: 8px 12px; }
@@ -206,6 +208,17 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 #send button:disabled { opacity: 0.5; cursor: default; }
 #send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
 #send-status { overflow-wrap: anywhere; }
+#skills { list-style: none; margin: 0; padding: 0; max-height: min(40vh, 280px); overflow-y: auto; border: 1px solid var(--field); background: var(--bar); }
+#skills[hidden] { display: none; }
+#skills li { padding: 5px 10px; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; border-bottom: 1px solid var(--rule); }
+#skills li.on { background: var(--sel); box-shadow: inset 2px 0 var(--accent); }
+#skills .sn { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+#skills .sd { color: var(--muted); overflow-wrap: anywhere; }
+#skills .sd i { font-style: normal; color: var(--dim); }
+#skills .none { padding: 8px 10px; }
+#send button.slash { background: transparent; color: var(--accent); border: 1px solid var(--field); padding: 4px 12px; }
+@media (pointer: coarse) { #skills li { min-height: 44px; align-items: center; } #send button.slash { min-height: 44px; min-width: 44px; } }
+@media (max-width: 480px) { #skills li { grid-template-columns: minmax(0, 1fr); } }
 /* iOS zooms into any field under 16px when it takes focus. */
 @media (pointer: coarse) { .filter input, #send textarea { font-size: 16px; } }
 </style>
@@ -259,9 +272,11 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         <form id="send" hidden>
           <div id="chat-state" role="status"></div>
           <label class="sr" for="msg">message <span id="send-to"></span></label>
+          <ul id="skills" role="listbox" aria-label="skills and commands" hidden></ul>
           <textarea id="msg" placeholder="message this agent · enter sends, shift+enter for a new line" spellcheck="false"></textarea>
           <div class="acts">
             <button type="submit" id="send-btn">send</button>
+            <button type="button" class="slash" id="slash-btn" aria-label="skills and commands" aria-expanded="false" aria-controls="skills">/</button>
             <span class="dim" id="send-status" role="status"></span>
           </div>
         </form>
@@ -316,8 +331,8 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 // /api/events. The only state here is what the viewer picked and is typing;
 // the one write is a message to an Agent (POST api/prompt).
 
-const C = { accent: '#F2A93B', blue: '#7FB8F2', sky: '#A9C9EC', soft: '#C9D0D9', muted: '#9AA5B4',
-  dim: '#7C8796', faint: '#5B6573', green: '#5FC48A', red: '#F06B6B', purple: '#B39DF0', bright: '#E6E9EE' };
+const C = Object.fromEntries(['accent', 'blue', 'sky', 'soft', 'muted', 'dim', 'faint', 'green', 'red', 'purple', 'bright']
+  .map((k) => [k, `var(--${k})`]));
 const LIVE = { working: ['▶', C.blue], blocked: ['■', C.red], done: ['✓', C.green], idle: ['✓', C.green],
   gone: ['✕', C.purple], unknown: ['?', C.muted] };
 const TAG = { loop: C.faint, revive: C.purple, forget: C.purple, speak: C.accent, escal: C.accent,
@@ -449,6 +464,29 @@ function renderRows(rows) {
 // A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
 const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
 
+// The selected Agent's own facts: the view model's, plus what its transcript
+// says (model, context, effort, branch), which the chat poll brings.
+let selAgent = null;
+const usd = (n) => '$' + (n < 10 ? n.toFixed(2) : n.toFixed(1));
+function renderInfo() {
+  const a = selAgent, el = $('ainfo');
+  if (!a || !el) return;
+  const i = chat.info?.pane === a.pane_id ? chat.info : {};
+  const model = i.model ? esc(i.model) + (a.division_model ? ` <span class="dim">· division ${esc(a.division_model)}</span>` : '')
+    : a.division_model ? `${esc(a.division_model)} <span class="dim">· division</span>` : null;
+  const ctx = i.context_tokens == null ? null
+    : `<span style="color: ${i.context_pct >= 90 ? C.red : i.context_pct >= 70 ? C.accent : C.muted}">${i.context_pct}%</span> <span class="dim">· ${Math.round(i.context_tokens / 1000)}k tokens</span>`;
+  const rows = [
+    ['model', model], ['effort', i.effort && esc(i.effort)], ['context', ctx],
+    ['cost', a.cost != null && usd(a.cost)],
+    ['branch', i.branch && esc(i.branch)],
+    ['session', a.session_id && `<span title="${esc(a.session_id)}">${esc(a.session_id.slice(0, 8))}</span>`],
+    ['status', `<span style="color: ${a.color}">${a.state}</span> ${ageSpan(a.from)}`],
+    ['report', a.report == null ? '<span class="dim">no report yet</span>' : `<span class="dim">${clock(a.report_at, false)}</span> ${esc(a.report)}`],
+  ];
+  el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
 // The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
 function renderDetail(a, all) {
   renderSend(a);
@@ -488,6 +526,7 @@ function renderDetail(a, all) {
         ${on ? `<span class="mate-m dim">${esc(m.kind ?? '-')} · session ${esc((m.session_id ?? '-').slice(0, 8))}${revived}</span>` : ''}
       </button></li>`;
   };
+  selAgent = a;
   const focused = $('det').contains(document.activeElement) ? document.activeElement.dataset?.pane : null;
   $('det').innerHTML = `
     <div class="ph">
@@ -501,8 +540,10 @@ function renderDetail(a, all) {
       </div>` : ''}
       ${cmd ? `<div class="cmd run" title="it asks you to run">${esc(cmd)}</div>` : ''}
       <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <dl id="ainfo" class="ainfo" aria-label="agent info"></dl>
       <ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>
     </div>`;
+  renderInfo();
   if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
 
@@ -514,9 +555,11 @@ function renderSend(a) {
   if (sendPane != null) drafts[sendPane] = $('msg').value;
   sendPane = a.pane_id;
   $('msg').value = drafts[sendPane] ?? '';
+  setPicker(false);
   $('send-to').textContent = `→ ${a.name ?? a.who} · ${a.pane_id}`;
   $('send-status').textContent = '';
   chat.rev = null;
+  chat.info = null;
   $('chat').innerHTML = '<div class="dim">loading…</div>';
   $('chat-state').textContent = '';
   pollChat();
@@ -524,7 +567,7 @@ function renderSend(a) {
 
 // The conversation of the selected Agent, polled while the page is visible.
 // Tool calls stay collapsed unless the viewer opened them.
-const chat = { rev: null, open: new Set(), busy: false };
+const chat = { rev: null, open: new Set(), busy: false, info: null };
 async function pollChat() {
   const pane = sendPane;
   if (!pane || document.hidden || chat.busy) return;
@@ -533,7 +576,11 @@ async function pollChat() {
     const res = await fetch('api/chat?pane=' + encodeURIComponent(pane));
     if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
     const v = await res.json();
-    if (pane === sendPane) renderChat(v);
+    if (pane === sendPane) {
+      chat.info = v.info ? { ...v.info, pane } : null;
+      renderInfo();
+      renderChat(v);
+    }
   } catch (err) {
     if (pane === sendPane) $('chat-state').innerHTML = `<span style="color: ${C.red}">chat unavailable: ${esc(err.message)}</span>`;
   } finally {
@@ -645,6 +692,7 @@ async function send() {
     drafts[pane] = '';
     if (sendPane === pane) {
       $('msg').value = '';
+      setPicker(false);
       $('send-status').textContent = `sent ${clock(now())}`;
       setTimeout(pollChat, 400);
     }
@@ -774,8 +822,96 @@ function closeLog() {
 }
 document.querySelectorAll('#drawer .x').forEach((b) => b.addEventListener('click', closeLog));
 
+// Slash picker: the selected Agent's skills and commands (GET api/skills).
+const skillCache = new Map(); // pane -> {at, list}
+const pick = { open: false, list: [], shown: [], on: 0, forced: false };
+async function loadSkills(pane) {
+  const hit = skillCache.get(pane);
+  if (hit && Date.now() - hit.at < 60000) return hit.list;
+  const res = await fetch('api/skills?pane=' + encodeURIComponent(pane));
+  if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  const list = (await res.json()).skills;
+  skillCache.set(pane, { at: Date.now(), list });
+  return list;
+}
+function skillRank(s, q) {
+  const n = s.name.toLowerCase(), t = n.split(':').pop();
+  if (!q) return 0;
+  if (n.startsWith(q) || t.startsWith(q)) return 1;
+  if (n.includes(q)) return 2;
+  return s.desc.toLowerCase().includes(q) ? 3 : 9;
+}
+function renderSkills() {
+  const q = pick.q.toLowerCase();
+  pick.shown = pick.list.map((s) => [skillRank(s, q), s]).filter(([r]) => r < 9)
+    .sort((a, b) => a[0] - b[0]).map(([, s]) => s);
+  pick.on = Math.min(pick.on, Math.max(0, pick.shown.length - 1));
+  $('skills').innerHTML = pick.shown.map((s, i) => `<li role="option" id="sk${i}" data-i="${i}" aria-selected="${i === pick.on}"${i === pick.on ? ' class="on"' : ''}>
+    <span class="sn">/${esc(s.name)}</span><span class="sd">${esc(s.desc)} <i>· ${esc(s.src)}</i></span></li>`).join('')
+    || `<li class="none">${pick.list.length ? 'no match' : 'loading…'}</li>`;
+  $('skills').querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  $('msg').setAttribute('aria-activedescendant', pick.shown.length ? 'sk' + pick.on : '');
+}
+function setPicker(open, q = '') {
+  pick.open = open;
+  pick.q = q;
+  $('skills').hidden = !open;
+  $('msg').setAttribute('aria-expanded', open);
+  $('slash-btn').setAttribute('aria-expanded', open);
+  if (!open) { pick.forced = false; return; }
+  const pane = sendPane;
+  pick.on = 0;
+  pick.list = skillCache.get(pane)?.list ?? [];
+  renderSkills();
+  loadSkills(pane).then((list) => {
+    if (pane !== sendPane || !pick.open) return;
+    pick.list = list;
+    renderSkills();
+  }, (err) => {
+    if (pane === sendPane && pick.open) $('skills').innerHTML = `<li class="none" style="color: ${C.red}">skills unavailable: ${esc(err.message)}</li>`;
+  });
+}
+// A first word starting with "/" opens the picker; the button opens it anywhere.
+function syncPicker() {
+  const m = /^\/([^\s]*)$/.exec($('msg').value);
+  if (m) {
+    if (!pick.open) setPicker(true, m[1]);
+    else { pick.q = m[1]; pick.on = 0; renderSkills(); }
+  } else if (pick.open && !pick.forced) setPicker(false);
+}
+function choose(i) {
+  const s = pick.shown[i];
+  if (!s) return false;
+  const v = $('msg').value, rest = v.startsWith('/') ? v.replace(/^\/\S*\s*/, '') : v;
+  $('msg').value = `/${s.name} ${rest}`;
+  setPicker(false);
+  $('msg').focus();
+  $('msg').setSelectionRange($('msg').value.length, $('msg').value.length);
+  return true;
+}
+$('msg').addEventListener('input', syncPicker);
+$('slash-btn').addEventListener('click', () => {
+  if (pick.open) { setPicker(false); $('msg').focus(); return; }
+  pick.forced = true;
+  setPicker(true, '');
+});
+$('skills').addEventListener('mousedown', (e) => e.preventDefault()); // keep the keyboard up on phones
+$('skills').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if (li) choose(+li.dataset.i);
+});
+
 $('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
 $('msg').addEventListener('keydown', (e) => {
+  if (pick.open && !e.isComposing) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      pick.on = (pick.on + (e.key === 'ArrowDown' ? 1 : -1) + pick.shown.length) % (pick.shown.length || 1);
+      return renderSkills();
+    }
+    if ((e.key === 'Enter' && !e.shiftKey || e.key === 'Tab') && pick.shown.length) { e.preventDefault(); return choose(pick.on); }
+    if (e.key === 'Escape') { e.preventDefault(); return setPicker(false); }
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });

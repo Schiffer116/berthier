@@ -79,6 +79,7 @@ func (a SnapAgent) session() *string {
 // Ask is a pending `berthier ask` (a file of state/inbox).
 type Ask struct {
 	ID   string `json:"id"`
+	Kind string `json:"kind,omitempty"` // "notify": one-way, from a service
 	From string `json:"from"`
 	To   string `json:"to"`
 	Text string `json:"text"`
@@ -169,6 +170,7 @@ type Delivery struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Text   string `json:"text"`
+	Oneway bool   `json:"oneway"`
 	Ev     Fields `json:"ev"`
 }
 
@@ -650,8 +652,11 @@ func Tick(in TickIn) TickOut {
 			if o.name == to && (o.status == "idle" || o.status == "done") && !over[o.corps] && !used[o.pane] {
 				used[o.pane] = true
 				delivered[m.ID] = true
-				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to,
-					fmt.Sprintf("[berthier ask] from %s: %s (Reply or report back with: berthier ask %s \"...\")", m.From, m.Text, m.From),
+				text := fmt.Sprintf("[berthier ask] from %s: %s (Reply or report back with: berthier ask %s \"...\")", m.From, m.Text, m.From)
+				if m.Kind == "notify" {
+					text = fmt.Sprintf("[berthier notify] from %s: %s", m.From, m.Text)
+				}
+				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify",
 					Fields{"pane": o.pane, "from": m.From, "to": to, "ask": m.ID}})
 				break
 			}
@@ -664,7 +669,9 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 	for _, d := range deliver {
-		askLog = append(askLog, AskLogEntry{d.From, d.To, now})
+		if !d.Oneway {
+			askLog = append(askLog, AskLogEntry{d.From, d.To, now})
+		}
 	}
 
 	// --- Escalation candidates. Keys embed status_since so a new episode of the
@@ -704,7 +711,7 @@ func Tick(in TickIn) TickOut {
 		})
 	}
 	for _, m := range in.Inbox {
-		if now-m.At < cfg.AskStuck || delivered[m.ID] {
+		if m.Kind == "notify" || now-m.At < cfg.AskStuck || delivered[m.ID] {
 			continue
 		}
 		reason := fmt.Sprintf("undelivered %dm", minutes(now-m.At))

@@ -32,7 +32,12 @@ func (e *Env) ArmyView() core.ArmyView {
 		Budgets: e.ReadBudgets(), BudgetWarn: e.BudgetWarn, Available: available, Now: now,
 		Interval: e.IntervalSecs, ReviveMax: e.ReviveMax}
 	readJSON(e.State, &in.State)
+	in.Divisions = e.ReadDivisions()
 	readJSON(e.Usage, &in.Usage)
+	in.Costs = map[string]float64{}
+	for id, s := range in.Usage.Sessions {
+		in.Costs[id] = s.Cost
+	}
 	in.Usage.Sessions, in.Usage.Acc = nil, nil
 	return core.Army(in)
 }
@@ -379,6 +384,58 @@ func cmdAsk(e *Env, args []string, io IO) error {
 		return err
 	}
 	fmt.Fprintf(io.Out, "asked %s; delivered when its Agent is ready for input\n", to)
+	return nil
+}
+
+// --- notify
+
+// cmdNotify is a one-way message to a Corps's Main Agent from something that is
+// not an Agent (a systemd service). Same inbox as `ask`, kind "notify": no
+// reply expected, never counted for ask-stuck or ping-pong. Needs no Herdr pane.
+func cmdNotify(e *Env, args []string, io IO) error {
+	if len(args) != 2 || args[1] == "" {
+		return die(`usage: berthier notify <corps> "<text>"`)
+	}
+	if st, err := os.Stat(e.State); err != nil || st.Size() == 0 {
+		return die("no Grand Army State yet; is berthier-loop running?")
+	}
+	to := core.CorpsName(args[0])
+	st := e.ReadState()
+	known := false
+	for _, k := range st.Agents.Keys {
+		a := st.Agents.M[k]
+		if a.Status == "gone" {
+			continue
+		}
+		if st.Berthier != nil && k == *st.Berthier {
+			known = known || to == "berthier"
+		} else {
+			known = known || core.CorpsName(strOr(a.WorkspaceLabel)) == to
+		}
+	}
+	if !known {
+		return die("no Corps '%s'", to)
+	}
+	max := 2000
+	if n, err := strconv.Atoi(e.getenv("BERTHIER_NOTIFY_MAX")); err == nil {
+		max = n
+	}
+	text := []rune(args[1])
+	body := string(text)
+	if len(text) > max {
+		body = string(text[:max]) + " [truncated]"
+	}
+	b, _ := json.Marshal(struct {
+		Kind string `json:"kind"`
+		From string `json:"from"`
+		To   string `json:"to"`
+		At   int64  `json:"at"`
+		Text string `json:"text"`
+	}{"notify", "service", to, e.now(), body})
+	if err := writeAtomic(filepath.Join(e.Inbox, fmt.Sprintf("%d-service.json", e.Now().UnixNano())), append(b, '\n')); err != nil {
+		return err
+	}
+	fmt.Fprintf(io.Out, "notified %s; delivered when its Agent is ready for input\n", to)
 	return nil
 }
 

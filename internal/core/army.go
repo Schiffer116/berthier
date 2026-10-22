@@ -23,6 +23,8 @@ type ArmyIn struct {
 	State      State
 	Reports    map[string]Report
 	Inbox      []Ask
+	Costs      map[string]float64 // session id -> dollars (state/usage.json)
+	Divisions  Divisions
 	Log        []string // recent loop.log lines
 	Usage      Usage
 	Budgets    map[string]float64
@@ -34,22 +36,24 @@ type ArmyIn struct {
 }
 
 type AgentView struct {
-	PaneID         string  `json:"pane_id"`
-	Name           *string `json:"name"`
-	Kind           *string `json:"kind"`
-	TabID          *string `json:"tab_id"`
-	Status         *string `json:"status"`
-	StatusSince    *int64  `json:"status_since"`
-	PrevStatus     *string `json:"prev_status"`
-	SessionID      *string `json:"session_id"`
-	Title          *string `json:"title"`
-	Cwd            *string `json:"cwd"`
-	ReviveAttempts int     `json:"revive_attempts"`
-	LastReviveAt   *int64  `json:"last_revive_at"`
-	Who            string  `json:"who"`
-	NeedsYou       bool    `json:"needs_you"`
-	Report         *string `json:"report"`
-	ReportAt       *int64  `json:"report_at"`
+	PaneID         string   `json:"pane_id"`
+	Name           *string  `json:"name"`
+	Kind           *string  `json:"kind"`
+	TabID          *string  `json:"tab_id"`
+	Status         *string  `json:"status"`
+	StatusSince    *int64   `json:"status_since"`
+	PrevStatus     *string  `json:"prev_status"`
+	SessionID      *string  `json:"session_id"`
+	Title          *string  `json:"title"`
+	Cwd            *string  `json:"cwd"`
+	ReviveAttempts int      `json:"revive_attempts"`
+	LastReviveAt   *int64   `json:"last_revive_at"`
+	Who            string   `json:"who"`
+	Cost           *float64 `json:"cost"`
+	DivisionModel  *string  `json:"division_model"`
+	NeedsYou       bool     `json:"needs_you"`
+	Report         *string  `json:"report"`
+	ReportAt       *int64   `json:"report_at"`
 }
 
 type DivisionView struct {
@@ -215,6 +219,12 @@ func Army(in ArmyIn) ArmyView {
 		v.Who = "berthier"
 		if st.Berthier == nil || pane != berthier {
 			v.Who = CorpsName(deref(a.WorkspaceLabel))
+		}
+		if c, ok := in.Costs[deref(a.SessionID)]; ok {
+			v.Cost = &c
+		}
+		if m := in.Divisions[v.Who].Model; m != "" {
+			v.DivisionModel = &m
 		}
 		var line *string
 		if r, ok := in.Reports[deref(a.SessionID)]; ok {

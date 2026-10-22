@@ -246,7 +246,7 @@ func TestAsks(t *testing.T) {
 	sa := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", ""), ag("w4:p1", "working", "sid-4", "", ""), ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")),
 		panes(pn("w1:p1"), pn("w4:p1"), pn("w3:p1")))
 	prev := tick(State{}, sa, 1000, opt{}).State
-	inbox := []Ask{{"2", "notes", "Skipli", "again", 950}, {"1", "notes", "skipli", "hi", 900}, {"3", "skipli", "notes", "x", 100}, {"4", "notes", "berthier", "who owns dns?", 990}}
+	inbox := []Ask{ask("2", "notes", "Skipli", "again", 950), ask("1", "notes", "skipli", "hi", 900), ask("3", "skipli", "notes", "x", 100), ask("4", "notes", "berthier", "who owns dns?", 990)}
 	o := tick(prev, sa, 2000, opt{inbox: inbox})
 	ids := [][]string{}
 	for _, d := range o.Deliver {
@@ -260,6 +260,18 @@ func TestAsks(t *testing.T) {
 		to = append(to, e.To)
 	}
 	check(t, "ask logged", to, `["skipli","berthier"]`)
+
+	// A notify is delivered like an ask but one-way: no reply hint, never stuck, never in the ask log.
+	n1 := Ask{ID: "n1", Kind: "notify", From: "service", To: "skipli", Text: "line1\nline2", At: 100}
+	o = tick(prev, sa, 2000, opt{inbox: []Ask{n1}})
+	texts := [][]any{}
+	for _, d := range o.Deliver {
+		texts = append(texts, []any{d.ID, d.Text})
+	}
+	check(t, "notify delivered one-way", texts, `[["n1","[berthier notify] from service: line1\nline2"]]`)
+	check(t, "notify never stuck or logged", []any{escKeys(o.Escalate), o.State.AskLog}, `[[],[]]`)
+	n2 := Ask{ID: "n2", Kind: "notify", From: "service", To: "nobody", Text: "x", At: 100}
+	check(t, "undelivered notify never stuck", escKeys(tick(prev, sa, 2000, opt{inbox: []Ask{n2}}).Escalate), `[]`)
 
 	withLog := func(l []AskLogEntry, d Divisions) TickOut {
 		p := prev
@@ -319,7 +331,7 @@ func TestDivisions(t *testing.T) {
 	}
 	check(t, "orphan division stays a corps", names, `["learning","tailscale"]`)
 	idle := snap(WD, panes(ag("w1:p1", "idle", "sid-1", "", ""), ag("w6:p1", "idle", "sid-6", "", "")), panes(pn("w1:p1"), pn("w6:p1")))
-	o = tick(prev, idle, 1130, opt{divs: dv, inbox: []Ask{{"9", "skipli", "tailscale", "t", 1100}}})
+	o = tick(prev, idle, 1130, opt{divs: dv, inbox: []Ask{ask("9", "skipli", "tailscale", "t", 1100)}})
 	check(t, "division addressable", o.Deliver[0].PaneID, `"w6:p1"`)
 	p2 := cloneState(prev)
 	p2.Agents.M["w6:p1"].Status, p2.Agents.M["w6:p1"].PrevStatus = "working", ptr("idle")
@@ -533,7 +545,7 @@ func TestBudgets(t *testing.T) {
 	check(t, "resume under budget", len(tick(pl, sil, 2000, opt{usage: used(1, 0), budgets: budgets, obs: lim}).Resume), `2`)
 
 	// Ask delivery to the Corps and its Divisions waits; other Corps are unaffected.
-	inbox := []Ask{{"1", "notes", "skipli", "a", 900}, {"2", "notes", "dark-mode", "b", 901}, {"3", "skipli", "notes", "c", 902}}
+	inbox := []Ask{ask("1", "notes", "skipli", "a", 900), ask("2", "notes", "dark-mode", "b", 901), ask("3", "skipli", "notes", "c", 902)}
 	ids := func(o TickOut) []string {
 		l := []string{}
 		for _, d := range o.Deliver {
@@ -554,4 +566,8 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+func ask(id, from, to, text string, at int64) Ask {
+	return Ask{ID: id, From: from, To: to, Text: text, At: at}
 }

@@ -73,7 +73,7 @@ func TestArmyLog(t *testing.T) {
 		ev(now, 100, "escalated", `"why":"pingpong","to":"berthier","ask_from":"dotfiles","ask_to":"skipli","reason":"10 back-and-forths in the last hour"`, ""),
 		ev(now, 100, "escalated", `"why":"ask_stuck","to":"berthier","ask_from":"skipli","ask_to":"notes","reason":"undelivered 31m"`, ""),
 	}
-	in.Inbox = []Ask{{"7-skipli", "skipli", "dotfiles", "unit", 5}}
+	in.Inbox = []Ask{ask("7-skipli", "skipli", "dotfiles", "unit", 5)}
 	v := Army(in)
 	tags := [][]any{}
 	for _, e := range v.Activity[2:6] {
@@ -113,4 +113,13 @@ func TestArmyEmpty(t *testing.T) {
 	v := Army(ArmyIn{})
 	check(t, "empty counts", v.Counts, `{"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0}`)
 	check(t, "empty lists are lists", []any{v.Corps, v.Units, v.NeedsYou, v.Asks, v.Activity, v.Escalations, v.AskLog}, `[[],[],[],[],[],[],[]]`)
+}
+
+func TestArmyCostAndDivisionModel(t *testing.T) {
+	in := armyIn()
+	in.Costs = map[string]float64{"s-d": 1.5}
+	in.Divisions = Divisions{"dark-mode": {Corps: "skipli", Worktree: true, Model: "opus"}}
+	v := Army(in)
+	d, a := v.Corps[0].Divisions[0].Agents[0], v.Corps[0].Agents[0]
+	check(t, "army session cost and division model", [][]any{{d.Cost, d.DivisionModel}, {a.Cost, a.DivisionModel}}, `[[1.5,"opus"],[null,null]]`)
 }

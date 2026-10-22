@@ -324,6 +324,28 @@ func TestReportAskHookLog(t *testing.T) {
 	s.sh("", "ask", ".Dotfiles", "add a\nunit")
 	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
 	eq(t, "ask queued", jq(t, string(must(os.ReadFile(m[0]))), "from")+jq(t, string(must(os.ReadFile(m[0]))), "to")+jq(t, string(must(os.ReadFile(m[0]))), "text"), `"skipli""dotfiles""add a unit"`)
+	// --- notify: no pane needed, one-way, capped, multi-line kept
+	delete(s.env, "HERDR_PANE_ID")
+	_, errs, _ = s.sh("", "notify", "old", "hi")
+	eq(t, "notify unknown corps", errs, "berthier: no Corps 'old'\n")
+	clear := func() {
+		m, _ := filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
+		for _, f := range m {
+			os.Remove(f)
+		}
+	}
+	clear()
+	s.sh("", "notify", ".Skipli", "answer:\n42")
+	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
+	b0 := string(must(os.ReadFile(m[0])))
+	eq(t, "notify queued", jq(t, b0, "kind")+jq(t, b0, "from")+jq(t, b0, "to")+jq(t, b0, "text"), `"notify""service""skipli""answer:\n42"`)
+	clear()
+	s.env["BERTHIER_NOTIFY_MAX"] = "5"
+	s.sh("", "notify", "skipli", "abcdefgh")
+	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
+	eq(t, "notify capped", jq(t, string(must(os.ReadFile(m[0]))), "text"), `"abcde [truncated]"`)
+	clear()
+	delete(s.env, "BERTHIER_NOTIFY_MAX")
 	s.env["HERDR_PANE_ID"] = "b:p1"
 	s.sh("", "ask", "skipli", "all done")
 	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
