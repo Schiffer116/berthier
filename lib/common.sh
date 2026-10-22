@@ -31,6 +31,13 @@ BERTHIER_PINGPONG_MAX=${BERTHIER_PINGPONG_MAX:-10}
 BERTHIER_LIMIT_GRACE=${BERTHIER_LIMIT_GRACE:-60}
 BERTHIER_LIMIT_RETRY=${BERTHIER_LIMIT_RETRY:-1800}
 BERTHIER_LIMIT_PROMPT=${BERTHIER_LIMIT_PROMPT:-"The usage limit has reset. Continue exactly where you left off."}
+# Restart: a gap this long since the last state write (loop down, Herdr
+# unreachable) may have cut Agents off mid-turn; wait this long for each to
+# reappear, then prompt it once.
+BERTHIER_RESTART_GAP=${BERTHIER_RESTART_GAP:-45}
+BERTHIER_RESTART_WAIT=${BERTHIER_RESTART_WAIT:-3600}
+BERTHIER_RESTART_SETTLE=${BERTHIER_RESTART_SETTLE:-20}
+BERTHIER_RESTART_PROMPT=${BERTHIER_RESTART_PROMPT:-"The machine restarted and interrupted your turn; continue where you left off."}
 BERTHIER_INBOX=$BERTHIER_HOME/inbox
 BERTHIER_REPORTS=$BERTHIER_HOME/reports
 BERTHIER_DIVISIONS=$BERTHIER_HOME/divisions.json
@@ -138,6 +145,20 @@ exited_deliberately() { # session id
   local tail
   tail=$(grep -v '^[[:space:]]*$' | tail -6)
   grep -qF "Resume this session with" <<<"$tail" && grep -qF "claude --resume $1" <<<"$tail"
+}
+
+# Did a session's transcript end mid-turn (a tool result, a task notification
+# or a tool call nobody answered) rather than on a finished assistant turn or
+# the user's own interrupt? Unknown sessions count as finished.
+transcript_interrupted() { # session id
+  local f last
+  f=$(find "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" -maxdepth 2 -name "$1.jsonl" -print -quit 2>/dev/null)
+  [[ -n $f ]] || return 1
+  last=$(tail -n 200 "$f" | jq -R -c 'fromjson? | select(.type == "user" or .type == "assistant")' | tail -n 1)
+  [[ -n $last ]] && jq -e '
+    if .type == "assistant" then .message.stop_reason != "end_turn"
+    else (.message.content | if type == "string" then . else map(.text? // "") | join(" ") end
+          | contains("[Request interrupted by user") | not) end' <<<"$last" >/dev/null
 }
 
 # When does the usage limit an idle Agent stopped on reset? Reads its pane's

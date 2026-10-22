@@ -6,21 +6,22 @@
 #   $now   epoch seconds
 #   $cfg   {berthier_root, blocked_after, long_after, division_settle, revive_max,
 #           revive_backoff, revive_reset, escalation_ttl, speak_after,
-#           ask_stuck, pingpong_max, limit_grace, limit_retry, budget_warn}
+#           ask_stuck, pingpong_max, limit_grace, limit_retry, budget_warn,
+#           restart_gap, restart_wait, restart_settle}
 #   $divisions {division name: {corps: label, worktree: bool}} (division-new, adopt)
 #   $inbox pending asks [{id, from, to, text, at}] (`berthier ask`)
 #   $usage, $budgets  optional: the quota usage record (state/usage.json, lib/usage.jq)
 #          and {corps: % of the week} (state/budgets.json)
 #   $obs   optional: what the caller read from panes this program asked to look
-#          at, {pane: {exited, at_shell, limit_reset}}
+#          at, {pane: {exited, at_shell, limit_reset, interrupted}}
 #
-# Output: {state, look: [...], events: [...], revive: [...], rename: [...], resume: [...],
+# Output: {state, look: [...], events: [...], revive: [...], rename: [...], resume: [...], proceed: [...],
 #          escalate: [...], notify: [...], speak: [...], deliver: [...]}
 # events are this program's decisions for loop.log ({kind, msg, ...fields}, see
 # `event` in lib/common.sh); each action carries ev, the fields of the event
 # the caller logs for its outcome.
 # A decision that needs a pane read waits: the pane is listed under look
-# ({pane_id, session_id, want: [exited, at_shell, limit_reset]}) and the caller
+# ({pane_id, session_id, want: [exited, at_shell, limit_reset, interrupted]}) and the caller
 # runs this again with $obs. This program alone writes the Grand Army State; the
 # caller performs the actions and never touches the state.
 
@@ -168,12 +169,51 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     | {pane_id: .key, name: ($v.name // fallback_name(.key)), reset_at: $v.limit.reset_at, ev: about(.key)}))
   as $resume
 
+# --- Restart: Herdr resumes every session but they come back idle, even those
+# cut off mid-turn. A gap since the last state write (loop down, Herdr
+# unreachable) means the Agents working before it may have been interrupted:
+# remember them by session in the state until each reappears, since Herdr may
+# list them over several ticks. A reappeared idle one is read for an unfinished
+# turn in its transcript ($obs interrupted) and prompted once if so; one that is
+# working, blocked or finished is forgotten, one never relisted expires.
+| (if $prev.updated_at != null and ($now - $prev.updated_at) > ($cfg.restart_gap // 45) then
+     ($prev_agents | to_entries | map(
+        select(.value.status == "working" and .value.kind == "claude" and .value.session_id != null)
+        | {key: .value.session_id, value: {name: .value.name, since: $now}}) | from_entries)
+   else {} end) as $cut_off
+| ($cut_off + (($prev.interrupted // {})
+    | with_entries(select(.value.since > $now - ($cfg.restart_wait // 3600))))) as $waiting
+| ($live | to_entries | map(select(.value.session_id != null)
+    | {key: .value.session_id, value: {pane_id: .key, workspace_label: .value.workspace_label, status_since: .value.status_since,
+       # A pane Herdr is still resuming has no agent to prompt yet.
+       status: (if .key as $p | $agent_panes | index($p) then .value.status else "unknown" end)}})
+   | from_entries) as $by_session
+| ($waiting | to_entries | map(
+    select($by_session[.key] != null) | {sid: .key, name: .value.name} + $by_session[.key]
+    # Herdr first lists a resumed pane with its stale status, then relaunches
+    # Claude: wait for the status to hold.
+    | select(.status == "idle" or .status == "done")
+    | select($now - .status_since >= ($cfg.restart_settle // 20)))) as $back
+| ($back | map(select($obs[.pane_id].interrupted == true))) as $cut
+# A Corps at its budget keeps its Agents waiting.
+| ($cut | map(select(.workspace_label | corps_of_label | IN($over[]) | not))) as $go
+| ($waiting | with_entries(
+    select($by_session[.key] as $b
+           | $b == null or $b.status == "unknown"
+             or (($b.status == "idle" or $b.status == "done")
+                 and ((($obs[$b.pane_id] // {}) | has("interrupted") | not)
+                      or ($cut | any(.pane_id == $b.pane_id)) and ($go | any(.pane_id == $b.pane_id) | not)))))) as $waiting
+| ($go | map({pane_id, name: ($live[.pane_id].name // .name // fallback_name(.pane_id)), ev: (about(.pane_id) + {session: .sid})}))
+  as $proceed
+
 # --- Panes to read before the decisions above can be made.
 | ([$exit_check[] | select(seen("exited") | not)
     | {pane_id: ., session_id: $prev_agents[.].session_id,
        want: (if $due | index(.) then ["exited", "at_shell"] else ["exited"] end)}]
    + [$limit_check[] | select(.key | seen("limit_reset") | not)
-      | {pane_id: .key, session_id: .value.session_id, want: ["limit_reset"]}]) as $look
+      | {pane_id: .key, session_id: .value.session_id, want: ["limit_reset"]}]
+   + [$back[] | select(.pane_id | seen("interrupted") | not)
+      | {pane_id, session_id: .sid, want: ["interrupted"]}]) as $look
 
 # A Corps newly at its allowance this week: logged and spoken once.
 | ($budget | map(select(.ratio >= 1)
@@ -351,6 +391,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
       order: [$workspaces[].workspace_id],
       agents: $recorded,
       escalated: $escalated,
+      interrupted: $waiting,
       ask_log: $ask_log
     },
     look: $look,
@@ -358,6 +399,7 @@ def seen($what): . as $p | ($ARGS.named.obs // {})[$p] // {} | has($what);
     revive: $revive,
     rename: $rename,
     resume: $resume,
+    proceed: $proceed,
     escalate: $escalate,
     notify: $notify,
     speak: $speak,

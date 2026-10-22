@@ -95,5 +95,25 @@ $box
 zsh: killed     claude
 ~/r/skipli main ❯")" no
 
+# --- transcript_interrupted: the last message of a session's transcript.
+export CLAUDE_CONFIG_DIR=$home/claude
+mkdir -p "$CLAUDE_CONFIG_DIR/projects/-x"
+ended() { # session id, then transcript lines on stdin -> interrupted or finished
+  cat >"$CLAUDE_CONFIG_DIR/projects/-x/$1.jsonl"
+  transcript_interrupted "$1" && echo interrupted || echo finished
+}
+sys='{"type":"system","subtype":"turn_duration"}'
+check "tool result last" "$(ended s1 <<<'{"type":"assistant","message":{"stop_reason":"tool_use","content":[]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result"}]}}
+'"$sys")" interrupted
+check "task notification last" "$(ended s2 <<<'{"type":"assistant","message":{"stop_reason":"end_turn","content":[]}}
+{"type":"user","message":{"role":"user","content":"<task-notification>done</task-notification>"}}')" interrupted
+check "unanswered tool call" "$(ended s3 <<<'{"type":"assistant","message":{"stop_reason":"tool_use","content":[]}}')" interrupted
+check "finished turn" "$(ended s4 <<<'{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"stop_reason":"end_turn","content":[]}}
+'"$sys")" finished
+check "user interrupt" "$(ended s5 <<<'{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}')" finished
+check "no transcript" "$(transcript_interrupted nope && echo interrupted || echo finished)" finished
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))
