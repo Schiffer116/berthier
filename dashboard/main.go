@@ -2,7 +2,8 @@
 // live console page. It holds no state and no logic of its own: it polls the
 // command and pushes each change to open pages over server-sent events. The one
 // write is POST /api/prompt, which sends the user's text to a known Agent; GET
-// /api/chat shows that Agent's conversation (chat.go). app.go makes the page an
+// /api/chat shows that Agent's conversation (chat.go) and GET /api/skills lists
+// what its Claude Code can run as /<name> (skills.go). app.go makes the page an
 // installable app.
 package main
 
@@ -254,6 +255,29 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(res)
+	})
+	mux.HandleFunc("GET /api/skills", func(w http.ResponseWriter, r *http.Request) {
+		pane := r.URL.Query().Get("pane")
+		if !a.Panes()[pane] {
+			http.Error(w, "no such agent: "+pane, http.StatusNotFound)
+			return
+		}
+		var got struct {
+			Result struct {
+				Agent struct {
+					Cwd string `json:"cwd"`
+				} `json:"agent"`
+			} `json:"result"`
+		}
+		if out, err := Herdr(herdr, "agent", "get", pane).Output(); err == nil {
+			json.Unmarshal(out, &got)
+		}
+		claudeDir := ""
+		if tr != nil {
+			claudeDir = tr.dir
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"skills": Skills(claudeDir, got.Result.Agent.Cwd)})
 	})
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)

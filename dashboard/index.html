@@ -207,6 +207,17 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 #send button:disabled { opacity: 0.5; cursor: default; }
 #send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
 #send-status { overflow-wrap: anywhere; }
+#skills { list-style: none; margin: 0; padding: 0; max-height: min(40vh, 280px); overflow-y: auto; border: 1px solid var(--field); background: var(--bar); }
+#skills[hidden] { display: none; }
+#skills li { padding: 5px 10px; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; border-bottom: 1px solid var(--rule); }
+#skills li.on { background: var(--sel); box-shadow: inset 2px 0 var(--accent); }
+#skills .sn { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+#skills .sd { color: var(--muted); overflow-wrap: anywhere; }
+#skills .sd i { font-style: normal; color: var(--dim); }
+#skills .none { padding: 8px 10px; }
+#send button.slash { background: transparent; color: var(--accent); border: 1px solid var(--field); padding: 4px 12px; }
+@media (pointer: coarse) { #skills li { min-height: 44px; align-items: center; } #send button.slash { min-height: 44px; min-width: 44px; } }
+@media (max-width: 480px) { #skills li { grid-template-columns: minmax(0, 1fr); } }
 /* iOS zooms into any field under 16px when it takes focus. */
 @media (pointer: coarse) { .filter input, #send textarea { font-size: 16px; } }
 </style>
@@ -260,9 +271,11 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         <form id="send" hidden>
           <div id="chat-state" role="status"></div>
           <label class="sr" for="msg">message <span id="send-to"></span></label>
+          <ul id="skills" role="listbox" aria-label="skills and commands" hidden></ul>
           <textarea id="msg" placeholder="message this agent · enter sends, shift+enter for a new line" spellcheck="false"></textarea>
           <div class="acts">
             <button type="submit" id="send-btn">send</button>
+            <button type="button" class="slash" id="slash-btn" aria-label="skills and commands" aria-expanded="false" aria-controls="skills">/</button>
             <span class="dim" id="send-status" role="status"></span>
           </div>
         </form>
@@ -515,6 +528,7 @@ function renderSend(a) {
   if (sendPane != null) drafts[sendPane] = $('msg').value;
   sendPane = a.pane_id;
   $('msg').value = drafts[sendPane] ?? '';
+  setPicker(false);
   $('send-to').textContent = `→ ${a.name ?? a.who} · ${a.pane_id}`;
   $('send-status').textContent = '';
   chat.rev = null;
@@ -646,6 +660,7 @@ async function send() {
     drafts[pane] = '';
     if (sendPane === pane) {
       $('msg').value = '';
+      setPicker(false);
       $('send-status').textContent = `sent ${clock(now())}`;
       setTimeout(pollChat, 400);
     }
@@ -775,8 +790,96 @@ function closeLog() {
 }
 document.querySelectorAll('#drawer .x').forEach((b) => b.addEventListener('click', closeLog));
 
+// Slash picker: the selected Agent's skills and commands (GET api/skills).
+const skillCache = new Map(); // pane -> {at, list}
+const pick = { open: false, list: [], shown: [], on: 0, forced: false };
+async function loadSkills(pane) {
+  const hit = skillCache.get(pane);
+  if (hit && Date.now() - hit.at < 60000) return hit.list;
+  const res = await fetch('api/skills?pane=' + encodeURIComponent(pane));
+  if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  const list = (await res.json()).skills;
+  skillCache.set(pane, { at: Date.now(), list });
+  return list;
+}
+function skillRank(s, q) {
+  const n = s.name.toLowerCase(), t = n.split(':').pop();
+  if (!q) return 0;
+  if (n.startsWith(q) || t.startsWith(q)) return 1;
+  if (n.includes(q)) return 2;
+  return s.desc.toLowerCase().includes(q) ? 3 : 9;
+}
+function renderSkills() {
+  const q = pick.q.toLowerCase();
+  pick.shown = pick.list.map((s) => [skillRank(s, q), s]).filter(([r]) => r < 9)
+    .sort((a, b) => a[0] - b[0]).map(([, s]) => s);
+  pick.on = Math.min(pick.on, Math.max(0, pick.shown.length - 1));
+  $('skills').innerHTML = pick.shown.map((s, i) => `<li role="option" id="sk${i}" data-i="${i}" aria-selected="${i === pick.on}"${i === pick.on ? ' class="on"' : ''}>
+    <span class="sn">/${esc(s.name)}</span><span class="sd">${esc(s.desc)} <i>· ${esc(s.src)}</i></span></li>`).join('')
+    || `<li class="none">${pick.list.length ? 'no match' : 'loading…'}</li>`;
+  $('skills').querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  $('msg').setAttribute('aria-activedescendant', pick.shown.length ? 'sk' + pick.on : '');
+}
+function setPicker(open, q = '') {
+  pick.open = open;
+  pick.q = q;
+  $('skills').hidden = !open;
+  $('msg').setAttribute('aria-expanded', open);
+  $('slash-btn').setAttribute('aria-expanded', open);
+  if (!open) { pick.forced = false; return; }
+  const pane = sendPane;
+  pick.on = 0;
+  pick.list = skillCache.get(pane)?.list ?? [];
+  renderSkills();
+  loadSkills(pane).then((list) => {
+    if (pane !== sendPane || !pick.open) return;
+    pick.list = list;
+    renderSkills();
+  }, (err) => {
+    if (pane === sendPane && pick.open) $('skills').innerHTML = `<li class="none" style="color: ${C.red}">skills unavailable: ${esc(err.message)}</li>`;
+  });
+}
+// A first word starting with "/" opens the picker; the button opens it anywhere.
+function syncPicker() {
+  const m = /^\/([^\s]*)$/.exec($('msg').value);
+  if (m) {
+    if (!pick.open) setPicker(true, m[1]);
+    else { pick.q = m[1]; pick.on = 0; renderSkills(); }
+  } else if (pick.open && !pick.forced) setPicker(false);
+}
+function choose(i) {
+  const s = pick.shown[i];
+  if (!s) return false;
+  const v = $('msg').value, rest = v.startsWith('/') ? v.replace(/^\/\S*\s*/, '') : v;
+  $('msg').value = `/${s.name} ${rest}`;
+  setPicker(false);
+  $('msg').focus();
+  $('msg').setSelectionRange($('msg').value.length, $('msg').value.length);
+  return true;
+}
+$('msg').addEventListener('input', syncPicker);
+$('slash-btn').addEventListener('click', () => {
+  if (pick.open) { setPicker(false); $('msg').focus(); return; }
+  pick.forced = true;
+  setPicker(true, '');
+});
+$('skills').addEventListener('mousedown', (e) => e.preventDefault()); // keep the keyboard up on phones
+$('skills').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if (li) choose(+li.dataset.i);
+});
+
 $('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
 $('msg').addEventListener('keydown', (e) => {
+  if (pick.open && !e.isComposing) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      pick.on = (pick.on + (e.key === 'ArrowDown' ? 1 : -1) + pick.shown.length) % (pick.shown.length || 1);
+      return renderSkills();
+    }
+    if ((e.key === 'Enter' && !e.shiftKey || e.key === 'Tab') && pick.shown.length) { e.preventDefault(); return choose(pick.on); }
+    if (e.key === 'Escape') { e.preventDefault(); return setPicker(false); }
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });
