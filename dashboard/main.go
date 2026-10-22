@@ -239,6 +239,7 @@ func Handler(a *Army, herdr string, tr *Transcripts) http.Handler {
 			if path := tr.Path(ag.AgentSession.Value); path != "" {
 				if items, rev, err := tr.Read(path); err == nil {
 					res["source"], res["session"], res["rev"], res["items"] = "transcript", strings.TrimSuffix(filepath.Base(path), ".jsonl"), rev, items
+					res["info"] = tr.Info(path)
 				}
 			}
 		}

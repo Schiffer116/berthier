@@ -49,6 +49,10 @@ ev() { jq -cn --argjson ts "$((now - $1))" --arg kind "$2" --argjson f "$3" '{ts
   ev 100 escalated '{"why":"ask_stuck","to":"berthier","ask_from":"skipli","ask_to":"notes","reason":"undelivered 31m"}'
 } >"$home/loop.log"
 mkdir -p "$home/inbox"; echo '{"from":"skipli","to":"dotfiles","text":"unit","at":5}' >"$home/inbox/7-skipli.json"
+echo '{"sessions": {"s-d": {"cost": 1.5}}}' >"$home/usage.json"
+echo '{"dark-mode": {"corps": "skipli", "worktree": true, "model": "opus"}}' >"$home/divisions.json"
+check "army session cost and division model" "$(army | jq -c '[(.corps[0].divisions[0].agents[0], .corps[0].agents[0]) | [.cost, .division_model]]')" '[[1.5,"opus"],[null,null]]'
+rm "$home/usage.json" "$home/divisions.json"
 check "army needs you" "$(army | jq -c '.needs_you | map(.who)')" '["dark-mode","dotfiles"]'
 check "army division nested" "$(army | jq -c '.corps[0].divisions[0] | [.name, .worktree, .agents[0].status]')" '["dark-mode",true,"blocked"]'
 check "army activity newest first" "$(army | jq -c '.activity[2:6] | map([.tag, .label])')" '[["escal","escal"],["escal","escal"],["speak","speak"],["ask","ask"]]'
