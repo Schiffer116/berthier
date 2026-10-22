@@ -28,6 +28,9 @@ cfg=$(jq -cn \
   --argjson limit_grace "$BERTHIER_LIMIT_GRACE" \
   --argjson limit_retry "$BERTHIER_LIMIT_RETRY" \
   --argjson budget_warn "$BERTHIER_BUDGET_WARN" \
+  --argjson restart_gap "$BERTHIER_RESTART_GAP" \
+  --argjson restart_wait "$BERTHIER_RESTART_WAIT" \
+  --argjson restart_settle "$BERTHIER_RESTART_SETTLE" \
   '$ARGS.named')
 
 inbox=$(find "$BERTHIER_INBOX" -maxdepth 1 -name '*.json' -print0 \
@@ -61,6 +64,10 @@ look() { # pane sid want...
         r=false
         pane_at_shell "$pane" 2>/dev/null && r=true
         o=$(jq -c --argjson r "$r" '.at_shell = $r' <<<"$o") ;;
+      interrupted)
+        r=false
+        transcript_interrupted "$sid" && r=true
+        o=$(jq -c --argjson r "$r" '.interrupted = $r' <<<"$o") ;;
       limit_reset)
         r=$(hd pane read "$pane" --source visible 2>/dev/null | usage_limit_reset "$now") || continue
         o=$(jq -c --arg r "$r" '.limit_reset = ($r | if . == "" then null else tonumber end)' <<<"$o") ;;
@@ -111,6 +118,15 @@ while IFS=$'\t' read -r pane name && IFS= read -r ev; do
     event resume_failed "resume failed: $name in $pane (usage limit reset): $err" "$(with_why "$ev" "$err")"
   fi
 done < <(actions resume '[.pane_id, .name]')
+
+# --- Restart: nudge an Agent whose turn the restart cut off, once.
+while IFS=$'\t' read -r pane name && IFS= read -r ev; do
+  if err=$(prompt_agent "$pane" "$BERTHIER_RESTART_PROMPT" 2>&1); then
+    event continued "continued $name in $pane: restart interrupted its turn" "$ev"
+  else
+    event continue_failed "continue failed: $name in $pane (restart): $err" "$(with_why "$ev" "$err")"
+  fi
+done < <(actions proceed '[.pane_id, .name]')
 
 # --- Deliver asks; a delivered ask leaves the inbox.
 while IFS=$'\t' read -r id pane from to text && IFS= read -r ev; do

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10,"limit_grace":60,"limit_retry":1800,"budget_warn":80}'
+CFG='{"berthier_root":"/home/u/berthier","blocked_after":120,"long_after":3600,"division_settle":30,"revive_max":3,"revive_backoff":60,"revive_reset":300,"escalation_ttl":604800,"speak_after":30,"ask_stuck":1800,"pingpong_max":10,"limit_grace":60,"limit_retry":1800,"budget_warn":80,"restart_gap":1000000,"restart_wait":3600,"restart_settle":20}'
 pass=0 fail=0
 
 tick() { # prev snap now
@@ -89,6 +89,35 @@ o=$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-2)]" "[$(pane w1:p1)]")" 
 check "new session keeps no name" "$(jq -c '[.rename, .state.agents["w1:p1"].name]' <<<"$o")" '[[],null]'
 o=$(tick "$prev" "$(snap "$W" "[$(agent w1:p1 idle sid-1),$(agent w4:p1 idle sid-4 principal)]" "[$(pane w1:p1),$(pane w4:p1)]")" 1020)
 check "taken name not restored" "$(jq -c '.rename' <<<"$o")" '[]'
+
+# --- Restart gap: Agents working before it are remembered until each is back.
+# A session relisted idle is read for an unfinished turn, then prompted once.
+CFG=${CFG/1000000/45}
+sw=$(snap "$W" "[$(agent w1:p1 working sid-1 principal),$(agent w4:p1 idle sid-4),$(agent w3:p1 blocked sid-3)]" "[$(pane w1:p1),$(pane w4:p1),$(pane w3:p1)]")
+pw=$(jq -c .state <<<"$(tick '{}' "$sw" 1000)")
+o=$(tick "$pw" "$(snap "$W" '[]' '[]')" 1010)
+check "no gap, nothing remembered" "$(jq -c '.state.interrupted' <<<"$o")" '{}'
+o=$(tick "$pw" "$(snap "$W" '[]' '[]')" 1100)
+check "gap remembers only the working" "$(jq -c '.state.interrupted' <<<"$o")" '{"sid-1":{"name":"principal","since":1100}}'
+o2=$(tick "$(jq -c .state <<<"$o")" "$(snap "$W" '[]' "[$(held w1:p1 sid-1)]")" 1110)
+check "still resuming: kept, no read" "$(jq -c '[(.state.interrupted | keys), .look, .proceed]' <<<"$o2")" '[["sid-1"],[],[]]'
+si=$(snap "$W" "[$(agent w1:p1 idle sid-1)]" "[$(pane w1:p1)]")
+check "held pane with a status is not prompted yet" "$(jq -c '[(.look | map(select(.want == ["interrupted"]))), (.state.interrupted | keys)]' <<<"$(tick "$(jq -c .state <<<"$o2")" "$(snap "$W" '[]' "[$(held w1:p1 sid-1 | jq -c '.agent_status = "idle"')]")" 1115)")" '[[],["sid-1"]]'
+o3=$(tick "$(jq -c .state <<<"$o2")" "$si" 1120)
+check "back idle: waits for the status to hold" "$(jq -c '[(.look | map(select(.want == ["interrupted"]))), (.state.interrupted | keys)]' <<<"$o3")" '[[],["sid-1"]]'
+o3=$(tick "$(jq -c .state <<<"$o3")" "$si" 1140)
+check "back idle: transcript read" "$(jq -c '[(.look | map(select(.want == ["interrupted"]))), (.state.interrupted | keys), .proceed]' <<<"$o3")" '[[{"pane_id":"w1:p1","session_id":"sid-1","want":["interrupted"]}],["sid-1"],[]]'
+p3=$(jq -c .state <<<"$o3")
+o4=$(OBS='{"w1:p1":{"interrupted":true}}' tick "$p3" "$si" 1140)
+check "interrupted: prompted once" "$(jq -c '[(.proceed | map(.pane_id, .name)), .state.interrupted, (.proceed[0].ev | {pane, session})]' <<<"$o4")" '[["w1:p1","principal"],{},{"pane":"w1:p1","session":"sid-1"}]'
+check "not prompted again" "$(jq -c '[.proceed, (.look | map(select(.want == ["interrupted"])))]' <<<"$(tick "$(jq -c .state <<<"$o4")" "$si" 1150)")" '[[],[]]'
+o4=$(OBS='{"w1:p1":{"interrupted":false}}' tick "$p3" "$si" 1140)
+check "finished turn: forgotten" "$(jq -c '[.proceed, .state.interrupted]' <<<"$o4")" '[[],{}]'
+o4=$(tick "$(jq -c .state <<<"$o2")" "$(snap "$W" "[$(agent w1:p1 working sid-1)]" "[$(pane w1:p1)]")" 1120)
+check "working again: forgotten" "$(jq -c '[.look, .proceed, .state.interrupted]' <<<"$o4")" '[[],[],{}]'
+check "never relisted: expires" "$(jq -c '.state.interrupted' <<<"$(tick "$(jq -c .state <<<"$o")" "$(snap "$W" '[]' '[]')" 5000)")" '{}'
+
+CFG=${CFG/45/1000000}
 
 # --- Closed pane or no session: forgotten.
 o=$(tick "$prev" "$(snap "$W" '[]' '[]')" 2000)
@@ -285,6 +314,7 @@ check "resume under budget" "$(USAGE=$(used 1 0) OBS=$lim tick "$pl" "$sil" 2000
 INBOX='[{"id":"1","from":"notes","to":"skipli","text":"a","at":900},{"id":"2","from":"notes","to":"dark-mode","text":"b","at":901},{"id":"3","from":"skipli","to":"notes","text":"c","at":902}]'
 check "asks held at 100%" "$(INBOX=$INBOX tick "$prev" "$sb" 1010 | jq -c '.deliver | map(.id)')" '["3"]'
 check "asks delivered under budget" "$(USAGE=$(used 1 0) INBOX=$INBOX tick "$prev" "$sb" 1010 | jq -c '.deliver | map(.id)')" '["1","2","3"]'
+check "over budget: held, kept" "$(BUDGETS='{"skipli":1}' USAGE=$(used 1 0) CFG=${CFG/1000000/45} OBS='{"w1:p1":{"interrupted":true}}' tick "$p3" "$si" 1140 | jq -c '[.proceed, (.state.interrupted | keys)]')" '[[],["sid-1"]]'
 unset USAGE BUDGETS INBOX
 
 printf '%d passed, %d failed\n' "$pass" "$fail"

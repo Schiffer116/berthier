@@ -9,6 +9,8 @@ session=berthier-e2e-$$
 work=$(mktemp -d)
 repo=$work/berthier-e2e-$$
 export BERTHIER_HERDR_SESSION=$session BERTHIER_HOME=$work/home BERTHIER_START_TIMEOUT_MS=60000
+export BERTHIER_RESTART_GAP=${BERTHIER_RESTART_GAP:-4}
+export BERTHIER_RESTART_SETTLE=${BERTHIER_RESTART_SETTLE:-3}
 clean_env=(env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID)
 h() { "${clean_env[@]}" herdr --session "$session" "$@"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -150,6 +152,35 @@ since=$work/since.log
 tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$since"
 (($(logged '.kind | startswith("revive")' "" "$since"))) && fail "Revive attempted after restart: $(cat "$since")"
 (($(logged '.kind == "renamed" and .pane == $p and .name == "typed"' "$typed" "$since"))) || fail "name restore not logged"
+
+step "a Herdr restart mid-turn: the cut-off Agent is told to continue, an idle one is not"
+# Herdr resumes sessions idle; the Main Loop was down meanwhile (ticks exit 3
+# while Herdr is unreachable, writing no state), so the gap marks the restart.
+cut=$(h workspace create --cwd "$repo" --label cut --no-focus | jq -re '.result.root_pane.pane_id')
+h pane run "$cut" "claude --model haiku --settings '{\"permissions\":{\"allow\":[\"Bash\"]}}'" >/dev/null
+for _ in $(seq 30); do h agent get "$cut" >/dev/null 2>&1 && break; sleep 1; done
+h agent wait "$cut" --until idle --timeout 60000 >/dev/null
+h agent prompt "$cut" "Run this bash command, then reply with just: done. Command: sleep 60" >/dev/null
+h agent wait "$cut" --until working --timeout 60000 >/dev/null
+sleep 5  # the tool call reaches the transcript
+bin/berthier tick
+jq -e --arg p "$cut" '.agents[$p].status == "working"' "$BERTHIER_HOME/state.json" >/dev/null || fail "cut agent not working before the restart"
+mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+h server stop >/dev/null
+tmux kill-session -t "$session" 2>/dev/null || true
+sleep $((BERTHIER_RESTART_GAP + 2))
+attach
+for _ in $(seq 40); do bin/berthier tick 2>/dev/null; sleep 1; done
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "continued" and .pane == $p' "$cut" "$work/since") == 1)) || fail "cut-off agent not continued once: $(cat "$work/since")"
+(($(logged '.kind == "continued"' "" "$work/since") == 1)) || fail "an Agent that was not mid-turn was told to continue: $(cat "$work/since")"
+for _ in $(seq 30); do
+  h pane read "$cut" --source recent-unwrapped --lines 200 | grep -qF "continue where you left off" && break
+  sleep 1
+done
+h pane read "$cut" --source recent-unwrapped --lines 200 | grep -qF "continue where you left off" || fail "continue prompt not in the pane"
+# The resumed Agent sits on a permission dialog; drop it so it does not stir the screen later.
+h workspace close "$(h pane get "$cut" | jq -re '.result.pane.workspace_id')" >/dev/null
 
 step "an Agent stopped on its usage limit is nudged once the limit has reset"
 # Haiku plays the stop (Claude renders the line as a real one); without hooks,
