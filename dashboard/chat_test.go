@@ -142,3 +142,31 @@ func TestChatShowsTranscriptOrTerminal(t *testing.T) {
 		t.Fatalf("other agent: %v", v)
 	}
 }
+
+func TestTranscriptInfoFollowsTheLatestAssistantMessage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	writeJSONL(t, path,
+		`{"type":"assistant","gitBranch":"old","cwd":"/a","effort":"low","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":1,"cache_read_input_tokens":1000}}}`+"\n",
+		`{"type":"assistant","gitBranch":"feat","cwd":"/b","effort":"high","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_read_input_tokens":90000,"cache_creation_input_tokens":8}}}`+"\n",
+		`{"type":"assistant","message":{"model":"<synthetic>","usage":{}}}`+"\n",
+	)
+	tr := NewTranscripts(t.TempDir())
+	if _, _, err := tr.Read(path); err != nil {
+		t.Fatal(err)
+	}
+	want := AgentInfo{Model: "Opus 5.5", ModelID: "claude-opus-5-5", Effort: "high", ContextTokens: 90010, ContextPct: 45, Branch: "feat", Cwd: "/b"}
+	if got := tr.Info(path); got != want {
+		t.Fatalf("info = %+v, want %+v", got, want)
+	}
+}
+
+func TestFriendlyModel(t *testing.T) {
+	for id, want := range map[string]string{
+		"claude-opus-5-5": "Opus 5.5", "claude-haiku-4-5-20251001": "Haiku 4.5",
+		"claude-fable-5-1": "Fable 5.1", "gpt-9": "gpt-9", "claude-x": "claude-x",
+	} {
+		if got := friendlyModel(id); got != want {
+			t.Errorf("friendlyModel(%q) = %q, want %q", id, got, want)
+		}
+	}
+}

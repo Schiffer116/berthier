@@ -45,6 +45,55 @@ type transcript struct {
 	offset int64
 	items  []ChatItem
 	tools  map[string]int // tool_use id -> index in items
+	info   AgentInfo
+}
+
+// AgentInfo is what the transcript says about the Agent itself: from the
+// latest assistant message, updated as lines are appended (never re-read).
+type AgentInfo struct {
+	Model         string `json:"model,omitempty"`    // friendly: "Opus 5.5"
+	ModelID       string `json:"model_id,omitempty"` // as the API names it
+	Effort        string `json:"effort,omitempty"`
+	ContextTokens int    `json:"context_tokens,omitempty"`
+	ContextPct    int    `json:"context_pct,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	Cwd           string `json:"cwd,omitempty"`
+}
+
+const (
+	contextWindow   = 200_000
+	contextWindowXL = 1_000_000 // an Agent past 200k tokens is on the 1M window
+)
+
+// friendlyModel turns "claude-opus-5-5" into "Opus 5.5" (and a dated
+// "claude-haiku-4-5-20251001" into "Haiku 4.5"); unknown ids pass through.
+func friendlyModel(id string) string {
+	if !strings.HasPrefix(id, "claude-") {
+		return id
+	}
+	parts := strings.Split(strings.TrimPrefix(id, "claude-"), "-")
+	var ver []string
+	for _, p := range parts[1:] {
+		if _, err := strconv.Atoi(p); err != nil || len(p) > 2 {
+			break
+		}
+		ver = append(ver, p)
+	}
+	if len(ver) == 0 {
+		return id
+	}
+	return strings.ToUpper(parts[0][:1]) + parts[0][1:] + " " + strings.Join(ver, ".")
+}
+
+// Info returns what the transcript at path says about its Agent; call it
+// after Read, which keeps it current.
+func (t *Transcripts) Info(path string) AgentInfo {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tr := t.files[path]; tr != nil {
+		return tr.info
+	}
+	return AgentInfo{}
 }
 
 func NewTranscripts(claudeDir string) *Transcripts {
@@ -149,8 +198,17 @@ type entry struct {
 	IsMeta      bool   `json:"isMeta"`
 	IsSidechain bool   `json:"isSidechain"`
 	Timestamp   string `json:"timestamp"`
+	GitBranch   string `json:"gitBranch"`
+	Cwd         string `json:"cwd"`
+	Effort      string `json:"effort"`
 	Message     struct {
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
+		Usage   struct {
+			Input         int `json:"input_tokens"`
+			CacheRead     int `json:"cache_read_input_tokens"`
+			CacheCreation int `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
 	Attachment struct {
 		Type        string `json:"type"`
@@ -175,6 +233,22 @@ func (tr *transcript) add(line []byte) {
 	var e entry
 	if json.Unmarshal(line, &e) != nil || e.IsMeta || e.IsSidechain {
 		return
+	}
+	if e.GitBranch != "" {
+		tr.info.Branch = e.GitBranch
+	}
+	if e.Cwd != "" {
+		tr.info.Cwd = e.Cwd
+	}
+	if m := e.Message.Model; e.Type == "assistant" && m != "" && m != "<synthetic>" {
+		u := e.Message.Usage
+		n := u.Input + u.CacheRead + u.CacheCreation
+		win := contextWindow
+		if n > win {
+			win = contextWindowXL
+		}
+		tr.info.ModelID, tr.info.Model, tr.info.Effort = m, friendlyModel(m), e.Effort
+		tr.info.ContextTokens, tr.info.ContextPct = n, (n*100+win/2)/win
 	}
 	switch e.Type {
 	case "attachment": // a prompt typed while the Agent was busy

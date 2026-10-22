@@ -3,7 +3,7 @@
 #
 # Inputs (--argjson): $state (state.json or {}), $reports {session_id: {line, at}},
 #   $inbox [{id, from, to, text, at}], $log [recent lines of loop.log, JSON Lines],
-#   $usage (state/usage.json), $budgets (state/budgets.json), $budget_warn, $available, $now, $interval (Main Loop seconds), $revive_max
+#   $usage (state/usage.json), $costs {session_id: dollars} (usage.json sessions), $divisions (state/divisions.json), $budgets (state/budgets.json), $budget_warn, $available, $now, $interval (Main Loop seconds), $revive_max
 include "names";
 include "usage";
 
@@ -12,11 +12,14 @@ def agent_view($pane):
   | ($reports[$a.session_id // ""] // null) as $r
   | ($r.line // null) as $line
   | (($line // "") | test("^needs you:"; "i")) as $needs
+  | (if $pane == $state.berthier then "berthier" else ($a.workspace_label | corps_name) end) as $who
   | {pane_id: $pane, name: $a.name, kind: $a.kind, tab_id: $a.tab_id,
      status: $a.status, status_since: $a.status_since, prev_status: $a.prev_status,
      session_id: $a.session_id, title: $a.title, cwd: $a.cwd,
      revive_attempts: ($a.revive_attempts // 0), last_revive_at: $a.last_revive_at,
-     who: (if $pane == $state.berthier then "berthier" else ($a.workspace_label | corps_name) end),
+     who: $who,
+     cost: ($costs[$a.session_id // ""] // null),
+     division_model: ($divisions[$who].model // null),
      needs_you: ($needs or $a.status == "blocked"),
      report: (if $line == null then null else ($line | sub("^needs you: *"; ""; "i")) end),
      report_at: ($r.at // null)};

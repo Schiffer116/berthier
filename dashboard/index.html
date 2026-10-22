@@ -180,6 +180,7 @@ pre.term { margin: 0; border: 0; background: transparent; }
 .needs div:first-child { color: var(--accent); font-weight: 700; }
 .needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
 dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
+dl.ainfo { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
 dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .cmd { margin-top: 4px; padding: 6px 10px; background: var(--crust); border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
@@ -463,6 +464,29 @@ function renderRows(rows) {
 // A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
 const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
 
+// The selected Agent's own facts: the view model's, plus what its transcript
+// says (model, context, effort, branch), which the chat poll brings.
+let selAgent = null;
+const usd = (n) => '$' + (n < 10 ? n.toFixed(2) : n.toFixed(1));
+function renderInfo() {
+  const a = selAgent, el = $('ainfo');
+  if (!a || !el) return;
+  const i = chat.info?.pane === a.pane_id ? chat.info : {};
+  const model = i.model ? esc(i.model) + (a.division_model ? ` <span class="dim">· division ${esc(a.division_model)}</span>` : '')
+    : a.division_model ? `${esc(a.division_model)} <span class="dim">· division</span>` : null;
+  const ctx = i.context_tokens == null ? null
+    : `<span style="color: ${i.context_pct >= 90 ? C.red : i.context_pct >= 70 ? C.accent : C.muted}">${i.context_pct}%</span> <span class="dim">· ${Math.round(i.context_tokens / 1000)}k tokens</span>`;
+  const rows = [
+    ['model', model], ['effort', i.effort && esc(i.effort)], ['context', ctx],
+    ['cost', a.cost != null && usd(a.cost)],
+    ['branch', i.branch && esc(i.branch)],
+    ['session', a.session_id && `<span title="${esc(a.session_id)}">${esc(a.session_id.slice(0, 8))}</span>`],
+    ['status', `<span style="color: ${a.color}">${a.state}</span> ${ageSpan(a.from)}`],
+    ['report', a.report == null ? '<span class="dim">no report yet</span>' : `<span class="dim">${clock(a.report_at, false)}</span> ${esc(a.report)}`],
+  ];
+  el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
 // The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
 function renderDetail(a, all) {
   renderSend(a);
@@ -502,6 +526,7 @@ function renderDetail(a, all) {
         ${on ? `<span class="mate-m dim">${esc(m.kind ?? '-')} · session ${esc((m.session_id ?? '-').slice(0, 8))}${revived}</span>` : ''}
       </button></li>`;
   };
+  selAgent = a;
   const focused = $('det').contains(document.activeElement) ? document.activeElement.dataset?.pane : null;
   $('det').innerHTML = `
     <div class="ph">
@@ -515,8 +540,10 @@ function renderDetail(a, all) {
       </div>` : ''}
       ${cmd ? `<div class="cmd run" title="it asks you to run">${esc(cmd)}</div>` : ''}
       <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <dl id="ainfo" class="ainfo" aria-label="agent info"></dl>
       <ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>
     </div>`;
+  renderInfo();
   if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
 
@@ -532,6 +559,7 @@ function renderSend(a) {
   $('send-to').textContent = `→ ${a.name ?? a.who} · ${a.pane_id}`;
   $('send-status').textContent = '';
   chat.rev = null;
+  chat.info = null;
   $('chat').innerHTML = '<div class="dim">loading…</div>';
   $('chat-state').textContent = '';
   pollChat();
@@ -539,7 +567,7 @@ function renderSend(a) {
 
 // The conversation of the selected Agent, polled while the page is visible.
 // Tool calls stay collapsed unless the viewer opened them.
-const chat = { rev: null, open: new Set(), busy: false };
+const chat = { rev: null, open: new Set(), busy: false, info: null };
 async function pollChat() {
   const pane = sendPane;
   if (!pane || document.hidden || chat.busy) return;
@@ -548,7 +576,11 @@ async function pollChat() {
     const res = await fetch('api/chat?pane=' + encodeURIComponent(pane));
     if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
     const v = await res.json();
-    if (pane === sendPane) renderChat(v);
+    if (pane === sendPane) {
+      chat.info = v.info ? { ...v.info, pane } : null;
+      renderInfo();
+      renderChat(v);
+    }
   } catch (err) {
     if (pane === sendPane) $('chat-state').innerHTML = `<span style="color: ${C.red}">chat unavailable: ${esc(err.message)}</span>`;
   } finally {
