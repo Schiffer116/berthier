@@ -10,7 +10,8 @@ import (
 
 var testCfg = Config{BerthierRoot: "/home/u/berthier", BlockedAfter: 120, LongAfter: 3600, DivisionSettle: 30,
 	ReviveMax: 3, ReviveBackoff: 60, ReviveReset: 300, EscalationTTL: 604800, SpeakAfter: 30, AskStuck: 1800,
-	PingpongMax: 10, LimitGrace: 60, LimitRetry: 1800, BudgetWarn: 80}
+	PingpongMax: 10, LimitGrace: 60, LimitRetry: 1800, BudgetWarn: 80,
+	RestartGap: 1000000, RestartWait: 3600, RestartSettle: 20}
 
 // js normalizes any value to what its JSON decodes to, for comparing with want.
 func js(t *testing.T, v any) any {
@@ -90,6 +91,7 @@ type opt struct {
 	obs     map[string]Obs
 	usage   Usage
 	budgets map[string]float64
+	gap     int64 // restart gap; default: never
 }
 
 var (
@@ -101,7 +103,11 @@ func tick(prev State, s Snapshot, now int64, o opt) TickOut {
 	if o.divs == nil {
 		o.divs = D0
 	}
-	return Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: testCfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: o.obs})
+	cfg := testCfg
+	if o.gap != 0 {
+		cfg.RestartGap = o.gap
+	}
+	return Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: o.obs})
 }
 
 func yes(b bool) *bool { return &b }
@@ -570,4 +576,61 @@ func mustJSON(t *testing.T, v any) string {
 
 func ask(id, from, to, text string, at int64) Ask {
 	return Ask{ID: id, From: from, To: to, Text: text, At: at}
+}
+
+func TestRestartResume(t *testing.T) {
+	// Agents working before a gap are remembered until each is back. A session
+	// relisted idle is read for an unfinished turn, then prompted once.
+	sw := snap(W, panes(ag("w1:p1", "working", "sid-1", "principal", ""), ag("w4:p1", "idle", "sid-4", "", ""), ag("w3:p1", "blocked", "sid-3", "", "")),
+		panes(pn("w1:p1"), pn("w4:p1"), pn("w3:p1")))
+	pw := tick(State{}, sw, 1000, opt{}).State
+	empty := snap(W, nil, nil)
+	g := opt{gap: 45}
+	o := tick(pw, empty, 1010, g)
+	check(t, "no gap, nothing remembered", o.State.Interrupted, `{}`)
+	o = tick(pw, empty, 1100, g)
+	check(t, "gap remembers only the working", o.State.Interrupted, `{"sid-1":{"name":"principal","since":1100}}`)
+	o2 := tick(o.State, snap(W, nil, panes(held("w1:p1", "sid-1"))), 1110, g)
+	keys := func(s State) []string {
+		k := []string{}
+		for x := range s.Interrupted {
+			k = append(k, x)
+		}
+		sortStrings(k)
+		return k
+	}
+	check(t, "still resuming: kept, no read", []any{keys(o2.State), o2.Look, o2.Proceed}, `[["sid-1"],[],[]]`)
+	reads := func(o TickOut) []Look {
+		l := []Look{}
+		for _, x := range o.Look {
+			if len(x.Want) == 1 && x.Want[0] == "interrupted" {
+				l = append(l, x)
+			}
+		}
+		return l
+	}
+	hi := held("w1:p1", "sid-1")
+	hi.Status = "idle"
+	o3 := tick(o2.State, snap(W, nil, panes(hi)), 1115, g)
+	check(t, "held pane with a status is not prompted yet", []any{reads(o3), keys(o3.State)}, `[[],["sid-1"]]`)
+	si := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", "")), panes(pn("w1:p1")))
+	o3 = tick(o2.State, si, 1120, g)
+	check(t, "back idle: waits for the status to hold", []any{reads(o3), keys(o3.State)}, `[[],["sid-1"]]`)
+	o3 = tick(o3.State, si, 1140, g)
+	check(t, "back idle: transcript read", []any{reads(o3), keys(o3.State), o3.Proceed}, `[[{"pane_id":"w1:p1","session_id":"sid-1","want":["interrupted"]}],["sid-1"],[]]`)
+	p3 := o3.State
+	obsInt := func(v bool) map[string]Obs { return map[string]Obs{"w1:p1": {Interrupted: &v}} }
+	o4 := tick(p3, si, 1140, opt{gap: 45, obs: obsInt(true)})
+	check(t, "interrupted: prompted once", []any{o4.Proceed, o4.State.Interrupted}, `[[{"pane_id":"w1:p1","name":"principal","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}],{}]`)
+	o5 := tick(o4.State, si, 1150, g)
+	check(t, "not prompted again", []any{o5.Proceed, reads(o5)}, `[[],[]]`)
+	o4 = tick(p3, si, 1140, opt{gap: 45, obs: obsInt(false)})
+	check(t, "finished turn: forgotten", []any{o4.Proceed, o4.State.Interrupted}, `[[],{}]`)
+	o4 = tick(o2.State, snap(W, panes(ag("w1:p1", "working", "sid-1", "", "")), panes(pn("w1:p1"))), 1120, g)
+	check(t, "working again: forgotten", []any{o4.Look, o4.Proceed, o4.State.Interrupted}, `[[],[],{}]`)
+	check(t, "never relisted: expires", tick(o.State, empty, 5000, g).State.Interrupted, `{}`)
+
+	// A Corps over budget keeps its Agent waiting.
+	r := tick(p3, si, 1140, opt{gap: 45, obs: obsInt(true), usage: used(1, 0), budgets: map[string]float64{"skipli": 1}})
+	check(t, "over budget: held, kept", []any{r.Proceed, keys(r.State)}, `[[],["sid-1"]]`)
 }

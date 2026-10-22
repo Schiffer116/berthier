@@ -8,15 +8,23 @@ import (
 
 // State is the Grand Army State (state/state.json), written only by Tick.
 type State struct {
-	Version           int              `json:"version"`
-	UpdatedAt         int64            `json:"updated_at"`
-	Berthier          *string          `json:"berthier"`
-	Corps             []Corps          `json:"corps"`
-	BerthierDivisions []UnitState      `json:"berthier_divisions"`
-	Order             []string         `json:"order"`
-	Agents            Agents           `json:"agents"`
-	Escalated         map[string]int64 `json:"escalated"`
-	AskLog            []AskLogEntry    `json:"ask_log"`
+	Version           int                  `json:"version"`
+	UpdatedAt         int64                `json:"updated_at"`
+	Berthier          *string              `json:"berthier"`
+	Corps             []Corps              `json:"corps"`
+	BerthierDivisions []UnitState          `json:"berthier_divisions"`
+	Order             []string             `json:"order"`
+	Agents            Agents               `json:"agents"`
+	Escalated         map[string]int64     `json:"escalated"`
+	Interrupted       map[string]Interrupt `json:"interrupted"`
+	AskLog            []AskLogEntry        `json:"ask_log"`
+}
+
+// Interrupt remembers an Agent that was working before a restart gap, by
+// session, until it reappears.
+type Interrupt struct {
+	Name  *string `json:"name"`
+	Since int64   `json:"since"`
 }
 
 // Corps is a workspace that is neither a Division nor Berthier's own.

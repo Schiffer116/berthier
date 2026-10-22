@@ -29,6 +29,8 @@ type Env struct {
 	PingpongMax                               int
 	LimitGrace, LimitRetry                    int64
 	LimitPrompt                               string
+	RestartGap, RestartWait, RestartSettle    int64
+	RestartPrompt                             string
 	LedgerMax                                 int64
 	BudgetWarn                                float64
 	Speak                                     string
@@ -95,6 +97,13 @@ func LoadEnv(getenv func(string) string) Env {
 	e.LimitGrace = i64("BERTHIER_LIMIT_GRACE", 60)
 	e.LimitRetry = i64("BERTHIER_LIMIT_RETRY", 1800)
 	e.LimitPrompt = str("BERTHIER_LIMIT_PROMPT", "The usage limit has reset. Continue exactly where you left off.")
+	// Restart: a gap this long since the last state write (loop down, Herdr
+	// unreachable) may have cut Agents off mid-turn; wait this long for each to
+	// reappear, then prompt it once.
+	e.RestartGap = i64("BERTHIER_RESTART_GAP", 45)
+	e.RestartWait = i64("BERTHIER_RESTART_WAIT", 3600)
+	e.RestartSettle = i64("BERTHIER_RESTART_SETTLE", 20)
+	e.RestartPrompt = str("BERTHIER_RESTART_PROMPT", "The machine restarted and interrupted your turn; continue where you left off.")
 	e.LedgerMax = i64("BERTHIER_LEDGER_MAX", 4194304)
 	// Share of its budget at which a Corps's Main Agent is told and the user hears (percent).
 	e.BudgetWarn = num("BERTHIER_BUDGET_WARN", 80)
@@ -131,5 +140,6 @@ func (e *Env) CoreConfig() (c core.Config) {
 	return core.Config{BerthierRoot: e.Root, BlockedAfter: e.BlockedAfter, LongAfter: e.LongAfter, DivisionSettle: e.DivisionSettle,
 		ReviveMax: e.ReviveMax, ReviveBackoff: e.ReviveBackoff, ReviveReset: e.ReviveReset, EscalationTTL: e.EscalationTTL,
 		SpeakAfter: e.SpeakAfter, AskStuck: e.AskStuck, PingpongMax: e.PingpongMax, LimitGrace: e.LimitGrace,
-		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn}
+		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn,
+		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle}
 }

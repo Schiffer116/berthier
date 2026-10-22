@@ -135,7 +135,7 @@ var logTags = map[string]string{
 	"spoke": "speak", "speak_failed": "speak", "escalated": "escal", "notified": "escal", "unreachable": "escal",
 	"delivered": "ask", "delivery_failed": "ask",
 	"adopted": "army", "brief_sent": "army", "brief_failed": "army", "renamed": "army", "rename_failed": "army",
-	"limit_stop": "limit", "resumed": "limit", "resume_failed": "limit", "budget_exhausted": "budget",
+	"limit_stop": "limit", "resumed": "limit", "resume_failed": "limit", "continued": "revive", "continue_failed": "revive", "budget_exhausted": "budget",
 }
 
 func logEntry(m map[string]any) LogEntry {

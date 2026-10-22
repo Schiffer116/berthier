@@ -59,7 +59,6 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
   @supports (height: 100dvh) { .top { grid-template-rows: auto calc(100dvh - var(--sat) - var(--sab)); } }
   .top > #army { min-height: 260px; max-height: 75vh; }
   .top > #army .scroll { flex: 1 1 auto; }
-  #det { max-height: 30%; }
 }
 /* Logs open from the top bar in a drawer over the page, never moving it. */
 .logs { display: flex; gap: 6px; }
@@ -105,13 +104,13 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 #show-loop { accent-color: var(--blue); }
 .table { min-width: 480px; }
-.grid { display: grid; grid-template-columns: 14px minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
+.grid { display: grid; grid-template-columns: minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
 /* A narrow Grand Army panel drops the PANE and FOR columns instead of scrolling. */
 #army { container-type: inline-size; }
 @container (max-width: 559px) {
   .table { min-width: 0; }
-  .grid { grid-template-columns: 14px minmax(64px, 96px) 76px minmax(0, 1fr); }
-  .grid > :nth-child(3), .grid > :nth-child(5) { display: none; }
+  .grid { grid-template-columns: minmax(64px, 96px) 76px minmax(0, 1fr); }
+  .grid > :nth-child(2), .grid > :nth-child(4) { display: none; }
 }
 .thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
 .agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
@@ -122,7 +121,7 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .corps { font-weight: 700; }
 .muted { color: var(--muted); } .dim { color: var(--dim); }
 .empty { padding: 14px 12px; color: var(--dim); }
-#det { flex: 0 1 auto; max-height: 45%; min-height: 0; overflow-y: auto; }
+#det { flex: none; } /* never scrolls: only the chat does, the message box stays below it */
 #detail .ph { flex-wrap: nowrap; }
 #detail h2 span { color: var(--fg); }
 .body { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -180,7 +179,8 @@ pre.term { margin: 0; border: 0; background: transparent; }
 .needs div:first-child { color: var(--accent); font-weight: 700; }
 .needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
 dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
-dl.ainfo { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
+dl.ainfo { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
+dl.ainfo dd.span2 { grid-column: 2 / -1; }
 dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
 .cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .cmd { margin-top: 4px; padding: 6px 10px; background: var(--crust); border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
@@ -259,7 +259,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
         <details id="usage" aria-label="quota usage" open hidden></details>
         <div class="scroll">
           <div class="table">
-            <div class="grid thead" aria-hidden="true"><span></span><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
+            <div class="grid thead" aria-hidden="true"><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
             <div id="rows"></div>
           </div>
         </div>
@@ -317,11 +317,11 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 
   <footer class="bar">
     <span>reads state/ · sends only what you type</span>
-    <span><span style="color: var(--accent)">●</span> needs you</span>
-    <span><span style="color: var(--blue)">▶</span> working</span>
-    <span><span style="color: var(--red)">■</span> blocked</span>
-    <span><span style="color: var(--green)">✓</span> done / idle</span>
-    <span><span style="color: var(--purple)">✕</span> gone</span>
+    <span style="color: var(--accent)">needs you</span>
+    <span style="color: var(--blue)">working</span>
+    <span style="color: var(--red)">blocked</span>
+    <span style="color: var(--green)">done / idle</span>
+    <span style="color: var(--purple)">gone</span>
   </footer>
 </div>
 
@@ -395,7 +395,7 @@ const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</spa
 function renderHeader(all) {
   const k = army.counts, fresh = army.available;
   $('loop').innerHTML = fresh
-    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running<span class="wide"> · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}</span>`
+    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running<span class="span2"> · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}</span>`
     : `<span style="color: ${C.red}" aria-hidden="true">■</span>main loop not writing state`;
   const link = connected ? '' : ` · <span style="color: ${C.red}">console disconnected</span>`;
   $('fresh').classList.toggle('wide', fresh && connected); // narrow screens show it only when something is wrong
@@ -449,7 +449,6 @@ function renderRows(rows) {
   $('rows').innerHTML = rows.map((a) => {
     const on = a.pane_id === ui.sel;
     return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
-      <span style="color: ${a.color}" aria-hidden="true">${a.glyph}</span>
       <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${a.parent ? '<span class="dim" aria-hidden="true">└ </span>' : ''}${esc(a.who)}</span>
       <span class="muted">${esc(a.pane_id)}</span>
       <span style="color: ${a.color}">${a.state}</span>
@@ -475,16 +474,16 @@ function renderInfo() {
   const model = i.model ? esc(i.model) + (a.division_model ? ` <span class="dim">· division ${esc(a.division_model)}</span>` : '')
     : a.division_model ? `${esc(a.division_model)} <span class="dim">· division</span>` : null;
   const ctx = i.context_tokens == null ? null
-    : `<span style="color: ${i.context_pct >= 90 ? C.red : i.context_pct >= 70 ? C.accent : C.muted}">${i.context_pct}%</span> <span class="dim">· ${Math.round(i.context_tokens / 1000)}k tokens</span>`;
+    : `<span style="color: ${i.context_pct >= 90 ? C.red : i.context_pct >= 70 ? C.accent : C.muted}">${i.context_pct}%</span> <span class="dim">${Math.round(i.context_tokens / 1000)}k</span>`;
   const rows = [
-    ['model', model], ['effort', i.effort && esc(i.effort)], ['context', ctx],
+    ['model*', model], ['effort', i.effort && esc(i.effort)], ['context', ctx],
     ['cost', a.cost != null && usd(a.cost)],
     ['branch', i.branch && esc(i.branch)],
     ['session', a.session_id && `<span title="${esc(a.session_id)}">${esc(a.session_id.slice(0, 8))}</span>`],
-    ['status', `<span style="color: ${a.color}">${a.state}</span> ${ageSpan(a.from)}`],
-    ['report', a.report == null ? '<span class="dim">no report yet</span>' : `<span class="dim">${clock(a.report_at, false)}</span> ${esc(a.report)}`],
+    ['status', `<span style="color: ${a.color}">${a.state}</span> ${ageSpan(a.from)}${a.last_revive_at == null ? '' : ` <span style="color: ${C.purple}" title="revived ${clock(a.last_revive_at, false)}">↻${a.revive_attempts}/${army.loop.revive_max ?? 3}</span>`}`],
+    ['report*', a.report == null ? '<span class="dim">no report yet</span>' : `<span class="dim">${clock(a.report_at, false)}</span> ${esc(a.report)}`],
   ];
-  el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k.replace('*', '')}</dt><dd${k.endsWith('*') ? ' class="span2"' : ''}>${v}</dd>`).join('');
 }
 
 // The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
@@ -541,7 +540,7 @@ function renderDetail(a, all) {
       ${cmd ? `<div class="cmd run" title="it asks you to run">${esc(cmd)}</div>` : ''}
       <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
       <dl id="ainfo" class="ainfo" aria-label="agent info"></dl>
-      <ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>
+      ${mates.length > 1 ? `<ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>` : ''}
     </div>`;
   renderInfo();
   if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });

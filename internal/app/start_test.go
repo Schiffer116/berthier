@@ -128,3 +128,14 @@ esac
 		}
 	}
 }
+
+func TestTranscriptLookup(t *testing.T) {
+	s := newSandbox(t)
+	s.env["CLAUDE_CONFIG_DIR"] = filepath.Join(s.home, "claude")
+	e := LoadEnv(s.getenv)
+	os.MkdirAll(filepath.Join(e.ClaudeDir, "projects", "-x"), 0o755)
+	os.WriteFile(filepath.Join(e.ClaudeDir, "projects", "-x", "s1.jsonl"), []byte(`{"type":"assistant","message":{"stop_reason":"tool_use","content":[]}}`+"\n"), 0o644)
+	if !e.transcriptInterrupted("s1") || e.transcriptInterrupted("nope") {
+		t.Error("transcript lookup")
+	}
+}

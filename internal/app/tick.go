@@ -98,6 +98,15 @@ func (e *Env) Tick() error {
 		}
 	}
 
+	// --- Restart: nudge an Agent whose turn the restart cut off, once.
+	for _, p := range out.Proceed {
+		if err := e.H.PromptAgent(p.PaneID, e.RestartPrompt); err == nil {
+			e.Event("continued", fmt.Sprintf("continued %s in %s: restart interrupted its turn", p.Name, p.PaneID), p.Ev)
+		} else {
+			e.Event("continue_failed", fmt.Sprintf("continue failed: %s in %s (restart): %s", p.Name, p.PaneID, err), with(p.Ev, "why", err.Error()))
+		}
+	}
+
 	// --- Deliver asks; a delivered ask leaves the inbox.
 	for _, d := range out.Deliver {
 		if err := e.H.PromptAgent(d.PaneID, d.Text); err == nil {
@@ -226,6 +235,9 @@ func (e *Env) look(l core.Look, now int64) core.Obs {
 		case "at_shell":
 			b := e.paneAtShell(l.PaneID)
 			o.AtShell = &b
+		case "interrupted":
+			b := e.transcriptInterrupted(sid)
+			o.Interrupted = &b
 		case "limit_reset":
 			out, err := e.H.Run("pane", "read", l.PaneID, "--source", "visible")
 			if err != nil {
@@ -238,4 +250,14 @@ func (e *Env) look(l core.Look, now int64) core.Obs {
 		}
 	}
 	return o
+}
+
+// transcriptInterrupted reads the end of a session's transcript; an unknown
+// session counts as finished.
+func (e *Env) transcriptInterrupted(sid string) bool {
+	m, _ := filepath.Glob(filepath.Join(e.ClaudeDir, "projects", "*", sid+".jsonl"))
+	if len(m) == 0 {
+		return false
+	}
+	return core.TranscriptInterrupted(TailLines(m[0], 200))
 }

@@ -34,6 +34,10 @@ type Config struct {
 	LimitGrace     int64
 	LimitRetry     int64
 	BudgetWarn     float64 // percent of an allowance
+	// Restart resume: a gap this long since the last state write may have cut
+	// Agents off mid-turn; wait RestartWait for each to reappear (idle for
+	// RestartSettle), then prompt it once.
+	RestartGap, RestartWait, RestartSettle int64
 }
 
 // Snapshot is `herdr api snapshot`'s .result.snapshot.
@@ -88,10 +92,11 @@ type Ask struct {
 
 // Obs is what the caller read from a pane Tick asked to look at.
 type Obs struct {
-	Exited     *bool
-	AtShell    *bool
-	LimitSeen  bool // limit_reset was read (LimitReset nil: no limit stop)
-	LimitReset *int64
+	Exited      *bool
+	AtShell     *bool
+	LimitSeen   bool // limit_reset was read (LimitReset nil: no limit stop)
+	LimitReset  *int64
+	Interrupted *bool // its transcript ends mid-turn
 }
 
 // TickIn is everything Tick decides from.
@@ -158,6 +163,13 @@ type Escalation struct {
 	Ev     Fields  `json:"ev"`
 }
 
+// Proceed prompts an Agent a restart cut off mid-turn to continue.
+type Proceed struct {
+	PaneID string `json:"pane_id"`
+	Name   string `json:"name"`
+	Ev     Fields `json:"ev"`
+}
+
 type Speak struct {
 	Key  string `json:"key"`
 	Text string `json:"text"`
@@ -182,6 +194,7 @@ type TickOut struct {
 	Revive   []Revive     `json:"revive"`
 	Rename   []Rename     `json:"rename"`
 	Resume   []Resume     `json:"resume"`
+	Proceed  []Proceed    `json:"proceed"`
 	Escalate []Escalation `json:"escalate"`
 	Notify   []Escalation `json:"notify"`
 	Speak    []Speak      `json:"speak"`
@@ -514,6 +527,94 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 
+	// --- Restart: Herdr resumes every session but they come back idle, even
+	// those cut off mid-turn. A gap since the last state write (loop down,
+	// Herdr unreachable) means the Agents working before it may have been
+	// interrupted: remember them by session in the state until each reappears,
+	// since Herdr may list them over several ticks. A reappeared idle one is
+	// read for an unfinished turn in its transcript (Obs.Interrupted) and
+	// prompted once if so; one that is working, blocked or finished is
+	// forgotten, one never relisted expires.
+	waiting := map[string]Interrupt{}
+	for sid, w := range in.Prev.Interrupted {
+		if w.Since > now-orDefault(cfg.RestartWait, 3600) {
+			waiting[sid] = w
+		}
+	}
+	if in.Prev.UpdatedAt != 0 && now-in.Prev.UpdatedAt > orDefault(cfg.RestartGap, 45) {
+		for _, k := range prevAgents.Keys {
+			a := prevAgents.M[k]
+			if a.Status == "working" && strOr(a.Kind, "") == "claude" && a.SessionID != nil {
+				waiting[*a.SessionID] = Interrupt{a.Name, now}
+			}
+		}
+	}
+	type present struct {
+		pane, label, status string
+		since               int64
+	}
+	bySession := map[string]present{}
+	for _, k := range live.Keys {
+		a := live.M[k]
+		if a.SessionID == nil {
+			continue
+		}
+		st := "unknown" // a pane Herdr is still resuming has no agent to prompt yet
+		if agentPanes[k] {
+			st = a.Status
+		}
+		bySession[*a.SessionID] = present{k, strOr(a.WorkspaceLabel, ""), st, a.StatusSince}
+	}
+	type back struct {
+		sid  string
+		name *string
+		present
+	}
+	var backs, cutAgents, goAgents []back
+	for _, sid := range sortedSids(waiting) {
+		b, ok := bySession[sid]
+		// Herdr first lists a resumed pane with its stale status, then
+		// relaunches Claude: wait for the status to hold.
+		if ok && (b.status == "idle" || b.status == "done") && now-b.since >= orDefault(cfg.RestartSettle, 20) {
+			backs = append(backs, back{sid, waiting[sid].Name, b})
+		}
+	}
+	for _, b := range backs {
+		if o := obs(b.pane); o.Interrupted != nil && *o.Interrupted {
+			cutAgents = append(cutAgents, b)
+			if !over[div.Owner(b.label)] { // a Corps at its budget keeps its Agents waiting
+				goAgents = append(goAgents, b)
+			}
+		}
+	}
+	inBacks := func(l []back, pane string) bool {
+		for _, b := range l {
+			if b.pane == pane {
+				return true
+			}
+		}
+		return false
+	}
+	kept := map[string]Interrupt{}
+	for sid, w := range waiting {
+		b, ok := bySession[sid]
+		if !ok || b.status == "unknown" ||
+			((b.status == "idle" || b.status == "done") &&
+				(obs(b.pane).Interrupted == nil || (inBacks(cutAgents, b.pane) && !inBacks(goAgents, b.pane)))) {
+			kept[sid] = w
+		}
+	}
+	proceed := []Proceed{}
+	for _, b := range goAgents {
+		name := FallbackName(b.pane)
+		if v := live.M[b.pane].Name; v != nil {
+			name = *v
+		} else if b.name != nil {
+			name = *b.name
+		}
+		proceed = append(proceed, Proceed{b.pane, name, with(about(b.pane), "session", b.sid)})
+	}
+
 	// --- Panes to read before the decisions above can be made.
 	look := []Look{}
 	for _, k := range exitCheck {
@@ -528,6 +629,12 @@ func Tick(in TickIn) TickOut {
 	for _, e := range limitCheck {
 		if !obs(e.pane).LimitSeen {
 			look = append(look, Look{e.pane, e.a.SessionID, []string{"limit_reset"}})
+		}
+	}
+
+	for _, b := range backs {
+		if obs(b.pane).Interrupted == nil {
+			look = append(look, Look{b.pane, ptr(b.sid), []string{"interrupted"}})
 		}
 	}
 
@@ -928,8 +1035,8 @@ func Tick(in TickIn) TickOut {
 
 	return TickOut{
 		State: State{Version: 1, UpdatedAt: now, Berthier: berthier, Corps: corps, BerthierDivisions: berthierDivisions,
-			Order: order, Agents: agents, Escalated: escalated, AskLog: askLog},
-		Look: look, Events: decided, Revive: revive, Rename: rename, Resume: resume,
+			Order: order, Agents: agents, Escalated: escalated, Interrupted: kept, AskLog: askLog},
+		Look: look, Events: decided, Revive: revive, Rename: rename, Resume: resume, Proceed: proceed,
 		Escalate: escalate, Notify: notify, Speak: speak, Deliver: deliver,
 	}
 }
@@ -957,4 +1064,20 @@ func uniq(l []string) []string {
 		}
 	}
 	return out
+}
+
+func orDefault(v, d int64) int64 {
+	if v == 0 {
+		return d
+	}
+	return v
+}
+
+func sortedSids(m map[string]Interrupt) []string {
+	l := make([]string, 0, len(m))
+	for k := range m {
+		l = append(l, k)
+	}
+	sort.Strings(l)
+	return l
 }
