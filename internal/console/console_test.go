@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go Poll(ctx, a, source, 20*time.Millisecond)
-	srv := httptest.NewServer(Handler(a, herdr.Client{}, nil))
+	srv := httptest.NewServer(Handler(a, herdr.Client{}, nil, nil))
 	defer srv.Close()
 
 	for a.Latest() == nil {
@@ -82,7 +83,7 @@ func TestServesLatestAndPushesChanges(t *testing.T) {
 }
 
 func TestServesPage(t *testing.T) {
-	srv := httptest.NewServer(Handler(NewArmy(), herdr.Client{}, nil))
+	srv := httptest.NewServer(Handler(NewArmy(), herdr.Client{}, nil, nil))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/")
 	if err != nil {
@@ -111,7 +112,7 @@ func TestPromptSendsToKnownAgents(t *testing.T) {
 	h, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, h, nil))
+	srv := httptest.NewServer(Handler(a, h, nil, nil))
 	defer srv.Close()
 	t.Setenv("BERTHIER_HERDR_SESSION", "")
 
@@ -136,7 +137,7 @@ func TestPromptUsesBerthierSession(t *testing.T) {
 	h.Session = "scratch"
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, h, nil))
+	srv := httptest.NewServer(Handler(a, h, nil, nil))
 	defer srv.Close()
 
 	if res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"go"}`); res.StatusCode != http.StatusNoContent {
@@ -151,7 +152,7 @@ func TestPromptRejects(t *testing.T) {
 	h, dir := fakeClaude(t, "takes")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, h, nil))
+	srv := httptest.NewServer(Handler(a, h, nil, nil))
 	defer srv.Close()
 
 	for _, c := range []struct {
@@ -177,12 +178,62 @@ func TestPromptReportsHerdrFailure(t *testing.T) {
 	h, _ := fakeClaude(t, "error")
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
-	srv := httptest.NewServer(Handler(a, h, nil))
+	srv := httptest.NewServer(Handler(a, h, nil, nil))
 	defer srv.Close()
 
 	res := postPrompt(t, srv.URL, "application/json", `{"pane":"wA:p1","text":"hi"}`)
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "agent target x not found") {
 		t.Fatalf("status %d body %q", res.StatusCode, body)
+	}
+}
+
+func TestBudgetEndpoint(t *testing.T) {
+	type call struct {
+		corps string
+		pct   *float64
+	}
+	var calls []call
+	set := func(corps string, pct *float64) error {
+		calls = append(calls, call{corps, pct})
+		if corps == "full" {
+			return fmt.Errorf("disk full")
+		}
+		return nil
+	}
+	a := NewArmy()
+	a.Set([]byte(`{"budget":{"corps":[{"name":"skipli"},{"name":"full"}]}}`))
+	srv := httptest.NewServer(Handler(a, herdr.Client{}, set, nil))
+	defer srv.Close()
+	post := func(ctype, body string) int {
+		res, err := http.Post(srv.URL+"/api/budget", ctype, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+	for _, c := range []struct {
+		name, ctype, body string
+		status            int
+	}{
+		{"set", "application/json", `{"corps":"skipli","pct":25}`, http.StatusNoContent},
+		{"drop", "application/json", `{"corps":"skipli","pct":null}`, http.StatusNoContent},
+		{"top of range", "application/json", `{"corps":"skipli","pct":100}`, http.StatusNoContent},
+		{"unknown corps", "application/json", `{"corps":"nope","pct":5}`, http.StatusNotFound},
+		{"zero", "application/json", `{"corps":"skipli","pct":0}`, http.StatusBadRequest},
+		{"over 100", "application/json", `{"corps":"skipli","pct":101}`, http.StatusBadRequest},
+		{"negative", "application/json", `{"corps":"skipli","pct":-1}`, http.StatusBadRequest},
+		{"string pct", "application/json", `{"corps":"skipli","pct":"5"}`, http.StatusBadRequest},
+		{"bad json", "application/json", `{"corps":`, http.StatusBadRequest},
+		{"form post", "application/x-www-form-urlencoded", `corps=skipli&pct=5`, http.StatusUnsupportedMediaType},
+		{"write failure", "application/json", `{"corps":"full","pct":5}`, http.StatusInternalServerError},
+	} {
+		if got := post(c.ctype, c.body); got != c.status {
+			t.Errorf("%s: status %d, want %d", c.name, got, c.status)
+		}
+	}
+	// Only the three accepted requests and the failing write reached the setter.
+	if len(calls) != 4 || *calls[0].pct != 25 || calls[1].pct != nil || *calls[2].pct != 100 {
+		t.Errorf("setter calls = %+v", calls)
 	}
 }

@@ -211,6 +211,38 @@ func knownList(names []string) string {
 	return b.String()
 }
 
+// BadBudget is a SetBudget refusal caused by the request, not the disk.
+type BadBudget string
+
+func (b BadBudget) Error() string { return string(b) }
+
+// Bad marks the refusal as the request's fault (the Console answers 400).
+func (BadBudget) Bad() bool { return true }
+
+// SetBudget sets Corps corps's weekly budget to pct % of the week, or drops it
+// when pct is nil. The command and the Console both go through it.
+func (e *Env) SetBudget(corps string, pct *float64) error {
+	budgets := e.ReadBudgets()
+	if pct == nil {
+		if _, ok := budgets[corps]; !ok {
+			return BadBudget(fmt.Sprintf("no budget set for '%s'", corps))
+		}
+		delete(budgets, corps)
+	} else {
+		if !(*pct > 0 && *pct <= 100) {
+			return BadBudget("pct must be a number in (0, 100], or off: usage: berthier budget [<corps> <pct>|off]")
+		}
+		if st, err := os.Stat(e.State); err == nil && st.Size() > 0 {
+			names := e.corpsNames(true)
+			if _, set := budgets[corps]; !strsHas(names, corps) && !set {
+				return BadBudget(fmt.Sprintf("no Corps '%s'; known: %s", corps, knownList(names)))
+			}
+		}
+		budgets[corps] = *pct
+	}
+	return writeJSONAtomic(e.Budgets, budgets, true)
+}
+
 // cmdBudget: weekly quota budgets, soft. `budget` prints each Corps's share
 // of the account's seven-day quota against its allowance (state/budgets.json,
 // % of the week); `budget <corps> <pct>` sets one, `budget <corps> off` drops
@@ -224,29 +256,18 @@ func cmdBudget(e *Env, args []string, io IO) error {
 		if corps == "" {
 			return die("%s", usage)
 		}
-		budgets := e.ReadBudgets()
-		if args[1] == "off" {
-			if _, ok := budgets[corps]; !ok {
-				return die("no budget set for '%s'", corps)
-			}
-			delete(budgets, corps)
-		} else {
-			pct, err := strconv.ParseFloat(args[1], 64)
-			if err != nil || strings.ContainsAny(args[1], "xX_pP") || !(pct > 0 && pct <= 100) {
+		var pct *float64
+		if args[1] != "off" {
+			v, err := strconv.ParseFloat(args[1], 64)
+			if err != nil || strings.ContainsAny(args[1], "xX_pP") {
 				return die("pct must be a number in (0, 100], or off: %s", usage)
 			}
-			if st, err := os.Stat(e.State); err == nil && st.Size() > 0 {
-				names := e.corpsNames(true)
-				if _, set := budgets[corps]; !strsHas(names, corps) && !set {
-					return die("no Corps '%s'; known: %s", corps, knownList(names))
-				}
-			}
-			budgets[corps] = pct
+			pct = &v
 		}
-		if err := writeJSONAtomic(e.Budgets, budgets, true); err != nil {
+		if err := e.SetBudget(corps, pct); err != nil {
 			return err
 		}
-		if args[1] == "off" {
+		if pct == nil {
 			fmt.Fprintf(io.Out, "budget for %s dropped\n", corps)
 		} else {
 			fmt.Fprintf(io.Out, "budget for %s: %s%% of the week\n", corps, args[1])
@@ -861,6 +882,15 @@ func cmdDivisionDone(e *Env, args []string, io IO) error {
 	return nil
 }
 
+// setBudgetFor is the Console's budget write: Corps names as `budget` takes them.
+func (e *Env) setBudgetFor(corps string, pct *float64) error {
+	corps = core.CorpsName(corps)
+	if corps == "" {
+		return BadBudget("no corps")
+	}
+	return e.SetBudget(corps, pct)
+}
+
 // cmdDashboard serves the Grand Army console on 127.0.0.1:8430. Flags:
 // -addr, -every (view model refresh), -claude-dir.
 func cmdDashboard(e *Env, args []string, io IO) error {
@@ -877,5 +907,5 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 		err := encode(&b, e.ArmyView())
 		return b.Bytes(), err
 	}
-	return console.Serve(*addr, source, e.H, *claude, *every)
+	return console.Serve(*addr, source, e.H, e.setBudgetFor, *claude, *every)
 }

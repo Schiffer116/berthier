@@ -1,7 +1,6 @@
 // Package console serves the Grand Army view model (`berthier army`) as a
 // live console page. It holds no state and no logic of its own: it polls the
-// view model and pushes each change to open pages over server-sent events. The one
-// write is POST /api/prompt, which sends the user's text to a known Agent; GET
+// view model and pushes each change to open pages over server-sent events. Its writes are POST /api/prompt, which sends the user's text to a known Agent, and POST /api/budget, which sets a Corps's weekly budget; GET
 // /api/chat shows that Agent's conversation (chat.go) and GET /api/skills lists
 // what its Claude Code can run as /<name> (skills.go). app.go makes the page an
 // installable app.
@@ -28,6 +27,10 @@ import (
 
 //go:embed index.html
 var indexHTML []byte
+
+// BudgetSetter sets a Corps's weekly budget (% of the week), or drops it for a
+// nil pct; a request-caused refusal has a Bad() method reporting true.
+type BudgetSetter func(corps string, pct *float64) error
 
 // Army keeps the latest view model and fans changes out to subscribers.
 type Army struct {
@@ -87,6 +90,25 @@ func Poll(ctx context.Context, a *Army, source func() ([]byte, error), every tim
 		case <-time.After(every):
 		}
 	}
+}
+
+// Corps lists the Corps in the latest view model's quota panel.
+func (a *Army) Corps() map[string]bool {
+	var v struct {
+		Budget struct {
+			Corps []struct {
+				Name string `json:"name"`
+			} `json:"corps"`
+		} `json:"budget"`
+	}
+	names := map[string]bool{}
+	if json.Unmarshal(a.Latest(), &v) != nil {
+		return names
+	}
+	for _, c := range v.Budget.Corps {
+		names[c.Name] = true
+	}
+	return names
 }
 
 // Panes lists the pane ids of every Agent in the latest view model.
@@ -151,7 +173,7 @@ func unscrolledLines(h herdr.Client, pane string, want int) int {
 	return min(want, got.Result.Pane.Scroll.Rows+got.Result.Pane.Scroll.Back)
 }
 
-func Handler(a *Army, h herdr.Client, tr *Transcripts) http.Handler {
+func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -193,6 +215,42 @@ func Handler(a *Army, h herdr.Client, tr *Transcripts) http.Handler {
 			return
 		}
 		log.Printf("prompted %s (%d bytes)", req.Pane, len(req.Text))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /api/budget", func(w http.ResponseWriter, r *http.Request) {
+		if t, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); t != "application/json" {
+			http.Error(w, "want application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+		var req struct {
+			Corps string
+			Pct   *float64
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if setBudget == nil || !a.Corps()[req.Corps] {
+			http.Error(w, "no such corps: "+req.Corps, http.StatusNotFound)
+			return
+		}
+		if req.Pct != nil && !(*req.Pct > 0 && *req.Pct <= 100) {
+			http.Error(w, "pct must be in (0, 100], or null to drop", http.StatusBadRequest)
+			return
+		}
+		if err := setBudget(req.Corps, req.Pct); err != nil {
+			code := http.StatusInternalServerError
+			if b, ok := err.(interface{ Bad() bool }); ok && b.Bad() {
+				code = http.StatusBadRequest
+			}
+			http.Error(w, err.Error(), code)
+			return
+		}
+		if req.Pct == nil {
+			log.Printf("budget %s dropped", req.Corps)
+		} else {
+			log.Printf("budget %s: %g%%", req.Corps, *req.Pct)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
@@ -299,9 +357,9 @@ func Handler(a *Army, h herdr.Client, tr *Transcripts) http.Handler {
 }
 
 // Serve runs the Console on addr until it fails.
-func Serve(addr string, source func() ([]byte, error), h herdr.Client, claudeDir string, every time.Duration) error {
+func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, claudeDir string, every time.Duration) error {
 	a := NewArmy()
 	go Poll(context.Background(), a, source, every)
 	log.Printf("serving the Grand Army console on http://%s", addr)
-	return http.ListenAndServe(addr, Handler(a, h, NewTranscripts(claudeDir)))
+	return http.ListenAndServe(addr, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
 }

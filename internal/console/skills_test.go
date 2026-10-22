@@ -59,7 +59,7 @@ func TestSkillsEndpoint(t *testing.T) {
 	a := NewArmy()
 	a.Set([]byte(promptArmy))
 	dir := t.TempDir()
-	srv := httptest.NewServer(Handler(a, herdr.Client{Bin: fakeChatHerdr(t, "claude", "s1")}, NewTranscripts(dir)))
+	srv := httptest.NewServer(Handler(a, herdr.Client{Bin: fakeChatHerdr(t, "claude", "s1")}, nil, NewTranscripts(dir)))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/api/skills?pane=wA:p1")
 	if err != nil || res.StatusCode != 200 {
