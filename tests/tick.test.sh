@@ -123,6 +123,13 @@ check "ask delivery" "$(jq -c '.deliver | map([.id, .pane_id])' <<<"$o")" '[["1"
 check "ask text" "$(jq -r '.deliver[0].text' <<<"$o")" '[berthier ask] from notes: hi (Reply or report back with: berthier ask notes "...")'
 check "ask stuck escalates" "$(jq -c '.escalate | map(.key)' <<<"$o")" '["ask_stuck:3"]'
 check "ask logged" "$(jq -c '.state.ask_log | map(.to)' <<<"$o")" '["skipli","berthier"]'
+# A notify is delivered like an ask but one-way: no reply hint, never stuck, never in the ask log.
+NI='[{"id":"n1","kind":"notify","from":"service","to":"skipli","text":"line1\nline2","at":100}]'
+o=$(INBOX=$NI tick "$prev" "$sa" 2000)
+check "notify delivered one-way" "$(jq -c '.deliver | map([.id, .text])' <<<"$o")" '[["n1","[berthier notify] from service: line1\nline2"]]'
+check "notify never stuck or logged" "$(jq -c '[(.escalate | map(.key)), .state.ask_log]' <<<"$o")" '[[],[]]'
+o=$(INBOX='[{"id":"n2","kind":"notify","from":"service","to":"nobody","text":"x","at":100}]' tick "$prev" "$sa" 2000)
+check "undelivered notify never stuck" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
 oneway=$(jq -c '[range(12) | {from: "notes", to: "skipli", at: (1900 + .)}]' <<<null)
 o=$(INBOX='[]' tick "$(jq -c --argjson l "$oneway" '.ask_log = $l' <<<"$prev")" "$sa" 2000)
 check "one-way updates are not pingpong" "$(jq -c '.escalate | map(.key)' <<<"$o")" '[]'
