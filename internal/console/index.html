@@ -92,13 +92,23 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; margin: 2px 0; }
 .bud .fill { position: absolute; inset: 0 auto 0 0; }
 .bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
-.bud .set { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0 10px; min-height: 44px; }
-.bud .set input[type=range] { width: 100%; height: 44px; margin: 0; accent-color: var(--accent); cursor: pointer; touch-action: pan-y; }
-.bud .set output { text-align: right; white-space: nowrap; min-width: 6.5em; color: var(--fg); font-variant-numeric: tabular-nums; }
-.bud .set button { min-height: 44px; min-width: 44px; padding: 0 10px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
-.bud .set button:hover { color: var(--bright); }
-.bud .set button[hidden] { display: none; }
-.bud .err { grid-column: 1 / -1; color: var(--red); }
+/* The bar is the budget control: a 44px hit area around the 6px bar, the budget a thin accent handle on it. */
+.bud .hit { grid-column: 1 / -1; position: relative; height: 44px; margin: -14px 0 -12px; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.bud .hit .track { position: absolute; left: 0; right: 0; top: 19px; margin: 0; }
+.bud .mk { position: absolute; top: 9px; width: 18px; height: 26px; margin-left: -9px; cursor: ew-resize; outline: none; }
+.bud .mk::before { content: ""; position: absolute; left: 7px; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.bud .mk.unset { margin-left: 0; opacity: 0; }
+.bud .mk.unset:focus-visible { opacity: 1; }
+.bud .mk:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent); }
+.bud .hit:hover .mk.unset { opacity: 0.35; }
+.bud .tip { position: absolute; bottom: 34px; transform: translateX(-50%); padding: 1px 6px; background: var(--bg); border: 1px solid var(--accent); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none; display: none; z-index: 2; }
+.bud .hit.live .tip { display: block; }
+.bud .hit.clearing .tip { border-color: var(--red); color: var(--red); }
+.bud .err, .bud .undo { grid-column: 1 / -1; color: var(--red); }
+.bud .undo { color: var(--dim); }
+.bud .undo button { min-height: 32px; padding: 0 8px; background: transparent; color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+@media (pointer: coarse) { .bud .undo button { min-height: 44px; min-width: 44px; } }
+#usage .scale { color: var(--dim); font-size: 11px; }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 #army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
@@ -421,8 +431,8 @@ function renderHeader(all) {
 // week. With a budget the bar is the share of the allowance (the tick marks
 // where its Main Agent is told); without, the share of the week.
 function renderBudget() {
-  if (ui.budgetDrag) return; // a slider being dragged must not be rebuilt under the finger
-  const b = army.budget, el = $('usage'), focus = document.activeElement?.dataset?.budget;
+  if (ui.budgetDrag) return; // a bar being dragged must not be rebuilt under the finger
+  const b = army.budget, el = $('usage'), focus = document.activeElement?.closest?.('.hit')?.dataset?.budget;
   const corps = b?.corps || [], five = b?.five_hour;
   el.hidden = !(five || b?.week_pct != null || corps.length);
   if (el.hidden) return;
@@ -433,59 +443,130 @@ function renderBudget() {
     const s = Math.max(0, Math.floor(t - now())), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
     return `resets in ${h >= 24 ? Math.floor(h / 24) + 'd ' + (h % 24) + 'h' : h ? h + 'h ' + m + 'm' : m + 'm'} · ${sameDay(t) ? '' : day(t) + ' '}${clock(t, false)}`;
   };
-  const slider = (c) => `<div class="set"><input type="range" min="0" max="100" step="1" value="${c.allowance == null ? 0 : Math.round(c.allowance)}" data-budget="${esc(c.name)}" data-was="${c.allowance == null ? 0 : 1}" aria-label="${esc(c.name)} weekly budget, % of the week (0 = none)" aria-valuetext="${c.allowance == null ? 'no budget' : Math.round(c.allowance) + '%'}">
-      <output>${c.allowance == null ? 'no budget' : Math.round(c.allowance) + '% of week'}</output>
-      <button type="button" data-budget-off="${esc(c.name)}" aria-label="turn off ${esc(c.name)} budget"${c.allowance == null ? ' hidden' : ''}>off</button></div>`;
   const bar = (name, text, ratio, color, sub, label, warn, extra = '') => `<div class="bud">
       <span class="name">${esc(name)}</span><span style="color: ${color}">${text}</span>
-      <span class="track" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>
-      ${sub ? `<span class="sub">${sub}</span>` : ''}${extra}</div>`;
+      ${extra || `<span class="track" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>`}
+      ${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
   const level = (p) => p >= 90 ? C.red : p >= 70 ? C.accent : C.green;
   const win = (name, p, t) => p == null ? '' : bar(name, pct(p), p / 100, level(p), until(t), `${name} account quota`);
-  const rows = corps.map((c) => {
-    if (c.allowance == null) {
-      return bar(c.name, `${pct(c.used)} of week`, c.used / 100, C.blue, null, `${c.name} share of the week`, null, slider(c));
-    }
-    const color = c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
-    return bar(c.name, `${pct(c.used)} / ${pct(c.allowance)} · ${Math.round(c.ratio * 100)}%`, c.ratio, color,
-      c.ratio >= 1 ? 'budget spent · Revives, resumes and asks held' : null, `${c.name} weekly budget`, b.warn, slider(c));
-  }).join('');
+  // Corps bars share one zoomed scale, 0..scale % of the week, so a 5% budget is not crammed into the
+  // left of a 0-100 bar: at least 25, else twice the largest use or budget (nothing sits past the middle),
+  // rounded up to 5, at most 100. Kept while a drag runs so the handle never moves under the pointer.
+  const big = Math.max(0, ...corps.map((c) => Math.max(c.used, c.allowance ?? 0)));
+  const scale = ui.budgetScale ?? Math.min(100, Math.max(25, Math.ceil(big * 2 / 5) * 5));
+  const corpsRow = (c) => {
+    const has = c.allowance != null, v = has ? Math.round(c.allowance) : 0;
+    const color = !has ? C.blue : c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
+    const note = ui.undo?.[c.name] && !has
+      ? `<span class="undo">budget cleared · <button type="button" data-undo="${esc(c.name)}">undo (${ui.undo[c.name].pct}%)</button></span>`
+      : c.ratio >= 1 ? '<span class="sub">budget spent · Revives, resumes and asks held</span>' : '';
+    const track = `<span class="hit" data-budget="${esc(c.name)}" data-was="${has ? 1 : 0}"><span class="track" role="meter" aria-label="${esc(c.name)} share of the week" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.used)}"><span class="fill" style="width: ${Math.min(100, c.used / scale * 100)}%; background: ${color}"></span></span>
+      <span class="mk${has ? '' : ' unset'}" tabindex="0" role="slider" aria-label="${esc(c.name)} weekly budget" aria-valuemin="1" aria-valuemax="100" ${has ? `aria-valuenow="${v}"` : ''} aria-valuetext="${has ? v + '% of the week' : 'no budget'}" style="left: ${has ? Math.min(100, c.allowance / scale * 100) : 0}%"></span>
+      <span class="tip"></span></span>`;
+    return bar(c.name, has ? `${pct(c.used)} / ${pct(c.allowance)}` : pct(c.used), 0, color, null, '', null, track).replace(/<\/div>$/, note + '</div>');
+  };
+  const rows = corps.map(corpsRow).join('');
   el.innerHTML = `<summary><h2>QUOTA</h2>${five ? `<span>5h ${pct(five.pct)}</span>` : ''}${b.week_pct != null ? `<span>7d ${pct(b.week_pct)}</span>` : ''}</summary>
     <div class="body"><div class="win">${win('5h', five?.pct, five?.resets_at)}${win('7d', b.week_pct, b.resets_at)}</div>
-    ${rows ? `<div class="cs">${rows}</div>` : ''}</div>`;
-  if (focus) el.querySelector(`input[data-budget="${CSS.escape(focus)}"]`)?.focus();
+    ${rows ? `<div class="cs">${rows}</div><div class="scale">corps bars: 0–${scale}% of the week · drag the handle or tap a bar to set a budget · drag it off the right end to clear</div>` : ''}</div>`;
+  if (focus) el.querySelector(`[data-budget="${CSS.escape(focus)}"] .mk`)?.focus();
 }
 
-// Budget sliders: drag shows the value, release commits (0 drops the budget),
-// the same write as `berthier budget <corps> <pct>|off`.
+// Budget bars: the usage bar is the control. Pointer down anywhere on a Corps's bar sets the budget there and
+// a drag adjusts it; release commits (the same write as `berthier budget <corps> <pct>|off`). Releasing in the
+// last 3% of the bar clears it (shown red as "off" while hovering there), and so does double-click or a long
+// press on the handle; a clear can be undone for a few seconds. Arrows +/-1, shift +/-5, Delete clears.
 async function setBudget(corps, pct) {
-  const el = $('usage');
   try {
     const res = await fetch('api/budget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps, pct }) });
     if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    return true;
   } catch (err) {
+    ui.budgetDrag = false; ui.budgetScale = null;
     renderBudget();
-    const row = [...el.querySelectorAll('.bud')].find((r) => r.querySelector('[data-budget]')?.dataset.budget === corps);
+    const row = [...$('usage').querySelectorAll('.hit')].find((r) => r.dataset.budget === corps)?.closest('.bud');
     row?.insertAdjacentHTML('beforeend', `<span class="err">not saved: ${esc(err.message)}</span>`);
+    return false;
   }
 }
-$('usage').addEventListener('pointerdown', (e) => { if (e.target.matches('input[data-budget]')) ui.budgetDrag = true; });
-const dragEnd = () => { if (ui.budgetDrag) { ui.budgetDrag = false; setTimeout(renderBudget, 0); } };
-document.addEventListener('pointerup', dragEnd);
-document.addEventListener('pointercancel', dragEnd);
-$('usage').addEventListener('input', (e) => {
-  if (!e.target.matches('input[data-budget]')) return;
-  const v = +e.target.value;
-  e.target.nextElementSibling.textContent = v ? v + '% of week' : 'no budget';
+const budgetOf = (corps) => army.budget?.corps?.find((c) => c.name === corps)?.allowance;
+async function commitBudget(corps, pct) { // pct null clears
+  const prev = budgetOf(corps);
+  if (pct == null && prev == null) return;
+  const ok = await setBudget(corps, pct);
+  ui.budgetDrag = false; ui.budgetScale = null;
+  if (ok && pct == null) {
+    (ui.undo ||= {})[corps] = { pct: Math.round(prev) };
+    setTimeout(() => { delete ui.undo[corps]; renderBudget(); }, 8000);
+  } else if (ok && ui.undo) delete ui.undo[corps];
+  renderBudget();
+}
+const drag = { hit: null, long: null, value: null, moved: false };
+function budgetAt(hit, x) { // pointer x -> pct, or null in the clearing zone
+  const r = hit.getBoundingClientRect(), f = Math.min(1, Math.max(0, (x - r.left) / r.width));
+  return f >= 0.97 ? null : Math.max(1, Math.round(f * ui.budgetScale));
+}
+function showBudget(hit, v) {
+  const mk = hit.querySelector('.mk'), tip = hit.querySelector('.tip');
+  mk.classList.remove('unset');
+  mk.style.left = (v == null ? 100 : Math.min(100, v / ui.budgetScale * 100)) + "%";
+  if (v != null) { mk.setAttribute('aria-valuenow', v); mk.setAttribute('aria-valuetext', v + '% of the week'); }
+  tip.textContent = v == null ? 'off' : v + '%';
+  tip.style.left = (v == null ? 100 : Math.min(96, v / ui.budgetScale * 100)) + '%';
+  hit.classList.add('live'); hit.classList.toggle('clearing', v == null);
+}
+$('usage').addEventListener('pointerdown', (e) => {
+  const hit = e.target.closest('.hit');
+  if (!hit || e.button) return;
+  const scale = $('usage').querySelector('.scale')?.textContent.match(/0–(\d+)%/);
+  ui.budgetScale = scale ? +scale[1] : 100;
+  ui.budgetDrag = true;
+  Object.assign(drag, { hit, moved: false, value: undefined, start: [e.clientX, e.clientY] });
+  hit.setPointerCapture(e.pointerId);
+  if (e.target.closest('.mk') && hit.dataset.was === '1') { // a long press on the handle clears
+    drag.long = setTimeout(() => { if (!drag.moved && drag.hit) { const h = drag.hit; drag.hit = null; commitBudget(h.dataset.budget, null); } }, 600);
+  } else { drag.value = budgetAt(hit, e.clientX); showBudget(hit, drag.value); drag.moved = true; }
 });
-$('usage').addEventListener('change', (e) => {
-  if (!e.target.matches('input[data-budget]')) return;
-  const v = +e.target.value;
-  if (v || e.target.dataset.was === '1') setBudget(e.target.dataset.budget, v || null); // 0 on an unset budget: nothing to drop
+$('usage').addEventListener('pointermove', (e) => {
+  if (!drag.hit) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+  drag.moved = true; clearTimeout(drag.long);
+  drag.value = budgetAt(drag.hit, e.clientX); showBudget(drag.hit, drag.value);
+});
+const dragEnd = (e) => {
+  clearTimeout(drag.long);
+  const { hit, value, moved } = drag;
+  if (!hit) return;
+  drag.hit = null;
+  if (e.type === 'pointercancel' || !moved) { ui.budgetDrag = false; ui.budgetScale = null; renderBudget(); return; }
+  commitBudget(hit.dataset.budget, value);
+};
+$('usage').addEventListener('pointerup', dragEnd);
+$('usage').addEventListener('pointercancel', dragEnd);
+$('usage').addEventListener('dblclick', (e) => {
+  const mk = e.target.closest('.mk'), hit = mk?.closest('.hit');
+  if (hit && hit.dataset.was === '1') commitBudget(hit.dataset.budget, null);
 });
 $('usage').addEventListener('click', (e) => {
-  const off = e.target.closest('button[data-budget-off]');
-  if (off) setBudget(off.dataset.budgetOff, null);
+  const u = e.target.closest('button[data-undo]');
+  if (u) { const c = u.dataset.undo; commitBudget(c, ui.undo[c].pct); }
+});
+let keyTimer;
+$('usage').addEventListener('keydown', (e) => {
+  const mk = e.target.closest('.mk');
+  if (!mk) return;
+  const hit = mk.closest('.hit'), corps = hit.dataset.budget;
+  const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+  let v = ui.keyValue?.[corps] ?? budgetOf(corps);
+  if (e.key === 'Delete' || e.key === 'Backspace') v = null;
+  else if (step) v = Math.min(100, Math.max(1, Math.round(v ?? 0) + step * (e.shiftKey ? 5 : 1)));
+  else return;
+  e.preventDefault();
+  ui.budgetDrag = true; ui.budgetScale ??= +($('usage').querySelector('.scale')?.textContent.match(/0–(\d+)%/)?.[1] ?? 100);
+  (ui.keyValue ||= {})[corps] = v;
+  showBudget(hit, v);
+  clearTimeout(keyTimer);
+  keyTimer = setTimeout(() => { delete ui.keyValue[corps]; commitBudget(corps, v); }, 450);
 });
 
 function renderRows(rows) {
