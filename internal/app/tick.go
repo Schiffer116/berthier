@@ -100,7 +100,18 @@ func (e *Env) Tick() error {
 
 	// --- Restart: nudge an Agent whose turn the restart cut off, once.
 	for _, p := range out.Proceed {
-		if err := e.H.PromptAgent(p.PaneID, e.RestartPrompt); err == nil {
+		// Herdr may still list the pane without its agent for a moment, and
+		// a missed nudge is never retried: try a few times.
+		var err error
+		for try := 0; try < 5; try++ {
+			if try > 0 {
+				time.Sleep(3 * time.Second)
+			}
+			if err = e.H.PromptAgent(p.PaneID, e.RestartPrompt); err == nil {
+				break
+			}
+		}
+		if err == nil {
 			e.Event("continued", fmt.Sprintf("continued %s in %s: restart interrupted its turn", p.Name, p.PaneID), p.Ev)
 		} else {
 			e.Event("continue_failed", fmt.Sprintf("continue failed: %s in %s (restart): %s", p.Name, p.PaneID, err), with(p.Ev, "why", err.Error()))
