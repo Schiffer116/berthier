@@ -30,6 +30,8 @@ Keep this current: merge and prune, never a log.
 
 `notes.md` is session continuity: open threads (Corps, pane, what resolves it),
 commitments to the user, recent decisions. Update as you go; prune resolved.
+A failure a Division finds already on master: an open thread there, and a
+line in every new Brief until fixed, so no Division chases it twice.
 
 @notes.md
 
@@ -37,11 +39,17 @@ commitments to the user, recent decisions. Update as you go; prune resolved.
 
 - Grand Army: `state/state.json`, `herdr agent list`, `herdr workspace list`;
   `herdr --skill` for the CLI.
-- Check-in: `herdr agent read <pane> --source visible` (more lines than the
-  screen make Herdr scroll the user's view of an idle Agent).
-  Text after an idle `❯` is Claude Code's suggested prompt, not a user draft.
-- Nudge: `berthier prompt <pane> "<text>"` (confirms Claude took it; a bare
-  `herdr agent prompt` can leave a draft).
+- Check-in: `berthier last <pane>` (the Agent's final message, from its
+  transcript). For the live screen (a dialog, a blocked question):
+  `herdr agent read <pane> --source visible` (more lines than the screen make
+  Herdr scroll the user's view). Text after an idle `❯` is Claude Code's
+  suggested prompt, not a user draft.
+- Review a finished Division of yours: `berthier last <pane>`, its diff, then
+  `berthier land <division>` (merge, checks, rebuild, restart what changed;
+  conflict or failed check leaves master as it was). `division-done` only
+  after the user reviewed.
+- Nudge: `berthier prompt <pane> "<text>"` (`-` reads stdin; confirms Claude
+  took it; a bare `herdr agent prompt` can leave a draft).
 - Speak when you end a turn needing the user:
   `~/.claude/skills/notify-user/speak.sh "<corps>: <what>"` (loop already speaks
   blocked Agents and failed Revives).
