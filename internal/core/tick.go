@@ -111,6 +111,16 @@ type TickIn struct {
 	Usage     Usage
 	Budgets   map[string]float64
 	Obs       map[string]Obs
+	Spend     SpendBrief
+}
+
+// SpendBrief is what the Main Loop needs of the Profile: this quota week's
+// ranked Waste signals (for a Corps's budget warning) and last week's Spend
+// (for the weekly optimizer review).
+type SpendBrief struct {
+	Waste         []WasteItem
+	LastWeekUSD   float64
+	LastWeekWaste float64
 }
 
 // Fields are an event's fields: whichever of pane, corps, name, session, to,
@@ -746,6 +756,10 @@ func Tick(in TickIn) TickOut {
 			to = ptr(p)
 		}
 		pct := int64(math.Floor(*c.Ratio * 100))
+		waste := ""
+		if l := WasteLine(in.Spend.Waste, c.Name, 3); l != "" {
+			waste = fmt.Sprintf(". Its top Waste signals this week: %s; details: berthier profile --waste --corps %s", l, c.Name)
+		}
 		var paneID *string
 		if to != nil && berthier != nil && *to == *berthier {
 			paneID = berthier
@@ -753,8 +767,8 @@ func Tick(in TickIn) TickOut {
 		warn = append(warn, Escalation{
 			Key: fmt.Sprintf("budget_warn:%s:%s", c.Name, week), PaneID: paneID, To: to,
 			Head: "[berthier-loop] Weekly budget:",
-			Text: fmt.Sprintf("%s has used %s%% of the week, %d%% of its %s%% budget: wind down low-value work, since at 100%% its Revives, usage-limit resumes and ask delivery are held",
-				c.Name, round1(c.Used), pct, Num(*c.Allowance)),
+			Text: fmt.Sprintf("%s has used %s%% of the week, %d%% of its %s%% budget: wind down low-value work, since at 100%% its Revives, usage-limit resumes and ask delivery are held%s",
+				c.Name, round1(c.Used), pct, Num(*c.Allowance), waste),
 			Ev: Fields{"why": "budget_warn", "reason": fmt.Sprintf("%d%% of weekly budget", pct), "corps": c.Name, "pct": pct},
 		})
 	}
@@ -904,6 +918,18 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 	cands = append(cands, warn...)
+
+	// --- Weekly optimizer: once a new quota week is an hour old, Berthier
+	// hears to have last week's Profile reviewed by an optimizer Division.
+	if ws := WeekStart(float64(now), in.Usage.ResetsAt); in.Usage.ResetsAt != nil && in.Spend.LastWeekUSD > 0 && float64(now) >= ws+3600 {
+		cands = append(cands, Escalation{
+			Key:  fmt.Sprintf("optimize:%s", Num(ws)),
+			Head: "[berthier-loop] Weekly Profile review:",
+			Text: fmt.Sprintf("last week the Grand Army spent $%.2f, $%.2f of it on Waste signals. Spawn an optimizer Division of your own (berthier division-new optimizer --model opus \"...\") to study `berthier profile --week 1` and `berthier profile --week 1 --waste` and propose environment changes (CLAUDE.md, models per Division, skills, hooks, Brief habits) as an Artifact for the user's approval; it never applies them itself",
+				in.Spend.LastWeekUSD, in.Spend.LastWeekWaste),
+			Ev: Fields{"why": "optimize", "reason": "weekly Profile review", "usd": round2(in.Spend.LastWeekUSD)},
+		})
+	}
 	events := []Escalation{}
 	for _, c := range cands {
 		if prevEsc[c.Key] != 0 {

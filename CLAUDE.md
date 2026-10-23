@@ -61,7 +61,10 @@ Check-in first, then:
 - `blocked`: tell the user which Agent and what it asks; never answer for them.
 - `working Nm`: progressing -> leave; stuck -> Nudge or tell the user.
 - `revive failed`: tell the user.
-- `Weekly budget` (a Corps without a Main Agent): tell the user; `berthier budget` shows usage.
+- `Weekly budget` (a Corps without a Main Agent): tell the user; `berthier budget` shows usage,
+  `berthier profile --waste --corps <c>` where it went.
+- `Weekly Profile review`: spawn the optimizer Division it asks for; its proposal is an
+  Artifact for the user, never applied without their approval.
 - `ask undelivered` / `asks bouncing`: read both sides; settle or tell the user.
 
 ## Judgment

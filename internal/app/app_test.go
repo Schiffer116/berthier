@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,10 +31,42 @@ func (s *sandbox) getenv(k string) string {
 	if v, ok := s.env[k]; ok {
 		return v
 	}
-	if k == "HOME" {
+	switch k {
+	case "HOME":
 		return s.home
+	case "CLAUDE_CONFIG_DIR": // never the user's own transcripts
+		return filepath.Join(s.home, "claude")
 	}
 	return ""
+}
+
+// spend appends a turn to a session's transcript in the sandbox's Claude
+// directory: a prompt, then a reply on claude-opus-5-5 that Spent usd ($20
+// per million output tokens) at ts.
+func (s *sandbox) spend(session, cwd string, ts, usd float64) {
+	s.t.Helper()
+	dir := filepath.Join(s.home, "claude", "projects", "p")
+	os.MkdirAll(dir, 0o755)
+	f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	defer f.Close()
+	at := time.UnixMilli(int64(ts * 1000)).UTC().Format(time.RFC3339Nano)
+	fmt.Fprintf(f, `{"type":"user","sessionId":%q,"cwd":%q,"timestamp":%q,"message":{"role":"user","content":"go"}}`+"\n", session, cwd, at)
+	fmt.Fprintf(f, `{"type":"assistant","sessionId":%q,"cwd":%q,"timestamp":%q,"message":{"id":"m%v","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":0,"output_tokens":%d}}}`+"\n",
+		session, cwd, at, ts, int64(usd/20*1e6+0.5))
+}
+
+// ledger appends a quota row as `berthier sample` writes it, at ts.
+func (s *sandbox) ledger(ts float64, session string, week float64, resets ...float64) {
+	r := 1800000000.0
+	if len(resets) > 0 {
+		r = resets[0]
+	}
+	f, _ := os.OpenFile(filepath.Join(s.home, "ledger.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	defer f.Close()
+	fmt.Fprintf(f, `{"ts":%v,"session":%q,"cwd":"/x","cost":0,"week_pct":%v,"resets_at":%.0f}`+"\n", ts, session, week, r)
 }
 
 // sh runs a command; the result is stdout and stderr, then the exit status.
@@ -74,6 +107,14 @@ func jq(t *testing.T, s, path string) string {
 	}
 	for _, k := range strings.Split(path, ".") {
 		if k == "" {
+			continue
+		}
+		if l, ok := v.([]any); ok {
+			i, err := strconv.Atoi(k)
+			if err != nil || i >= len(l) {
+				return "null"
+			}
+			v = l[i]
 			continue
 		}
 		m, ok := v.(map[string]any)
@@ -149,17 +190,18 @@ func TestBudgetFlow(t *testing.T) {
 	s := newSandbox(t)
 	s.write("state.json", stateJSON)
 	s.write("divisions.json", `{"dark-mode": {"corps": "skipli", "worktree": true}}`)
-	sample := func(session, cwd string, cost, week float64, resets ...float64) {
-		s.sh(status(session, cwd, cost, week, resets...), "sample")
-	}
-	sample("a", "/r/skipli", 0, 40)
-	sample("d", "/h/dark-mode", 0, 40)
-	sample("c", "/r/dot", 0, 40)
-	sample("a", "/r/skipli", 3, 41)
-	sample("d", "/h/dark-mode", 1, 41)
-	sample("c", "/r/dot", 1, 43)
-	sample("a", "/r/skipli", 4, 44)
-	sample("c", "/r/dot", 2, 46)
+	// Each rise in week_pct is split by the transcript Spend since the last.
+	base := float64(time.Now().Unix() - 7200)
+	s.ledger(base, "a", 40)
+	s.spend("a", "/r/skipli", base+5, 3)
+	s.ledger(base+10, "a", 41) // +1: skipli
+	s.spend("d", "/h/dark-mode/src", base+15, 1)
+	s.spend("c", "/r/dot", base+16, 1)
+	s.ledger(base+20, "c", 43) // +2: skipli (its Division) and dotfiles
+	s.spend("a", "/r/skipli", base+25, 1)
+	s.ledger(base+30, "a", 44) // +1: skipli
+	s.spend("c", "/r/dot", base+35, 2)
+	s.ledger(base+40, "c", 46) // +2: dotfiles
 	s.sh("", "budget")
 	eq(t, "split by corps", jq(t, s.read("usage.json"), "by_corps"), `{"dotfiles":3,"skipli":3}`)
 	eq(t, "week tracked", jq(t, s.read("usage.json"), "week_pct")+jq(t, s.read("usage.json"), "resets_at"), "461800000000")
@@ -167,9 +209,15 @@ func TestBudgetFlow(t *testing.T) {
 	eq(t, "folded rows are not folded twice", jq(t, s.read("usage.json"), "by_corps.skipli"), "3")
 
 	// A new window starts over.
-	sample("a", "/r/skipli", 7, 3, 1900000000)
+	s.spend("a", "/r/skipli", base+45, 1)
+	s.ledger(base+50, "a", 3, 1900000000)
 	s.sh("", "budget")
 	eq(t, "new window resets", jq(t, s.read("usage.json"), "resets_at")+jq(t, s.read("usage.json"), "week_pct"), "19000000003")
+
+	// A record attributed the old way is refolded from the whole ledger once.
+	s.write("usage.json", `{"by_corps":{"other":3},"offset":999999}`)
+	s.sh("", "budget")
+	eq(t, "old record refolded", jq(t, s.read("usage.json"), "by_corps")+jq(t, s.read("usage.json"), "source"), `{"skipli":3}"transcripts"`)
 
 	// budget: set, show, drop.
 	out, _, _ := s.sh("", "budget", "skipli", "10")
@@ -225,14 +273,17 @@ func TestLedgerRotation(t *testing.T) {
 	s := newSandbox(t)
 	s.write("state.json", stateJSON)
 	s.env["BERTHIER_LEDGER_MAX"] = "300"
+	base := float64(time.Now().Unix() - 7200)
 	for i := 1; i <= 5; i++ {
-		s.sh(status("r", "/r/dot", float64(i), float64(i+10)), "sample")
+		s.spend("r", "/r/dot", base+float64(i*10)-5, 1)
+		s.ledger(base+float64(i*10), "r", float64(i+10))
 	}
 	s.sh("", "budget")
 	_, prev := os.Stat(filepath.Join(s.home, "ledger.jsonl.prev"))
 	_, cur := os.Stat(filepath.Join(s.home, "ledger.jsonl"))
 	eq(t, "ledger rotated", fmt.Sprint(prev == nil, " ", cur == nil, " ", jq(t, s.read("usage.json"), "offset")), "true false 0")
-	s.sh(status("r", "/r/dot", 6, 20), "sample")
+	s.spend("r", "/r/dot", base+55, 1)
+	s.ledger(base+60, "r", 20)
 	s.sh("", "budget")
 	eq(t, "rotation loses nothing", jq(t, s.read("usage.json"), "by_corps.dotfiles"), "9")
 }

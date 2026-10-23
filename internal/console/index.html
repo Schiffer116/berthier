@@ -238,13 +238,84 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
 @media (max-width: 480px) { #skills li { grid-template-columns: minmax(0, 1fr); } }
 /* iOS zooms into any field under 16px when it takes focus. */
 @media (pointer: coarse) { .filter input, #send textarea { font-size: 16px; } }
+/* Profile: Spend of a quota week (berthier profile). The Grand Army's place in the page;
+   the quota panel moves in above it while it is open. Corps table and ranked waste side by side, a session's turns below. */
+.views { display: flex; gap: 6px; }
+.views button { min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.views button:hover { color: var(--fg); }
+.views button[aria-selected="true"] { background: var(--sel); color: var(--bright); border-color: var(--blue); }
+.views button:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+#profile { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+#profile[hidden] { display: none; }
+@media (min-width: 1100px) { #profile { flex: 1 1 0; min-height: 0; overflow: auto; } }
+.top[hidden] { display: none; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.week { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.week button { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.week button:disabled { opacity: .4; cursor: default; }
+.week button:not(:disabled):hover { color: var(--fg); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kv { padding: 8px 12px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kv:last-child { border-right: 0; }
+.kv span { font-size: 11px; color: var(--dim); letter-spacing: .08em; }
+.kv b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.kv i { font-style: normal; font-size: 11px; color: var(--muted); }
+.origins { border-top: 1px solid var(--rule); padding: 8px 12px; display: grid; gap: 6px; }
+.stack { display: flex; height: 6px; background: var(--field); }
+.stack span { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 11px; color: var(--muted); }
+.legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; }
+.pcols { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) clamp(340px, 32vw, 520px); align-items: start; }
+@media (max-width: 1099px) { .pcols { grid-template-columns: minmax(0, 1fr); } }
+.hscroll { overflow-x: auto; }
+.prow { display: grid; grid-template-columns: minmax(150px, 1fr) 74px 54px 48px 70px 54px 70px 92px; gap: 10px; align-items: center; width: 100%; min-width: 600px; min-height: 32px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--rule); background: transparent; color: var(--fg); font: inherit; text-align: left; }
+.prow.thead { min-height: 26px; }
+.prow.thead > :not(:first-child) { text-align: right; }
+button.prow { cursor: pointer; }
+button.prow:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+button.prow:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.prow.pc { font-weight: 700; }
+.prow.pd { color: var(--soft); } .prow.pd .nm { padding-left: 16px; }
+.prow.ps { color: var(--muted); font-size: 12px; min-height: 28px; } .prow.ps .nm { padding-left: 32px; }
+.prow[aria-pressed="true"] { background: var(--sel); }
+.prow.over { border-top: 1px solid var(--line); color: var(--soft); }
+.caret { display: inline-block; width: 12px; color: var(--dim); }
+.hot { color: var(--peach); } .low { color: var(--yellow); } .soft { color: var(--soft); }
+svg.spark { display: block; width: 92px; height: 20px; }
+.chip { display: inline-block; padding: 0 5px; font-size: 11px; line-height: 16px; border: 1px solid currentColor; white-space: nowrap; }
+.waste { list-style: none; margin: 0; padding: 0; }
+.waste li { border-bottom: 1px solid var(--rule); }
+.waste button { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; padding: 7px 12px; background: transparent; border: 0; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.waste button:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+.waste button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.waste .ev { grid-column: 2 / -1; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.k-bloat { color: var(--peach); } .k-cache_miss { color: var(--red); } .k-big_result { color: var(--yellow); } .k-reread { color: var(--sky); } .k-model { color: var(--mauve); }
+.trow { display: grid; grid-template-columns: 56px 64px 92px minmax(160px, 1fr) 40px 150px 64px; gap: 10px; align-items: center; min-width: 600px; min-height: 28px; padding: 0 12px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.trow.waste-t { background: color-mix(in srgb, var(--peach) 7%, transparent); }
+.trow.hl { outline: 1px solid var(--peach); outline-offset: -1px; }
+.ctx { position: relative; height: 6px; background: var(--field); }
+.ctx span { position: absolute; inset: 0 auto 0 0; background: var(--blue); }
+.ctx span.big { background: var(--peach); }
+.ctx em { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--dim); }
+.o-user { color: var(--fg); } .o-ask { color: var(--blue); } .o-loop { color: var(--green); } .o-task { color: var(--teal); }
+.o-subagent { color: var(--mauve); } .o-notify { color: var(--sky); } .o-brief { color: var(--accent); } .o-continue, .o-resume { color: var(--yellow); }
+@media (max-width: 699px) {
+  .prow { grid-template-columns: minmax(110px, 1fr) 64px 56px 62px; min-width: 0; }
+  .prow > :nth-child(3), .prow > :nth-child(4), .prow > :nth-child(6), .prow > :nth-child(8) { display: none; }
+  .trow { grid-template-columns: 48px 60px minmax(0, 1fr) 60px; min-width: 0; }
+  .trow > :nth-child(3), .trow > :nth-child(5), .trow > :nth-child(6) { display: none; }
+  .kv { border-right: 0; border-bottom: 1px solid var(--rule); }
+}
 </style>
 </head>
 <body>
 <div class="app">
   <header class="bar">
     <span class="brand">berthier</span>
-    <span class="dim">▸ grand army</span>
+    <span class="views" role="tablist" aria-label="view">
+      <button type="button" role="tab" id="view-army" aria-selected="true" aria-controls="top">grand army</button>
+      <button type="button" role="tab" id="view-profile" aria-selected="false" aria-controls="profile">profile</button>
+    </span>
     <span class="loop" id="loop"><span class="dim">connecting…</span></span>
     <span class="muted" id="fresh"></span>
     <span class="grow"></span>
@@ -257,7 +328,7 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
   </header>
 
   <main>
-    <div class="top">
+    <div class="top" id="top">
       <section id="army" class="panel-col" aria-labelledby="army-h">
         <div class="ph">
           <h2 id="army-h">GRAND ARMY <small id="army-sub"></small></h2>
@@ -297,6 +368,35 @@ ol { margin: 0; padding: 6px 12px; list-style: none; }
             <span class="dim" id="send-status" role="status"></span>
           </div>
         </form>
+      </section>
+    </div>
+
+    <div id="profile" aria-label="profile" hidden>
+      <section aria-labelledby="prof-h">
+        <div class="ph">
+          <h2 id="prof-h">SPEND <small id="prof-sub"></small></h2>
+          <span class="week">
+            <button type="button" id="week-prev" aria-label="previous quota week">‹</button>
+            <span id="week-label"></span>
+            <button type="button" id="week-next" aria-label="next quota week">›</button>
+          </span>
+        </div>
+        <div id="usage-slot"></div>
+        <div class="psum" id="psum"><div class="empty">loading the Profile…</div></div>
+      </section>
+      <div class="pcols">
+        <section aria-labelledby="pc-h">
+          <div class="ph"><h2 id="pc-h">BY CORPS <small>· a Corps opens its Divisions, a Division its sessions</small></h2></div>
+          <div class="hscroll"><div id="ptable"></div></div>
+        </section>
+        <section aria-labelledby="pw-h">
+          <div class="ph"><h2 id="pw-h">WASTE <small>· ranked by $ · opens the turn</small></h2></div>
+          <ol class="waste" id="pwaste"></ol>
+        </section>
+      </div>
+      <section aria-labelledby="pt-h">
+        <div class="ph"><h2 id="pt-h">TURNS <small id="pt-sub"></small></h2><span class="dim">context peak: tick at 150k</span></div>
+        <div class="hscroll"><div id="pturns"><div class="empty">pick a session in the table, or a waste signal</div></div></div>
       </section>
     </div>
 
@@ -1066,6 +1166,160 @@ events.onerror = () => { connected = false; render(); };
 
 // Installable: the worker keeps the page itself for opening offline (sw.js).
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker:', err));
+// --- Profile: Spend of a quota week (GET api/profile = berthier profile), read
+// when the view opens and every 30s while it is open. The view keeps what the
+// viewer opened and picked across refreshes.
+const prof = { on: false, week: 0, data: null, open: new Set(), openDiv: new Set(), session: null, turns: null, hl: null, timer: null };
+const PO = ['user', 'ask', 'loop', 'notify', 'brief', 'continue', 'resume', 'task', 'subagent'];
+const PC = { user: 'var(--fg)', ask: 'var(--blue)', loop: 'var(--green)', notify: 'var(--sky)', brief: 'var(--accent)', continue: 'var(--yellow)', resume: 'var(--yellow)', task: 'var(--teal)', subagent: 'var(--mauve)' };
+const KIND = { bloat: 'context bloat', cache_miss: 'cache miss', big_result: 'big result', reread: 're-read', model: 'model' };
+const dollars = (v) => v == null ? '–' : '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+const pct1 = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';
+const tok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n ?? 0);
+const date = (t) => new Date(t * 1000).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+const when = (t) => new Date(t * 1000).toLocaleString('en', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+const model = (m) => (m || '').replace(/^claude-/, '');
+const short = (turn) => turn.replace(/^([0-9a-f]{8})[0-9a-f-]*/, '$1'); // session:n with the session's first 8
+
+function showView(profile) {
+  prof.on = profile;
+  $('view-army').setAttribute('aria-selected', !profile);
+  $('view-profile').setAttribute('aria-selected', profile);
+  $('top').hidden = profile;
+  $('profile').hidden = !profile;
+  // The quota panel goes with whichever view is open.
+  if (profile) $('usage-slot').append($('usage'));
+  else document.querySelector('#army .ph').after($('usage'));
+  history.replaceState(null, '', profile ? '#profile' : ui.sel ? '#' + ui.sel : location.pathname);
+  clearInterval(prof.timer);
+  if (profile) { loadProfile(); prof.timer = setInterval(loadProfile, 30000); }
+}
+$('view-army').addEventListener('click', () => showView(false));
+$('view-profile').addEventListener('click', () => showView(true));
+$('week-prev').addEventListener('click', () => { prof.week++; prof.session = prof.turns = prof.hl = null; loadProfile(); });
+$('week-next').addEventListener('click', () => { if (prof.week > 0) { prof.week--; prof.session = prof.turns = prof.hl = null; loadProfile(); } });
+
+async function loadProfile() {
+  try {
+    const r = await fetch(`api/profile?week=${prof.week}`);
+    if (!r.ok) throw new Error(await r.text());
+    prof.data = await r.json();
+    if (prof.data.corps.length && !prof.open.size) prof.open.add(prof.data.corps[0].name);
+    renderProfile();
+    if (prof.session) loadTurns(prof.session, prof.hl, false);
+  } catch (e) {
+    $('psum').innerHTML = `<div class="empty" style="color: var(--red)">Profile unavailable: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadTurns(session, hl, scroll = true) {
+  prof.session = session; prof.hl = hl;
+  try {
+    const r = await fetch(`api/profile?week=${prof.week}&session=${encodeURIComponent(session)}`);
+    if (!r.ok) throw new Error(await r.text());
+    prof.turns = (await r.json()).turns || [];
+  } catch (e) { prof.turns = null; $('pturns').innerHTML = `<div class="empty" style="color: var(--red)">${esc(e.message)}</div>`; return; }
+  renderTurns();
+  renderTable();
+  if (scroll) (document.querySelector('.trow.hl') || $('pturns')).scrollIntoView({ block: 'nearest' });
+}
+
+function spark(daily, top, start) {
+  const w = 92, h = 20, n = daily.length;
+  const last = prof.week ? n - 1 : Math.max(0, Math.min(n - 1, Math.floor((now() - start) / 86400)));
+  const x = (i) => 2 + i * (w - 4) / (n - 1), y = (v) => h - 2 - (top ? v / top : 0) * (h - 4);
+  const pts = daily.slice(0, last + 1).map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><line x1="2" x2="${w - 2}" y1="${h - 2}" y2="${h - 2}" stroke="var(--rule)" stroke-width="1"/>
+    <polygon points="2,${h - 2} ${pts.join(' ')} ${x(last).toFixed(1)},${h - 2}" fill="color-mix(in srgb, var(--accent) 18%, transparent)"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.2"/>
+    <circle cx="${x(last).toFixed(1)}" cy="${y(daily[last]).toFixed(1)}" r="2" fill="var(--accent)"/></svg>`;
+}
+
+function renderProfile() {
+  const d = prof.data, t = d.total;
+  $('week-label').textContent = `${date(d.week.start)} – ${date(d.week.end)}`;
+  $('week-next').disabled = prof.week === 0;
+  $('prof-sub').textContent = `· ${d.week.live ? 'this' : prof.week === 1 ? 'last' : prof.week + ' weeks ago:'} quota week · API-equivalent dollars from transcripts`;
+  const kv = (label, val, sub) => `<div class="kv"><span>${label}</span><b>${val}</b><i>${sub}</i></div>`;
+  const tt = t.totals, o = t.origins, ot = Object.values(o).reduce((a, b) => a + b, 0) || 1, ov = d.overhead?.totals.usd || 0;
+  const kinds = new Set(d.waste.map((w) => w.kind)).size;
+  $('psum').innerHTML = '<div class="tiles">' + kv('SPEND', dollars(tt.usd), `${tt.turns.toLocaleString()} turns${d.week_pct != null ? ` · account at ${d.week_pct}% of the week` : ''}`)
+    + kv('PER DELIVERED UNIT', dollars(t.usd_per_unit), `${t.units} units: commits landed, Divisions finished`)
+    + kv('CACHE HIT', pct1(tt.cache_hit), `${tok(tt.cache_read)} read · ${tok(tt.write_1h + tt.write_5m + (tt.write_unknown || 0))} written`)
+    + kv('WASTE', dollars(t.waste_usd), `${tt.usd ? Math.round(t.waste_usd / tt.usd * 100) : 0}% of Spend · ${kinds} kind${kinds === 1 ? '' : 's'}`)
+    + kv('COMMAND OVERHEAD', dollars(ov), `Berthier itself · ${tt.usd ? (ov / tt.usd * 100).toFixed(1) : 0}%`) + '</div>'
+    + `<div class="origins"><div class="stack">${PO.filter((k) => o[k] >= 0.005).map((k) => `<span title="${k} ${dollars(o[k])}" style="width: ${o[k] / ot * 100}%; background: ${PC[k]}"></span>`).join('')}</div>
+      <div class="legend"><span class="dim">TURN ORIGIN</span>${PO.filter((k) => o[k] >= 0.005).map((k) => `<span><i style="background: ${PC[k]}"></i>${k} ${dollars(o[k])}</span>`).join('')}</div></div>`;
+  renderTable();
+  $('pwaste').innerHTML = d.waste.length ? d.waste.map((w, i) => `<li><button type="button" data-w="${i}"><span class="k-${w.kind}"><span class="chip">${KIND[w.kind] || w.kind}</span></span>
+    <span class="clip soft">${esc(w.corps)}${w.division ? ' / ' + esc(w.division) : ''} <span class="dim">· ${w.turns} turn${w.turns > 1 ? 's' : ''}</span></span><span class="num">${dollars(w.usd)}</span>
+    <span class="ev">${esc(w.evidence)} <span class="dim">→ ${esc(short(w.turn))}</span></span></button></li>`).join('')
+    : '<li class="empty">no Waste signals this week</li>';
+  if (!prof.session) $('pt-sub').textContent = '';
+}
+
+function renderTable() {
+  const d = prof.data;
+  if (!d) return;
+  const top = Math.max(0.01, ...d.corps.flatMap((c) => c.daily), ...(d.overhead?.daily || []));
+  const hit = (v) => `<span class="num${v < 0.95 ? ' low' : ''}">${pct1(v)}</span>`;
+  const cells = (l, quota) => `<span class="num">${dollars(l.totals.usd)}</span><span class="num muted">${quota == null ? '–' : quota.toFixed(1) + '%'}</span>
+    <span class="num">${l.units || '–'}</span><span class="num">${dollars(l.usd_per_unit)}</span>${hit(l.totals.cache_hit)}
+    <span class="num ${l.totals.usd && l.waste_usd / l.totals.usd > 0.4 ? 'hot' : 'muted'}">${dollars(l.waste_usd)}</span><span>${spark(l.daily, top, d.week.start)}</span>`;
+  let h = `<div class="prow thead" aria-hidden="true"><span>CORPS / DIVISION</span><span>SPEND</span><span>QUOTA</span><span>UNITS</span><span>$/UNIT</span><span>CACHE</span><span>WASTE</span><span>BY DAY</span></div>`;
+  for (const c of d.corps) {
+    const o = prof.open.has(c.name);
+    h += `<button type="button" class="prow pc" data-c="${esc(c.name)}" aria-expanded="${o}"><span class="clip"><span class="caret">${o ? '▾' : '▸'}</span>${esc(c.name)}</span>${cells(c, c.quota_pct)}</button>`;
+    if (!o) continue;
+    for (const v of c.divisions) {
+      const key = c.name + '/' + v.name, od = prof.openDiv.has(key);
+      h += `<button type="button" class="prow pd" data-d="${esc(key)}" aria-expanded="${od}"><span class="clip nm"><span class="caret">${od ? '▾' : '▸'}</span>${v.name ? esc(v.name) : '<span class="muted">main agent</span>'}</span>${cells(v)}</button>`;
+      if (!od) continue;
+      for (const s of v.sessions) {
+        h += `<button type="button" class="prow ps" data-s="${esc(s.id)}" aria-pressed="${s.id === prof.session}"><span class="clip nm" title="${esc(s.prompt)}"><span class="o-${esc(s.origin)}">${esc(s.prompt || s.id.slice(0, 8))}</span></span>
+          <span class="num">${dollars(s.totals.usd)}</span><span class="num dim">${esc(model(s.model))}</span><span class="num">${s.totals.turns}</span><span></span>${hit(s.totals.cache_hit)}<span></span><span class="dim">${when(s.start)}</span></button>`;
+      }
+    }
+  }
+  if (d.overhead) h += `<div class="prow over"><span class="clip">command overhead <span class="dim">(berthier)</span></span>${cells(d.overhead, d.overhead.quota_pct)}</div>`;
+  if (!d.corps.length && !d.overhead) h += '<div class="empty">no Spend this week yet</div>';
+  $('ptable').innerHTML = h;
+}
+
+function renderTurns() {
+  const rows = (prof.turns || []).slice().reverse();
+  const sess = prof.data?.corps.flatMap((c) => c.divisions.flatMap((v) => v.sessions)).find((s) => s.id === prof.session);
+  $('pt-sub').textContent = `· ${prof.session}${sess?.prompt ? ' · ' + sess.prompt : ''}`;
+  let h = `<div class="trow thead dim" aria-hidden="true"><span>TURN</span><span>ORIGIN</span><span>WHEN</span><span>PROMPT</span><span class="num">CALLS</span><span>CONTEXT PEAK</span><span class="num">$</span></div>`;
+  for (const r of rows) {
+    const flag = r.bloat || r.miss || r.big || r.reread;
+    const w = Math.min(100, r.ctx_max / 450000 * 100);
+    h += `<div class="trow${flag ? ' waste-t' : ''}${r.id === prof.hl ? ' hl' : ''}" title="${esc(model(r.model))}"><span class="num dim">${esc(r.id.slice(r.id.lastIndexOf(':')))}</span><span class="o-${esc(r.origin)}">${esc(r.origin)}</span><span class="dim">${when(r.start)}</span>
+      <span class="clip" title="${esc(r.prompt)}">${esc(r.prompt)}</span><span class="num">${r.calls}</span>
+      <span style="display: grid; grid-template-columns: 1fr 38px; gap: 6px; align-items: center"><span class="ctx"><span class="${r.ctx_max > 150000 ? 'big' : ''}" style="width: ${w}%"></span><em style="left: ${150000 / 450000 * 100}%"></em></span><span class="num dim">${tok(r.ctx_max)}</span></span>
+      <span class="num">${dollars(r.usd)}</span></div>`;
+  }
+  if (!rows.length) h += '<div class="empty">no turns of this session in this week</div>';
+  $('pturns').innerHTML = h;
+}
+
+$('ptable').addEventListener('click', (e) => {
+  const b = e.target.closest('button.prow');
+  if (!b) return;
+  const flip = (set, k) => set.has(k) ? set.delete(k) : set.add(k);
+  if (b.dataset.c) flip(prof.open, b.dataset.c);
+  else if (b.dataset.d) flip(prof.openDiv, b.dataset.d);
+  else if (b.dataset.s) { loadTurns(b.dataset.s, null); return; }
+  renderTable();
+});
+$('pwaste').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-w]');
+  if (!b) return;
+  const w = prof.data.waste[+b.dataset.w];
+  prof.open.add(w.corps); prof.openDiv.add(w.corps + '/' + (w.division || ''));
+  loadTurns(w.session, w.turn);
+});
+if (location.hash === '#profile') { ui.sel = null; showView(true); }
 </script>
 </body>
 </html>

@@ -20,10 +20,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"berthier/internal/herdr"
 	"sync"
 	"time"
+
+	"berthier/internal/herdr"
 )
 
 //go:embed index.html
@@ -197,7 +197,17 @@ func GetAgent(h herdr.Client, pane string) (Agent, error) {
 	return Agent{ag.Agent, ag.AgentStatus, ag.AgentSession.Value}, nil
 }
 
+// ProfileSource is the Profile view (`berthier profile`) as JSON: a quota
+// week (0: this one), and a session whose turns to list ("" for none).
+type ProfileSource func(weeksAgo int, session string) ([]byte, error)
+
+// Handler serves the Console without a Profile.
 func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) http.Handler {
+	return HandlerWith(a, h, setBudget, tr, nil)
+}
+
+// HandlerWith serves the Console; profile feeds its Profile view.
+func HandlerWith(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts, profile ProfileSource) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -212,6 +222,27 @@ func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) h
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(v)
+	})
+	mux.HandleFunc("GET /api/profile", func(w http.ResponseWriter, r *http.Request) {
+		if profile == nil {
+			http.Error(w, "no profile", http.StatusNotFound)
+			return
+		}
+		week, err := strconv.Atoi(r.URL.Query().Get("week"))
+		if r.URL.Query().Get("week") == "" {
+			week, err = 0, nil
+		}
+		if err != nil || week < 0 || week > 52 {
+			http.Error(w, "week: a number of weeks ago, 0 to 52", http.StatusBadRequest)
+			return
+		}
+		b, err := profile(week, r.URL.Query().Get("session"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(b)
 	})
 	// JSON only: a cross-site form cannot send it without a CORS preflight,
 	// which this server never answers.
@@ -369,7 +400,7 @@ func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) h
 }
 
 // Serve runs the Console on addr until it fails.
-func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, claudeDir string, every time.Duration) error {
+func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, profile ProfileSource, claudeDir string, every time.Duration) error {
 	a := NewArmy()
 	go Poll(context.Background(), a, source, every)
 	l, err := net.Listen("tcp", addr)
@@ -378,5 +409,5 @@ func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget
 	}
 	// The bound address, so -addr 127.0.0.1:0 says which port it got.
 	log.Printf("serving the Grand Army console on http://%s", l.Addr())
-	return http.Serve(l, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
+	return http.Serve(l, HandlerWith(a, h, setBudget, NewTranscripts(claudeDir), profile))
 }

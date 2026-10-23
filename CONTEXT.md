@@ -67,7 +67,7 @@ A prompt Berthier sends to a live Agent to get it moving again.
 _Avoid_: ping, poke
 
 **Budget**:
-The share of the account's weekly (seven-day) quota a Corps may use, set with `berthier budget`. Soft: at 80% the Corps's Main Agent and the user are told once per week; at 100% the Main Loop holds that Corps's and its Divisions' Revives, usage-limit resumes and ask delivery, and nothing else. Usage is attributed from Claude Code's status line samples; a Division counts toward its Corps, unmapped sessions toward "other".
+The share of the account's weekly (seven-day) quota a Corps may use, set with `berthier budget`. Soft: at 80% the Corps's Main Agent and the user are told once per week; at 100% the Main Loop holds that Corps's and its Divisions' Revives, usage-limit resumes and ask delivery, and nothing else. Each rise in the account's weekly usage is split by the Spend of the turns since the last rise; a Division counts toward its Corps, Berthier's own Spend is Command overhead, Spend nobody's turns explain counts toward "other".
 _Avoid_: quota (that is the account's), limit (that is Claude's usage limit)
 
 **Spend**:

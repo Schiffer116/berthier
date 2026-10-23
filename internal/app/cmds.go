@@ -38,7 +38,7 @@ func (e *Env) ArmyView() core.ArmyView {
 	for id, s := range in.Usage.Sessions {
 		in.Costs[id] = s.Cost
 	}
-	in.Usage.Sessions, in.Usage.Acc = nil, nil
+	in.Usage.Sessions = nil
 	return core.Army(in)
 }
 
@@ -907,7 +907,7 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 		err := encode(&b, e.ArmyView())
 		return b.Bytes(), err
 	}
-	return console.Serve(*addr, source, e.H, e.setBudgetFor, *claude, *every)
+	return console.Serve(*addr, source, e.H, e.setBudgetFor, e.profileJSON, *claude, *every)
 }
 
 // cmdPrompt prompts the Agent in a pane and makes sure Claude took it
