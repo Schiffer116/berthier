@@ -25,6 +25,7 @@ type State struct {
 type Interrupt struct {
 	Name  *string `json:"name"`
 	Since int64   `json:"since"`
+	Tries int     `json:"tries,omitempty"` // continue nudges sent so far
 }
 
 // Corps is a workspace that is neither a Division nor Berthier's own.

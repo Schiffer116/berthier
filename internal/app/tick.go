@@ -74,7 +74,9 @@ func (e *Env) Tick() error {
 				args = append(args, "--model", m)
 			}
 		}
-		if _, err := e.H.Run(args...); err == nil {
+		// Herdr counts the start a success even if Claude exited at once
+		// (e.g. "No conversation found"): the pane is back at its shell.
+		if _, err := e.H.Run(args...); err == nil && !e.paneAtShell(r.PaneID) {
 			e.Event("revived", fmt.Sprintf("revived %s in %s (session %s)", r.Name, r.PaneID, r.SessionID), r.Ev)
 		} else {
 			e.Event("revive_failed", fmt.Sprintf("revive failed: %s in %s (session %s)", r.Name, r.PaneID, r.SessionID), r.Ev)
@@ -99,12 +101,11 @@ func (e *Env) Tick() error {
 		}
 	}
 
-	// --- Restart: nudge an Agent whose turn the restart cut off, once.
+	// --- Restart: nudge an Agent whose turn the restart cut off; core retries a failed nudge and logs giving up.
 	for _, p := range out.Proceed {
+		// A failed nudge is retried by later ticks (core keeps the session).
 		if err := e.H.PromptAgent(p.PaneID, core.Tag("[berthier continue]", e.RestartPrompt)); err == nil {
 			e.Event("continued", fmt.Sprintf("continued %s in %s: restart interrupted its turn", p.Name, p.PaneID), p.Ev)
-		} else {
-			e.Event("continue_failed", fmt.Sprintf("continue failed: %s in %s (restart): %s", p.Name, p.PaneID, err), with(p.Ev, "why", err.Error()))
 		}
 	}
 
@@ -256,6 +257,9 @@ func (e *Env) look(l core.Look, now int64) core.Obs {
 			out, err := e.H.Run("pane", "read", l.PaneID, "--source", "recent-unwrapped", "--lines", "20")
 			b := err == nil && core.ExitedDeliberately(string(out), sid)
 			o.Exited = &b
+		case "no_transcript":
+			b := !e.hasTranscript(sid)
+			o.NoTranscript = &b
 		case "at_shell":
 			b := e.paneAtShell(l.PaneID)
 			o.AtShell = &b
@@ -279,9 +283,17 @@ func (e *Env) look(l core.Look, now int64) core.Obs {
 // transcriptInterrupted reads the end of a session's transcript; an unknown
 // session counts as finished.
 func (e *Env) transcriptInterrupted(sid string) bool {
-	m, _ := filepath.Glob(filepath.Join(e.ClaudeDir, "projects", "*", sid+".jsonl"))
+	m := e.transcriptFiles(sid)
 	if len(m) == 0 {
 		return false
 	}
 	return core.TranscriptInterrupted(TailLines(m[0], 200))
 }
+
+func (e *Env) transcriptFiles(sid string) []string {
+	m, _ := filepath.Glob(filepath.Join(e.ClaudeDir, "projects", "*", sid+".jsonl"))
+	return m
+}
+
+// hasTranscript: Claude can only resume a session it saved.
+func (e *Env) hasTranscript(sid string) bool { return len(e.transcriptFiles(sid)) > 0 }

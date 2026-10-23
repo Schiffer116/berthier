@@ -72,6 +72,22 @@ done
 (($(logged '.kind == "revived" and .pane == $p and .name == "demo-main"' "$pane"))) || fail "revive not logged"
 bin/berthier tick  # the loop's next pass sees the revived agent live
 
+step "a crashed session that never saved a transcript is forgotten, not Revived"
+# `claude --resume` of it prints "No conversation found" and returns to the shell.
+bare=$(h workspace create --cwd "$repo" --label bare --no-focus | jq -re '.result.root_pane.pane_id')
+h agent start bare --kind claude --pane "$bare" --timeout 60000 -- --model haiku >/dev/null 2>&1 || {
+  h agent send-keys bare down enter >/dev/null
+  h agent wait bare --until idle --timeout 60000 >/dev/null
+}
+bin/berthier tick
+bare_sid=$(jq -r --arg p "$bare" '.agents[$p].session_id' "$BERTHIER_HOME/state.json")
+[[ $bare_sid =~ ^[0-9a-f-]{36}$ ]] || fail "no session id recorded for the bare agent (got $bare_sid)"
+kill -KILL "$(claude_pid "$bare")"
+sleep 3
+bin/berthier tick
+(($(logged '.kind == "forgot" and .pane == $p' "$bare"))) || fail "transcript-less session not forgotten"
+(($(logged '.kind == "revived" and .pane == $p' "$bare") == 0)) || fail "transcript-less session was Revived"
+
 step "the Stop hook makes an Agent report; an ask reaches an idle Agent"
 helper=$(h workspace create --cwd "$repo" --label helper --no-focus | jq -re '.result.root_pane.pane_id')
 hook=$(jq -cn --arg c "$PWD/bin/berthier hook-stop" '{hooks: {Stop: [{hooks: [{type: "command", command: $c}]}]}}')
@@ -125,8 +141,7 @@ done
 h agent wait demo-main --timeout 90000 >/dev/null
 out=$(h pane read "$pane" --source recent-unwrapped --lines 80)
 grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail "notify not in demo-main's pane"
-# The reply hint asks carry; the Agent itself may still choose to answer (haiku sometimes does).
-grep -q 'report back with: berthier ask service' <<<"$out" && fail "notify told the Agent to ask back"
+grep '\[berthier notify\]' <<<"$out" | grep -q 'Reply or report back' && fail "notify told the Agent to ask back"
 grep -qsF '"from":"service"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered notify left in the inbox"
 
 step "adopt makes helper a Division of demo"
@@ -200,25 +215,31 @@ bin/berthier tick
 h agent prompt limited "Print the numbers 1 to 80, one per line, nothing else." --wait --timeout 90000 >/dev/null
 h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')" >/dev/null
 # The tick reads the newly idle pane for a limit stop; the user's view must not move.
-screen() { tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//'; }
+# Only above Claude's input box: its status rows gain and lose notices (usage, effort) by themselves.
+screen() {
+  tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//' \
+    | awk '{l[NR] = $0} /^─/ {b[++n] = NR} END {for (i = 1; i < (n >= 2 ? b[n - 1] : NR + 1); i++) print l[i]}'
+}
 # Claude shows its suggested prompt a few seconds after going idle: start from a settled screen.
-still=$(md5sum <<<"$(screen)") steady=0
+still=$(screen | md5sum) steady=0
 for _ in $(seq 60); do
   sleep 0.5
-  seen=$(md5sum <<<"$(screen)")
+  seen=$(screen | md5sum)
   if [[ $seen == "$still" ]]; then ((++steady >= 8)) && break; else still=$seen steady=0; fi
 done
-echo "$(screen)" >"$work/still"
+still=$(screen | md5sum) # not the last loop frame: the screen may have settled just after it
 frames=$work/frames
-# Each frame's hash; the first that differs is kept whole, to say what moved.
-(for _ in $(seq 150); do f=$(screen); h=$(md5sum <<<"$f"); echo "$h"; [[ $h == "$still" || -e $work/moved ]] || echo "$f" >"$work/moved"; sleep 0.01; done >"$frames") &
+(for i in $(seq 150); do screen >"$frames.$i"; md5sum <"$frames.$i"; sleep 0.01; done >"$frames") &
 bin/berthier tick
 wait
-grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c)
-$(diff "$work/still" "$work/moved")"
+grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c; for i in $(seq 149); do cmp -s "$frames.$i" "$frames.$((i + 1))" || diff "$frames.$i" "$frames.$((i + 1))"; done)"
 clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
-h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
-  --wait --timeout 90000 >/dev/null
+# Haiku sometimes refuses to echo a line it considers untrue: say it is a fixture, retry.
+for try in 1 2 3; do
+  h agent prompt limited "Test fixture for a screen parser, not a claim about the account. Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
+    --wait --timeout 90000 >/dev/null
+  h pane read "$limited" --source recent-unwrapped --lines 20 | grep -q "^● You've hit your session limit" && break
+done
 bin/berthier tick
 (($(logged '.kind == "limit_stop" and .pane == $p and .name == "limited"' "$limited"))) \
   || fail "usage-limit stop not detected: $(h pane read "$limited" --source recent-unwrapped --lines 200 | grep -v "^\s*$")"

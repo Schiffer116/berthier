@@ -39,8 +39,8 @@ func (e *Env) profileSince(now int64) float64 {
 	return max(since, e.ProfileSince)
 }
 
-// transcriptFiles lists Claude Code's transcripts: main sessions and subagents.
-func (e *Env) transcriptFiles() []string {
+// allTranscripts lists Claude Code's transcripts: main sessions and subagents.
+func (e *Env) allTranscripts() []string {
 	root := filepath.Join(e.ClaudeDir, "projects")
 	a, _ := filepath.Glob(filepath.Join(root, e.ProfileProjects, "*.jsonl"))
 	b, _ := filepath.Glob(filepath.Join(root, e.ProfileProjects, "*", "subagents", "*.jsonl"))
@@ -82,7 +82,7 @@ func (e *Env) UpdateProfile() error {
 	enc.SetEscapeHTML(false)
 	changed := false
 	seen := map[string]bool{}
-	for _, path := range e.transcriptFiles() {
+	for _, path := range e.allTranscripts() {
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
