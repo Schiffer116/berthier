@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +29,7 @@ func (e *Env) ArmyView() core.ArmyView {
 	if st, err := os.Stat(e.State); err == nil {
 		available = float64(now-st.ModTime().Unix()) <= e.IntervalSecs*3
 	}
-	in := core.ArmyIn{Reports: e.ReadReports(), Inbox: e.ReadInbox(), Log: TailLines(e.Log, 2000),
+	in := core.ArmyIn{Reports: e.ReadReports(), Demos: e.ReadDemos(), Inbox: e.ReadInbox(), Log: TailLines(e.Log, 2000),
 		Budgets: e.ReadBudgets(), BudgetWarn: e.BudgetWarn, Available: available, Now: now,
 		Interval: e.IntervalSecs, ReviveMax: e.ReviveMax}
 	readJSON(e.State, &in.State)
@@ -534,6 +535,78 @@ func cmdReport(e *Env, args []string, io IO) error {
 		}
 	}
 	return writeAtomic(filepath.Join(e.Reports, sid+".json"), body)
+}
+
+// maxDemos caps one Agent's demo list; the oldest fall off.
+const maxDemos = 10
+
+// cmdDemo records where an Agent's demo or preview is hosted (state/demos/
+// <session>.json, newest first; the same URL is updated in place). Shown in
+// the Console's info panel. Like `report`, a no-op outside a Herdr Claude
+// session, so the global rule is safe everywhere.
+func cmdDemo(e *Env, args []string, io IO) error {
+	const usage = "usage: berthier demo <url> [label] | --clear [url] | --list"
+	sid, pane := e.getenv("CLAUDE_CODE_SESSION_ID"), e.getenv("HERDR_PANE_ID")
+	if len(args) == 0 {
+		return die("%s", usage)
+	}
+	if pane == "" || sid == "" {
+		return nil
+	}
+	ids := append(e.forkedFrom(sid, os.Getppid()), sid)
+	path := func(id string) string { return filepath.Join(e.Demos, id+".json") }
+	var list []core.Demo
+	readJSON(path(sid), &list)
+	switch args[0] {
+	case "--list":
+		for _, d := range list {
+			label := d.Label
+			if label == "" {
+				label = "-"
+			}
+			fmt.Fprintf(io.Out, "%s\t%s\n", d.URL, label)
+		}
+		return nil
+	case "--clear":
+		if len(args) > 2 {
+			return die("%s", usage)
+		}
+		kept := []core.Demo{}
+		for _, d := range list {
+			if len(args) == 2 && d.URL != args[1] {
+				kept = append(kept, d)
+			}
+		}
+		list = kept
+	default:
+		u, err := url.Parse(args[0])
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || len(args) > 2 || len(args[0]) > 500 {
+			return die("demo url must be http(s)://host...: %s", usage)
+		}
+		label := ""
+		if len(args) == 2 {
+			l := []rune(tidy(args[1]))
+			if len(l) > 60 {
+				l = l[:60]
+			}
+			label = string(l)
+		}
+		next := []core.Demo{{URL: args[0], Label: label, At: e.now()}}
+		for _, d := range list {
+			if d.URL != args[0] && len(next) < maxDemos {
+				next = append(next, d)
+			}
+		}
+		list = next
+	}
+	body, _ := json.Marshal(list)
+	body = append(body, '\n')
+	for _, id := range ids {
+		if err := writeAtomic(path(id), body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // cmdHookStop is a Claude Code Stop hook: an Agent in Herdr may not end a turn

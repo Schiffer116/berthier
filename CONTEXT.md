@@ -107,3 +107,7 @@ _Avoid_: message, ticket, relay
 **Report**:
 An Agent's own one-line status for the user, written at the end of every turn; "needs you" marks the ones waiting on the user.
 _Avoid_: summary, recap
+
+**Demo**:
+Where an Agent has a demo or preview of its work hosted, reported with `berthier demo <url> [label]` by each Main Agent and Division for itself; the Console's info panel lists it.
+_Avoid_: preview link, deployment

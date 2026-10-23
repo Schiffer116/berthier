@@ -18,10 +18,19 @@ type Report struct {
 	At   *int64 `json:"at"`
 }
 
+// Demo is a place an Agent reports its demo or preview lives
+// (state/demos/<session>.json holds a newest-first list).
+type Demo struct {
+	URL   string `json:"url"`
+	Label string `json:"label"`
+	At    int64  `json:"at"`
+}
+
 // ArmyIn is everything the view is joined from.
 type ArmyIn struct {
 	State      State
 	Reports    map[string]Report
+	Demos      map[string][]Demo // session id -> its Agent's demos, newest first
 	Inbox      []Ask
 	Costs      map[string]float64 // session id -> dollars (state/usage.json)
 	Divisions  Divisions
@@ -54,6 +63,7 @@ type AgentView struct {
 	NeedsYou       bool     `json:"needs_you"`
 	Report         *string  `json:"report"`
 	ReportAt       *int64   `json:"report_at"`
+	Demos          []Demo   `json:"demos"`
 }
 
 type DivisionView struct {
@@ -230,6 +240,7 @@ func Army(in ArmyIn) ArmyView {
 		if r, ok := in.Reports[deref(a.SessionID)]; ok {
 			line, v.ReportAt = &r.Line, r.At
 		}
+		v.Demos = append([]Demo{}, in.Demos[deref(a.SessionID)]...)
 		v.NeedsYou = (line != nil && needsRe.MatchString(*line)) || a.Status == "blocked"
 		if line != nil {
 			v.Report = ptr(needsStrip.ReplaceAllString(*line, ""))

@@ -15,36 +15,36 @@ import (
 
 // Env is the paths and tunables every command shares.
 type Env struct {
-	Root, Home                                string
-	State, Log, Inbox, Reports, Divisions     string
-	Ledger, Usage, Budgets                    string
-	H                                         herdr.Client
-	HerdrSession                              string
-	Interval                                  string // raw, as the loop prints it
-	IntervalSecs                              float64
-	BlockedAfter, LongAfter, DivisionSettle   int64
-	ReviveMax                                 int
-	ReviveBackoff, ReviveReset, EscalationTTL int64
-	SpeakAfter, AskStuck                      int64
-	PingpongMax                               int
-	LimitGrace, LimitRetry                    int64
-	LimitPrompt                               string
-	RestartGap, RestartWait, RestartSettle    int64
-	RestartPrompt                             string
-	LedgerMax                                 int64
-	ProfileWeeks                              int
-	ProfileSince                              float64
-	ProfileProjects                           string
-	BudgetWarn                                float64
-	Speak                                     string
-	DivisionModel                             string
-	StartTimeoutMS                            int64
-	PromptPoll                                time.Duration
-	ClaudeDir                                 string
-	Systemctl, ConsoleURL                     string
-	LandWait                                  time.Duration
-	Now                                       func() time.Time
-	getenv                                    func(string) string
+	Root, Home                                   string
+	State, Log, Inbox, Reports, Demos, Divisions string
+	Ledger, Usage, Budgets                       string
+	H                                            herdr.Client
+	HerdrSession                                 string
+	Interval                                     string // raw, as the loop prints it
+	IntervalSecs                                 float64
+	BlockedAfter, LongAfter, DivisionSettle      int64
+	ReviveMax                                    int
+	ReviveBackoff, ReviveReset, EscalationTTL    int64
+	SpeakAfter, AskStuck                         int64
+	PingpongMax                                  int
+	LimitGrace, LimitRetry                       int64
+	LimitPrompt                                  string
+	RestartGap, RestartWait, RestartSettle       int64
+	RestartPrompt                                string
+	LedgerMax                                    int64
+	ProfileWeeks                                 int
+	ProfileSince                                 float64
+	ProfileProjects                              string
+	BudgetWarn                                   float64
+	Speak                                        string
+	DivisionModel                                string
+	StartTimeoutMS                               int64
+	PromptPoll                                   time.Duration
+	ClaudeDir                                    string
+	Systemctl, ConsoleURL                        string
+	LandWait                                     time.Duration
+	Now                                          func() time.Time
+	getenv                                       func(string) string
 }
 
 // LoadEnv reads the BERTHIER_* variables (see CONTRIBUTING.md) from getenv.
@@ -76,6 +76,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Log = filepath.Join(e.Home, "loop.log")
 	e.Inbox = filepath.Join(e.Home, "inbox")
 	e.Reports = filepath.Join(e.Home, "reports")
+	e.Demos = filepath.Join(e.Home, "demos")
 	e.Divisions = filepath.Join(e.Home, "divisions.json")
 	e.Ledger = filepath.Join(e.Home, "ledger.jsonl")
 	e.Usage = filepath.Join(e.Home, "usage.json")
@@ -132,7 +133,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Systemctl = str("BERTHIER_SYSTEMCTL", "systemctl")
 	e.ConsoleURL = str("BERTHIER_CONSOLE_URL", "http://127.0.0.1:8430/")
 	e.LandWait = time.Duration(num("BERTHIER_LAND_WAIT", 120) * float64(time.Second))
-	for _, d := range []string{e.Home, e.Inbox, e.Reports} {
+	for _, d := range []string{e.Home, e.Inbox, e.Reports, e.Demos} {
 		os.MkdirAll(d, 0o755)
 	}
 	return e

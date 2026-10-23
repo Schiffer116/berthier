@@ -37,6 +37,8 @@ land <division>                     (Berthier) merge a Division of Berthier into
                                     the changed services and wait until they work; refuses on conflict or failure
 division-done <name>                (Main Agent) remove a spawned Division once the user reviewed it
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
+demo <url> [label]                (any Agent) where this Agent's demo or preview is hosted, shown in the Console's info panel;
+                                    --clear [url] drops one (or all), --list prints them
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
 notify <corps> "<text>"             (service, no pane needed) one-way message to a Corps's Main Agent, no reply expected
 prompt <pane> <text>|-              prompt the Agent in a pane and make sure Claude took it (not a bare herdr agent prompt);
@@ -117,6 +119,7 @@ func init() {
 		"division-done":      cmdDivisionDone,
 		"land":               cmdLand,
 		"report":             cmdReport,
+		"demo":               cmdDemo,
 		"ask":                cmdAsk,
 		"notify":             cmdNotify,
 		"prompt":             cmdPrompt,

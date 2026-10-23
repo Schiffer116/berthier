@@ -161,6 +161,18 @@ func (e *Env) ReadReports() map[string]core.Report {
 	return r
 }
 
+// ReadDemos is state/demos: session id -> the demos that Agent reported.
+func (e *Env) ReadDemos() map[string][]core.Demo {
+	r := map[string][]core.Demo{}
+	for _, f := range jsonFiles(e.Demos) {
+		var x []core.Demo
+		if readJSON(f, &x) {
+			r[fileID(filepath.Base(f))] = x
+		}
+	}
+	return r
+}
+
 func jsonFiles(dir string) []string {
 	m, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 	sort.Strings(m)

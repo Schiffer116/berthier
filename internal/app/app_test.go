@@ -446,3 +446,34 @@ func jq0(line, key string) string {
 	v, _ := m[key].(string)
 	return v
 }
+
+func TestDemo(t *testing.T) {
+	s := newSandbox(t)
+	s.write("state.json", `{"berthier": "b:p1", "corps": [{"name": "skipli", "agents": ["a:p1"], "divisions": []}], "agents": {"a:p1": {"status": "idle", "session_id": "s-a", "workspace_label": "skipli"}}}`)
+	s.env["CLAUDE_CONFIG_DIR"] = filepath.Join(s.home, "claude")
+	s.sh("", "demo", "http://localhost:5174")
+	m, _ := filepath.Glob(filepath.Join(s.home, "demos", "*.json"))
+	eq(t, "no-op outside herdr", len(m), 0)
+
+	s.env["HERDR_PANE_ID"], s.env["CLAUDE_CODE_SESSION_ID"] = "a:p1", "s-a"
+	s.sh("", "demo", "http://localhost:5174", "backfill\tprogress")
+	s.sh("", "demo", "https://x.example/preview")
+	s.sh("", "demo", "http://localhost:5174", "backfill v2") // same URL: updated in place, newest first
+	out, _, _ := s.sh("", "demo", "--list")
+	eq(t, "list", out, "http://localhost:5174\tbackfill v2\nhttps://x.example/preview\t-\n")
+	for _, bad := range []string{"javascript:alert(1)", "localhost:5174", "ftp://h/x", "not a url"} {
+		_, errs, code := s.sh("", "demo", bad)
+		if code == 0 || !strings.Contains(errs, "demo url must be http(s)") {
+			t.Errorf("demo %q: code %d stderr %q", bad, code, errs)
+		}
+	}
+	s.sh("", "demo", "--clear", "http://localhost:5174")
+	out, _, _ = s.sh("", "demo", "--list")
+	eq(t, "clear one", out, "https://x.example/preview\t-\n")
+
+	army, _, _ := s.sh("", "army")
+	eq(t, "army view", jq(t, army, "corps.0.agents.0.demos.0.url"), `"https://x.example/preview"`)
+	s.sh("", "demo", "--clear")
+	out, _, _ = s.sh("", "demo", "--list")
+	eq(t, "clear all", out, "")
+}
