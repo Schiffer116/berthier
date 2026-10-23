@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# A Herdr with one Claude Agent, for prompt_agent/start_claude and the
-# Console's PromptAgent. State lives next to this script: `mode` says how
-# Claude takes a prompt, `calls` logs each command, `text` the last prompt.
+# A Herdr with one Claude Agent, for prompt_agent/start_claude, the Console's
+# PromptAgent and the unit smoke test (an empty snapshot). State lives next to
+# this script: `mode` says how Claude takes a prompt, `calls` logs each
+# command, `text` the last prompt.
 #   takes  submits at once         draft  holds it until Enter (image paths)
 #   lost   drops the first paste   busy   working: queues it, no state change
 #   never  holds it whatever       error  Herdr refuses it
@@ -30,6 +31,7 @@ case "$1 $2" in
       draft | never) printf '%s' "$4" >"$d/box" ;;
       lost) (($(grep -c '^agent prompt' "$d/calls") > 1)) && bump ;;
     esac ;;
+  "api snapshot") echo '{"result":{"snapshot":{"workspaces":[],"agents":[],"panes":[]}}}' ;;
   "agent wait") touch "$d/answered" ;;
   "agent send-keys") [[ $mode == draft ]] && { rm -f "$d/box"; bump; } ;;
   "pane read") printf '%s\n' "────────────" "❯ $(cat "$d/box" 2>/dev/null)" "────────────" "  5h: 1%" ;;
