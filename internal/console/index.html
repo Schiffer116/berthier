@@ -433,7 +433,7 @@ function renderHeader(all) {
 function renderBudget() {
   if (ui.budgetDrag) return; // a bar being dragged must not be rebuilt under the finger
   const b = army.budget, el = $('usage'), focus = document.activeElement?.closest?.('.hit')?.dataset?.budget;
-  const corps = b?.corps || [], five = b?.five_hour;
+  const corps = (b?.corps || []).map(withPending), five = b?.five_hour;
   el.hidden = !(five || b?.week_pct != null || corps.length);
   if (el.hidden) return;
   if (!el.dataset.seen) { el.dataset.seen = '1'; el.open = !matchMedia('(max-width: 699px)').matches; } // compact on phones
@@ -487,12 +487,20 @@ async function setBudget(corps, pct) {
     return false;
   }
 }
-const budgetOf = (corps) => army.budget?.corps?.find((c) => c.name === corps)?.allowance;
+// A committed budget shows at once and stays until the next view model (up to 2s later) carries it, or 10s pass.
+function withPending(c) {
+  const p = ui.pending?.[c.name];
+  if (!p) return c;
+  if (Date.now() - p.at > 10000 || (p.pct == null ? c.allowance == null : c.allowance != null && Math.abs(c.allowance - p.pct) < 0.5)) { delete ui.pending[c.name]; return c; }
+  return { ...c, allowance: p.pct, ratio: p.pct == null ? null : c.used / p.pct };
+}
+const budgetOf = (corps) => { const c = army.budget?.corps?.find((c) => c.name === corps); return c && withPending(c).allowance; };
 async function commitBudget(corps, pct) { // pct null clears
   const prev = budgetOf(corps);
   if (pct == null && prev == null) { ui.budgetDrag = false; renderBudget(); return; }
   const ok = await setBudget(corps, pct);
   ui.budgetDrag = false;
+  if (ok) (ui.pending ||= {})[corps] = { pct, at: Date.now() };
   if (ok && pct == null) {
     (ui.undo ||= {})[corps] = { pct: Math.round(prev) };
     setTimeout(() => { delete ui.undo[corps]; renderBudget(); }, 8000);
