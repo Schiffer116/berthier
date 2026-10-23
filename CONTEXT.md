@@ -11,7 +11,7 @@ The chief-of-staff agent: whichever coding agent runs in Berthier's own reposito
 _Avoid_: orchestrator, controller, first mate
 
 **Notes**:
-Berthier's running record of open threads, commitments, and recent decisions, kept so any new Berthier session continues exactly where the last one stopped. How the user works is kept separately, in Berthier's own instructions.
+A Corps's running record of open threads, commitments, and recent decisions, kept with its Board so any new session of its Main Agent (Berthier included) continues exactly where the last one stopped. How the user works is kept separately, in instructions.
 _Avoid_: memory, journal, log
 
 **Main Loop**:
@@ -59,8 +59,16 @@ _Avoid_: army board, master board
 ### Supervision
 
 **Revive**:
-Restarting a crashed Agent by resuming its previous session; the only fix the Main Loop makes on its own. An Agent the user exited on purpose is never Revived.
+Restarting a crashed or usage-limited Agent by resuming its previous session; the only fix the Main Loop makes on its own, and only while the session's cache is still warm or the session is small. An Agent the user exited on purpose is never Revived.
 _Avoid_: restart, respawn
+
+**Frozen**:
+An Agent that needs a Revive but whose cache has gone cold, so resuming would pay to rewrite its whole context. It waits, its messages held, until the user chooses: Revive anyway, or a Fresh Start. Only the user decides.
+_Avoid_: cold, stuck, dead
+
+**Fresh Start**:
+Replacing a Frozen Agent's session with a new one in the same pane that rebuilds from what is written down: its Corps's notes, Board, last report and git (a Division also gets its Brief again). Nothing is cleared without the user's say.
+_Avoid_: reset, clear, respawn
 
 **Escalation**:
 The Main Loop handing Berthier an Agent problem it does not fix itself, such as a blocked, hung, or stalled Agent, or a failed Revive.
