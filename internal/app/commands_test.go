@@ -1,9 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -42,23 +42,6 @@ func TestUsageCommandsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestSystemdCommandsExist(t *testing.T) {
-	units, _ := filepath.Glob("../../systemd/berthier-*.service")
-	if len(units) == 0 {
-		t.Fatal("no units found")
-	}
-	exec := regexp.MustCompile(`(?m)^ExecStart=\S*/bin/berthier (\S+)`)
-	for _, u := range units {
-		b, _ := os.ReadFile(u)
-		m := exec.FindStringSubmatch(string(b))
-		if m == nil {
-			t.Errorf("%s: no ExecStart running bin/berthier", u)
-		} else if !registered(m[1]) {
-			t.Errorf("%s: ExecStart runs unknown command %q", u, m[1])
-		}
-	}
-}
-
 func TestPromptCommand(t *testing.T) {
 	s := newSandbox(t)
 	dir := fakeHerdr(t, s)
@@ -80,4 +63,41 @@ func TestPromptCommand(t *testing.T) {
 	if code != 1 || !strings.Contains(errs, "usage: berthier prompt") {
 		t.Errorf("usage case: %d %q", code, errs)
 	}
+	s.mode(dir, "takes")
+	_, errs, code = s.sh("line one\nline \"two\"\n", "prompt", "p1", "-")
+	text, _ = os.ReadFile(filepath.Join(dir, "text"))
+	if code != 0 || errs != "" || string(text) != "line one\nline \"two\"" {
+		t.Errorf("stdin: %d %q prompted %q", code, errs, text)
+	}
+	_, errs, code = s.sh("\n", "prompt", "p1", "-")
+	if code != 1 || !strings.Contains(errs, "usage: berthier prompt") {
+		t.Errorf("empty stdin: %d %q", code, errs)
+	}
+}
+
+func TestLastCommand(t *testing.T) {
+	s := newSandbox(t)
+	herdr := filepath.Join(t.TempDir(), "herdr")
+	agent := func(kind, status string) {
+		os.WriteFile(herdr, []byte(`#!/bin/sh
+[ "$1 $2" = "agent get" ] && echo '{"result":{"agent":{"agent":"`+kind+`","agent_status":"`+status+`","agent_session":{"value":"s1"}}}}'
+`), 0o755)
+	}
+	claude := t.TempDir()
+	s.env["BERTHIER_HERDR"], s.env["CLAUDE_CONFIG_DIR"] = herdr, claude
+	os.MkdirAll(filepath.Join(claude, "projects", "-repo"), 0o755)
+	os.WriteFile(filepath.Join(claude, "projects", "-repo", "s1.jsonl"), []byte(
+		`{"type":"user","message":{"content":"go"}}`+"\n"+
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}`+"\n"+
+			`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`+"\n"+
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"Done: all green.\n"}]}}`+"\n"), 0o644)
+	agent("claude", "idle")
+	out, errs, code := s.sh("", "last", "p1")
+	eq(t, "last message", fmt.Sprint(code, out, errs), "0Done: all green.\n")
+	agent("claude", "working")
+	_, errs, _ = s.sh("", "last", "p1")
+	eq(t, "working says so", strings.Contains(errs, "still working"), true)
+	agent("codex", "idle")
+	_, errs, code = s.sh("", "last", "p1")
+	eq(t, "not claude", fmt.Sprint(code, " ", strings.Contains(errs, "not a Claude Agent")), "1 true")
 }

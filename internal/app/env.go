@@ -38,6 +38,8 @@ type Env struct {
 	StartTimeoutMS                            int64
 	PromptPoll                                time.Duration
 	ClaudeDir                                 string
+	Systemctl, ConsoleURL                     string
+	LandWait                                  time.Duration
 	Now                                       func() time.Time
 	getenv                                    func(string) string
 }
@@ -116,6 +118,10 @@ func LoadEnv(getenv func(string) string) Env {
 	// Claude Code's own directory: live sessions (sessions/<pid>.json) and transcripts.
 	e.H = herdr.FromEnv(getenv, e.PromptPoll)
 	e.ClaudeDir = str("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	// `land` restarts services with this and waits up to LandWait for them to work.
+	e.Systemctl = str("BERTHIER_SYSTEMCTL", "systemctl")
+	e.ConsoleURL = str("BERTHIER_CONSOLE_URL", "http://127.0.0.1:8430/")
+	e.LandWait = time.Duration(num("BERTHIER_LAND_WAIT", 120) * float64(time.Second))
 	for _, d := range []string{e.Home, e.Inbox, e.Reports} {
 		os.MkdirAll(d, 0o755)
 	}

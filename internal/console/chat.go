@@ -193,6 +193,23 @@ func (t *Transcripts) Read(path string) ([]ChatItem, int64, error) {
 	return items, tr.offset, nil
 }
 
+// Last is the transcript's latest assistant text: the Agent's final message
+// once its turn is over.
+func (t *Transcripts) Last(path string) (ChatItem, bool) {
+	if _, _, err := t.Read(path); err != nil {
+		return ChatItem{}, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	items := t.files[path].items
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].Role == "assistant" {
+			return items[i], true
+		}
+	}
+	return ChatItem{}, false
+}
+
 type entry struct {
 	Type        string `json:"type"`
 	IsMeta      bool   `json:"isMeta"`

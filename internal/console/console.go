@@ -15,6 +15,7 @@ import (
 	"hash/fnv"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -173,6 +174,29 @@ func unscrolledLines(h herdr.Client, pane string, want int) int {
 	return min(want, got.Result.Pane.Scroll.Rows+got.Result.Pane.Scroll.Back)
 }
 
+// Agent is what Herdr says about the Agent in a pane.
+type Agent struct{ Kind, Status, Session string }
+
+// GetAgent is `herdr agent get <pane>`.
+func GetAgent(h herdr.Client, pane string) (Agent, error) {
+	var got struct {
+		Result struct {
+			Agent struct {
+				Agent        string `json:"agent"`
+				AgentStatus  string `json:"agent_status"`
+				AgentSession struct {
+					Value string `json:"value"`
+				} `json:"agent_session"`
+			} `json:"agent"`
+		} `json:"result"`
+	}
+	if err := h.JSON(&got, "agent", "get", pane); err != nil {
+		return Agent{}, fmt.Errorf("herdr agent get: %v", err)
+	}
+	ag := got.Result.Agent
+	return Agent{ag.Agent, ag.AgentStatus, ag.AgentSession.Value}, nil
+}
+
 func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -259,27 +283,15 @@ func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) h
 			http.Error(w, "no such agent: "+pane, http.StatusNotFound)
 			return
 		}
-		var got struct {
-			Result struct {
-				Agent struct {
-					Agent        string `json:"agent"`
-					AgentStatus  string `json:"agent_status"`
-					AgentSession struct {
-						Value string `json:"value"`
-					} `json:"agent_session"`
-				} `json:"agent"`
-			} `json:"result"`
-		}
-		out, err := h.Command("agent", "get", pane).Output()
-		if err != nil || json.Unmarshal(out, &got) != nil {
-			http.Error(w, fmt.Sprintf("herdr agent get: %v", err), http.StatusBadGateway)
+		ag, err := GetAgent(h, pane)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		ag := got.Result.Agent
-		res := map[string]any{"status": ag.AgentStatus, "kind": ag.Agent}
+		res := map[string]any{"status": ag.Status, "kind": ag.Kind}
 		// A Claude Code Agent shows its transcript; anything else, its terminal.
-		if ag.Agent == "claude" && ag.AgentSession.Value != "" {
-			if path := tr.Path(ag.AgentSession.Value); path != "" {
+		if ag.Kind == "claude" && ag.Session != "" {
+			if path := tr.Path(ag.Session); path != "" {
 				if items, rev, err := tr.Read(path); err == nil {
 					res["source"], res["session"], res["rev"], res["items"] = "transcript", strings.TrimSuffix(filepath.Base(path), ".jsonl"), rev, items
 					res["info"] = tr.Info(path)
@@ -360,6 +372,11 @@ func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) h
 func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, claudeDir string, every time.Duration) error {
 	a := NewArmy()
 	go Poll(context.Background(), a, source, every)
-	log.Printf("serving the Grand Army console on http://%s", addr)
-	return http.ListenAndServe(addr, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	// The bound address, so -addr 127.0.0.1:0 says which port it got.
+	log.Printf("serving the Grand Army console on http://%s", l.Addr())
+	return http.Serve(l, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
 }
