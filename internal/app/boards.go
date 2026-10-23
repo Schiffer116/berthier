@@ -170,7 +170,8 @@ func (e *Env) EnsureBoard(label, adopt string) (string, error) {
 // a new task in a Corps's card, or a new card or task on its own Board, goes
 // to the inbox for its Main Agent (delivered like an ask: when idle, held
 // while it works or its Corps is over budget). The first poll of a Board only
-// seeds. Trouble is escalated to Berthier once, until it clears.
+// seeds. Trouble (no Session, a Board that cannot be read, a card too big) is
+// escalated to Berthier once, until it clears.
 func (e *Env) pollBoards(out core.TickOut) {
 	now := e.now()
 	unlock, err := lockFile(filepath.Join(e.Home, "boards.lock"), false)
@@ -207,10 +208,11 @@ func (e *Env) pollBoards(out core.TickOut) {
 			break
 		}
 		if err != nil {
-			e.Event("board_error", fmt.Sprintf("board %s not read: %s", id, err), core.Fields{"board": id, "why": err.Error()})
+			once("error:"+id, "board_error", fmt.Sprintf("Board %s not read (%s); its Corps get no new tasks until it works", id, err))
 			continue
 		}
 		delete(s.Alerts, "session")
+		delete(s.Alerts, "error:"+id)
 		corpsOf := byBoard[id]
 		sort.Strings(corpsOf)
 		keep := s.Seen[id]

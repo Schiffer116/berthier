@@ -137,6 +137,22 @@ board|skipli|[board] new task t-ui1 "dark mode" on Skipli`)
 	e.pollBoards(out)
 	eq(t, "alert re-arms after recovery", prompts(), 3)
 
+	// --- any other failure is escalated once too, and re-arms
+	os.Remove(filepath.Join(sk, "expired"))
+	os.WriteFile(filepath.Join(sk, "broken"), nil, 0o644)
+	e.pollBoards(out)
+	e.pollBoards(out)
+	eq(t, "error alert once", prompts(), 4)
+	if txt := readFile(filepath.Join(hd, "text")); !strings.Contains(txt, "not read") || !strings.Contains(txt, "exec: not found") {
+		t.Errorf("error text: %q", txt)
+	}
+	os.Remove(filepath.Join(sk, "broken"))
+	e.pollBoards(out)
+	os.WriteFile(filepath.Join(sk, "broken"), nil, 0o644)
+	e.pollBoards(out)
+	eq(t, "error alert re-arms", prompts(), 5)
+	os.Remove(filepath.Join(sk, "broken"))
+
 	// --- polled at most every BERTHIER_BOARD_POLL seconds
 	os.Remove(filepath.Join(sk, "expired"))
 	e.BoardPoll = 3600

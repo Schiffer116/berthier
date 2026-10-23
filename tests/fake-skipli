@@ -4,11 +4,13 @@
 #   boards  lines  <board>|<name>
 #   cards   lines  <board>|<card>|<name>
 #   tasks   lines  <card>|<task>|<name>|<status>
+#   broken   exists: every command fails with an error that is not about logging in
 #   expired  exists: every command says to log in. `calls` logs each command.
 d=$(dirname "$0")
 printf '%s\n' "$*" >>"$d/calls"
 [[ $1 == --env ]] && shift 2
 if [[ -e $d/expired ]]; then echo 'skipli-cli: not signed in: run `skipli-cli login <email>`' >&2; exit 1; fi
+if [[ -e $d/broken ]]; then echo "skipli-cli: exec: not found" >&2; exit 1; fi
 touch "$d/boards" "$d/cards" "$d/tasks"
 case $1 in
   boards)
