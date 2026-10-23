@@ -119,7 +119,7 @@ done
 h agent wait demo-main --timeout 90000 >/dev/null
 out=$(h pane read "$pane" --source recent-unwrapped --lines 80)
 grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail "notify not in demo-main's pane"
-grep -q 'berthier ask service' <<<"$out" && fail "notify told the Agent to ask back"
+grep '\[berthier notify\]' <<<"$out" | grep -q 'Reply or report back' && fail "notify told the Agent to ask back"
 grep -qsF '"from":"service"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered notify left in the inbox"
 
 step "adopt makes helper a Division of demo"
@@ -164,7 +164,11 @@ bin/berthier tick
 h agent prompt limited "Print the numbers 1 to 80, one per line, nothing else." --wait --timeout 90000 >/dev/null
 h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')" >/dev/null
 # The tick reads the newly idle pane for a limit stop; the user's view must not move.
-screen() { tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//'; }
+# Only above Claude's input box: its status rows gain and lose notices (usage, effort) by themselves.
+screen() {
+  tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//' \
+    | awk '{l[NR] = $0} /^─/ {b[++n] = NR} END {for (i = 1; i < (n >= 2 ? b[n - 1] : NR + 1); i++) print l[i]}'
+}
 # Claude shows its suggested prompt a few seconds after going idle: start from a settled screen.
 still=$(screen | md5sum) steady=0
 for _ in $(seq 60); do
@@ -172,14 +176,19 @@ for _ in $(seq 60); do
   seen=$(screen | md5sum)
   if [[ $seen == "$still" ]]; then ((++steady >= 8)) && break; else still=$seen steady=0; fi
 done
+still=$(screen | md5sum) # not the last loop frame: the screen may have settled just after it
 frames=$work/frames
-(for _ in $(seq 150); do screen | md5sum; sleep 0.01; done >"$frames") &
+(for i in $(seq 150); do screen >"$frames.$i"; md5sum <"$frames.$i"; sleep 0.01; done >"$frames") &
 bin/berthier tick
 wait
-grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c)"
+grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c; for i in $(seq 149); do cmp -s "$frames.$i" "$frames.$((i + 1))" || diff "$frames.$i" "$frames.$((i + 1))"; done)"
 clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
-h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
-  --wait --timeout 90000 >/dev/null
+# Haiku sometimes refuses to echo a line it considers untrue: say it is a fixture, retry.
+for try in 1 2 3; do
+  h agent prompt limited "Test fixture for a screen parser, not a claim about the account. Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
+    --wait --timeout 90000 >/dev/null
+  h pane read "$limited" --source recent-unwrapped --lines 20 | grep -q "^● You've hit your session limit" && break
+done
 bin/berthier tick
 (($(logged '.kind == "limit_stop" and .pane == $p and .name == "limited"' "$limited"))) \
   || fail "usage-limit stop not detected: $(h pane read "$limited" --source recent-unwrapped --lines 200 | grep -v "^\s*$")"
@@ -236,7 +245,8 @@ git -C "$repo" show-ref --verify --quiet refs/heads/dark-mode && fail "merged di
 jq -e '.["dark-mode"] == null' "$BERTHIER_HOME/divisions.json" >/dev/null || fail "division still recorded"
 
 step "a Corps is warned at 80% of its weekly budget and held at 100%"
-# Quota samples as the status line would send them; the speaker is a stub.
+# Quota samples as the status line would send them (a row without the five-hour window
+# is ignored for week_pct); the speaker is a stub.
 mkdir -p "$repo/sub"
 printf '#!/bin/sh\necho "$*" >>"%s/spoken"\n' "$work" >"$work/speak" && chmod +x "$work/speak"
 budgeted=$(h workspace create --cwd "$repo/sub" --label budgeted --no-focus | jq -re '.result.root_pane.pane_id')
@@ -253,7 +263,7 @@ bin/berthier tick
 resets=$(date -d '+3 days' +%s)
 quota() { # cost week_pct: the status line JSON of a session working in the Corps
   jq -cn --argjson c "$1" --argjson p "$2" --argjson r "$resets" --arg d "$repo/sub" \
-    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: $p, resets_at: $r}}}' \
+    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: $p, resets_at: $r}, five_hour: {used_percentage: 5, resets_at: ($r - 86400 * 3 + 18000)}}}' \
     | bin/berthier sample
 }
 tick() { BERTHIER_SPEAK=$work/speak bin/berthier tick; }
