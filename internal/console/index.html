@@ -52,6 +52,23 @@ main { min-height: 0; }
 .top.info { grid-template-columns: clamp(280px, 24vw, 340px) minmax(0, 1fr) clamp(300px, 26vw, 380px); }
 .top > section { min-height: 0; max-height: 100%; }
 #info[hidden] { display: none; }
+#chead .back { display: none; }
+/* Phones show one panel at a time: the tree, a chat, or its info (data-screen), like a messenger. */
+@media (max-width: 899px) {
+  main { padding: 6px calc(6px + var(--sar)) 6px calc(6px + var(--sal)); }
+  .top, .top.info { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; }
+  .top > section { display: none; }
+  .top[data-screen="list"] > #army, .top[data-screen="chat"] > #detail, .top[data-screen="info"] > #info { display: flex; }
+  #chead .back { display: inline-flex; }
+  footer.bar { display: none; }
+}
+@media (pointer: coarse) {
+  .btn, #info .x { min-height: 44px; min-width: 44px; justify-content: center; }
+  .tr .ch { min-width: 44px; }
+  .tr { grid-template-columns: 44px minmax(0, 1fr); }
+  .tr.dv { grid-template-columns: 44px 36px minmax(0, 1fr); }
+  .demos a { min-height: 48px; }
+}
 /* Logs open from the top bar in a drawer over the page, never moving it. */
 .logs { display: flex; gap: 6px; }
 .logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
@@ -477,7 +494,7 @@ let army = null, connected = false;
 const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
 const collapsed = () => { try { return new Set(JSON.parse(localStorage.getItem('collapsed') || '[]')); } catch { return new Set(); } };
-const ui = { log: null, q: '', collapsed: collapsed(), info: pref('info'), needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+const ui = { screen: location.hash.length > 1 ? 'chat' : 'list', log: null, q: '', collapsed: collapsed(), info: pref('info'), needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
 $('show-loop').checked = ui.showLoop;
 
@@ -783,24 +800,41 @@ function renderChatHead(a, all) {
     : esc(a.unit.name);
   const demo = demosOf(a, all).find((d) => d.from == null);
   const role = a.role === 'division' ? '' : a.unit.name === 'berthier' ? 'chief of staff' : 'main agent';
-  el.innerHTML = `<span class="who"><span style="color: ${a.needs_you ? C.accent : a.color}" aria-hidden="true">${a.needs_you ? '●' : a.glyph}</span>
+  el.innerHTML = `<button type="button" class="btn back" id="back-btn" aria-label="back to agents">←</button>
+    <span class="who"><span style="color: ${a.needs_you ? C.accent : a.color}" aria-hidden="true">${a.needs_you ? '●' : a.glyph}</span>
       <nav class="crumb" aria-label="corps and division">${crumb}</nav>${role ? `<span class="dim">${role}</span>` : ''}
       <span style="color: ${a.needs_you ? C.accent : a.color}">${a.state}</span> ${ageSpan(a.from)}</span>
     <span class="acts">${demo ? `<a class="btn" href="${esc(demo.url)}" target="_blank" rel="noopener noreferrer" title="${esc(demo.label || demo.url)}">demo ↗</a>` : ''}<button type="button" class="btn" id="info-btn" aria-pressed="${ui.info}" aria-controls="info">info</button></span>`;
 }
 $('detail').addEventListener('click', (e) => {
-  if (e.target.closest('#info-btn')) setInfo(!ui.info);
+  if (e.target.closest('#info-btn')) setInfo(phone() ? ui.screen !== 'info' : !ui.info);
+  else if (e.target.closest('#back-btn')) setScreen('list');
   else if (e.target.closest('#chead [data-pane]')) select(e);
 });
 $('info-close').addEventListener('click', () => setInfo(false));
-function setInfo(on) { ui.info = on; pref('info', on); render(); }
+// Desktop: the info column opens beside the chat. Phone: info is a screen of its own, back goes to the chat.
+function setInfo(on) {
+  if (phone()) return setScreen(on ? 'info' : 'chat');
+  ui.info = on; pref('info', on); render();
+}
+const phone = () => matchMedia('(max-width: 899px)').matches;
+function setScreen(name) {
+  if (ui.screen === name) return;
+  ui.screen = name;
+  history.pushState({ screen: name }, '', name === 'list' ? location.pathname + location.search : '#' + ui.sel);
+  render();
+}
+history.replaceState({ screen: ui.screen }, '');
+addEventListener('popstate', (e) => { ui.screen = e.state?.screen || (location.hash.length > 1 ? 'chat' : 'list'); render(); });
+matchMedia('(max-width: 899px)').addEventListener('change', () => render());
 
 // The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
 function renderDetail(a, all) {
   renderSend(a);
   renderChatHead(a, all);
-  $('info').hidden = !ui.info || !a;
+  $('info').hidden = !a || (!phone() && !ui.info);
   $('top').classList.toggle('info', ui.info && !!a);
+  $('top').dataset.screen = ui.screen;
   if (!a) {
     $('det').innerHTML = '<div class="body"><span class="dim">nothing selected</span></div>';
     return;
@@ -1112,8 +1146,10 @@ const select = (e) => {
   const b = e.target.closest('[data-pane]');
   if (!b) return;
   ui.sel = b.dataset.pane;
-  history.replaceState(null, '', '#' + ui.sel);
+  history.replaceState({ screen: ui.screen }, '', '#' + ui.sel);
   render();
+  // On a phone a tap in the list or a corps link opens that chat.
+  if (phone() && !e.target.closest('#det')) setScreen('chat');
 };
 $('rows').addEventListener('click', (e) => {
   const t = e.target.closest('[data-toggle]');
