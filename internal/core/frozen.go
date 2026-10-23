@@ -102,6 +102,7 @@ type FreshStart struct {
 	Session  string `json:"session"` // the frozen session, whose last report the prompt carries
 	Model    string `json:"model,omitempty"`
 	Division string `json:"division,omitempty"` // its Division, whose Brief it gets again
+	Label    string `json:"label,omitempty"`    // its workspace label: decides its launch flags
 	Live     bool   `json:"live,omitempty"`
 	Ev       Fields `json:"ev"`
 }

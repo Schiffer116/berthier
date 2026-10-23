@@ -148,7 +148,7 @@ func (e *Env) freshStart(f core.FreshStart) {
 		}
 	}
 	var warn string
-	switch e.startClaude(f.Name, f.PaneID, core.FreshPrompt(report, brief), model, func(s string) { warn = s }) {
+	switch e.startClaude(f.Name, f.PaneID, core.FreshPrompt(report, brief), f.Label, model, func(s string) { warn = s }) {
 	case "ready":
 		e.Event("fresh_started", fmt.Sprintf("Fresh Start: %s in %s, a new session on %s", f.Name, f.PaneID, orStr(model, "claude's default model")), f.Ev)
 	case "blocked":

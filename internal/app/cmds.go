@@ -522,7 +522,13 @@ func cmdReport(e *Env, args []string, io IO) error {
 	if pane == "" || sid == "" {
 		return nil
 	}
-	line := []rune(tidy(args[0]))
+	return e.writeReport(sid, pane, tidy(args[0]))
+}
+
+// writeReport files an Agent's report line under its session, and under the
+// sessions it was forked from.
+func (e *Env) writeReport(sid, pane, text string) error {
+	line := []rune(text)
 	if len(line) > 200 {
 		line = line[:200]
 	}
@@ -612,22 +618,23 @@ func cmdDemo(e *Env, args []string, io IO) error {
 	return nil
 }
 
-// cmdHookStop is a Claude Code Stop hook: an Agent in Herdr may not end a turn
-// without having run `berthier report` during it. Reads the hook's JSON on stdin.
+// cmdHookStop is a Claude Code Stop hook. A turn that ends in a Herdr pane
+// without `berthier report` gets one written for it, from the turn's final
+// message, so no turn is blocked for a report. Reads the hook's JSON on stdin.
 func cmdHookStop(e *Env, args []string, io IO) error {
 	var in struct {
-		StopHookActive bool   `json:"stop_hook_active"`
 		SessionID      string `json:"session_id"`
 		TranscriptPath string `json:"transcript_path"`
 	}
 	json.NewDecoder(io.In).Decode(&in)
-	if e.getenv("HERDR_PANE_ID") == "" || in.StopHookActive || in.SessionID == "" {
+	pane := e.getenv("HERDR_PANE_ID")
+	if pane == "" || in.SessionID == "" {
 		return nil
 	}
 	if st, err := os.Stat(in.TranscriptPath); err != nil || !st.Mode().IsRegular() {
 		return nil
 	}
-	start, ok := turnStart(in.TranscriptPath)
+	start, final, ok := readTurn(in.TranscriptPath)
 	if !ok {
 		return nil
 	}
@@ -636,15 +643,51 @@ func cmdHookStop(e *Env, args []string, io IO) error {
 	if rep.At != nil && *rep.At >= start {
 		return nil
 	}
-	fmt.Fprintln(io.Out, `{"decision":"block","reason":"Before stopping, run: berthier report \"<one line for the user: what you did or are doing; start with needs you: if they must act>\""}`)
-	return nil
+	return e.writeReport(in.SessionID, pane, autoReport(final))
 }
 
-// turnStart is when the turn began: the last real user message (not a tool result).
-func turnStart(path string) (int64, bool) {
+// autoReport is the report for a turn its Agent did not report: the first
+// sentence of its final message, prefixed `needs you:` when the message asks
+// the user something. At most 120 characters.
+func autoReport(final string) string {
+	text := tidy(final)
+	if text == "" {
+		return "finished its turn"
+	}
+	line := firstSentence(text)
+	if asksUser(text) {
+		line = "needs you: " + line
+	}
+	if r := []rune(line); len(r) > 120 {
+		line = string(r[:119]) + "…"
+	}
+	return line
+}
+
+var (
+	sentenceEnd = regexp.MustCompile(`^(.*?[.!?])(\s|$)`)
+	userAsk     = regexp.MustCompile(`(?i)\byou (must|need to|have to)\b|\bplease (confirm|approve|decide|choose|answer|reply|review|tell me)\b`)
+)
+
+// firstSentence is text up to its first sentence end, or all of it.
+func firstSentence(text string) string {
+	if m := sentenceEnd.FindStringSubmatch(text); m != nil {
+		return m[1]
+	}
+	return text
+}
+
+// asksUser: the message ends with a question, or tells the user to act.
+func asksUser(text string) bool {
+	return strings.HasSuffix(strings.TrimRight(text, " `*_)\""), "?") || userAsk.MatchString(text)
+}
+
+// readTurn is the turn of a transcript: when it began (its last real user
+// message, not a tool result) and the text of its final assistant message.
+func readTurn(path string) (start int64, final string, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, false
+		return 0, "", false
 	}
 	defer f.Close()
 	dec := json.NewDecoder(bufio.NewReaderSize(f, 1<<20))
@@ -659,14 +702,37 @@ func turnStart(path string) (int64, bool) {
 			} `json:"message"`
 		}
 		if dec.Decode(&m) != nil {
-			return 0, false
+			return 0, "", false
 		}
-		if m.Type == "user" && !m.IsMeta && realContent(m.Message.Content) {
-			last = m.Timestamp
+		switch {
+		case m.Type == "user" && !m.IsMeta && realContent(m.Message.Content):
+			last, final = m.Timestamp, ""
+		case m.Type == "assistant":
+			final = textOf(m.Message.Content)
 		}
 	}
 	t, err := time.Parse(time.RFC3339, last)
-	return t.Unix(), err == nil
+	return t.Unix(), final, err == nil
+}
+
+// textOf joins the text parts of a message's content.
+func textOf(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	json.Unmarshal(raw, &parts)
+	var b []string
+	for _, p := range parts {
+		if p.Type == "text" {
+			b = append(b, p.Text)
+		}
+	}
+	return strings.Join(b, " ")
 }
 
 func realContent(raw json.RawMessage) bool {
@@ -745,7 +811,7 @@ func cmdCorpsNew(e *Env, args []string, io IO) error {
 	}
 	pane := r.Result.RootPane.PaneID
 	agent := core.Slug(name)
-	switch e.StartClaude(agent, pane, brief, "", func(s string) { fmt.Fprintln(io.Err, s) }) {
+	switch e.StartClaude(agent, pane, brief, name, "", func(s string) { fmt.Fprintln(io.Err, s) }) {
 	case "ready":
 		fmt.Fprintf(io.Out, "corps '%s' ready: workspace pane %s, Main Agent '%s'\n", name, pane, agent)
 	case "blocked":
@@ -865,9 +931,9 @@ func (e *Env) callerWorkspace() (id, label string, err error) {
 // branch <name> (Herdr draws it under its Corps), with its own Agent started
 // on the Brief. The Corps commands it.
 func cmdDivisionNew(e *Env, args []string, io IO) error {
-	const usage = "usage: berthier division-new <name> [--model <m>] <brief>"
-	// --model may come anywhere; anything else beyond <name> <brief> is an error.
-	model := e.DivisionModel
+	const usage = "usage: berthier division-new <name> [--model <m>] [--artifact] <brief>"
+	// Flags may come anywhere; anything else beyond <name> <brief> is an error.
+	model, artifact := e.DivisionModel, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -877,6 +943,8 @@ func cmdDivisionNew(e *Env, args []string, io IO) error {
 			}
 			model = args[i+1]
 			i++
+		case args[i] == "--artifact":
+			artifact = true
 		case strings.HasPrefix(args[i], "--"):
 			return die("%s", usage)
 		default:
@@ -924,14 +992,14 @@ func cmdDivisionNew(e *Env, args []string, io IO) error {
 		return die("could not create worktree for branch '%s'", branch)
 	}
 	pane := r.Result.RootPane.PaneID
-	if err := e.SetDivision(branch, &core.Division{Corps: corps, Worktree: true, Model: model}); err != nil {
+	if err := e.SetDivision(branch, &core.Division{Corps: corps, Worktree: true, Model: model, Artifact: artifact}); err != nil {
 		return err
 	}
 	if err := e.saveBrief(branch, brief); err != nil {
 		return err
 	}
 	agent := core.Slug(corps + "-" + branch)
-	switch e.StartClaude(agent, pane, brief, model, func(s string) { fmt.Fprintln(io.Err, s) }) {
+	switch e.StartClaude(agent, pane, brief, branch, model, func(s string) { fmt.Fprintln(io.Err, s) }) {
 	case "ready":
 		fmt.Fprintf(io.Out, "division '%s' of %s started: branch %s, pane %s, agent '%s'\n", branch, corps, branch, pane, agent)
 	case "blocked":

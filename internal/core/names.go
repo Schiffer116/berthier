@@ -15,11 +15,13 @@ func CorpsName(s string) string {
 }
 
 // Division is a record of state/divisions.json: the Corps a workspace belongs
-// to, and whether berthier spawned its worktree.
+// to, whether berthier spawned its worktree, the model it runs on, and whether
+// its Agent may use Artifact (off unless division-new --artifact).
 type Division struct {
 	Corps    string `json:"corps"`
 	Worktree bool   `json:"worktree"`
 	Model    string `json:"model,omitempty"`
+	Artifact bool   `json:"artifact,omitempty"`
 }
 
 // Divisions maps CorpsName(label) to its record.

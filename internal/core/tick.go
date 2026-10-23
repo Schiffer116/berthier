@@ -542,7 +542,8 @@ func Tick(in TickIn) TickOut {
 			if label := strOr(a.WorkspaceLabel, ""); div.IsDivision(label) {
 				division = CorpsName(label)
 			}
-			fresh = append(fresh, FreshStart{t.Pane, nameOf(t.Pane, a), strOr(a.SessionID, ""), a.Frozen.Model, division, a.Status != "gone", ev})
+			fresh = append(fresh, FreshStart{PaneID: t.Pane, Name: nameOf(t.Pane, a), Session: strOr(a.SessionID, ""), Model: a.Frozen.Model,
+				Division: division, Label: strOr(a.WorkspaceLabel, ""), Live: a.Status != "gone", Ev: ev})
 			if a.Status == "gone" {
 				// Its session is over: the next tick finds the new one in the pane (or nothing, if it failed to start).
 				agents.Delete(t.Pane)

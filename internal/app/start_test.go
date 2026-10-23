@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"berthier/internal/core"
 )
 
 // fakeHerdr installs tests/fake-herdr, a Herdr with one Claude Agent whose
@@ -47,7 +49,7 @@ func TestStartClaude(t *testing.T) {
 	start := func(mode, brief string) (string, string) {
 		s.mode(dir, mode)
 		var warn []string
-		got := e.StartClaude("demo", "p1", brief, "", func(w string) { warn = append(warn, w) })
+		got := e.StartClaude("demo", "p1", brief, "demo", "", func(w string) { warn = append(warn, w) })
 		return got, strings.Join(warn, "|")
 	}
 
@@ -111,23 +113,49 @@ esac
 		}
 		return ""
 	}
+	// A Division has no Artifact unless --artifact; its model is recorded.
 	for _, c := range []struct {
 		name string
 		args []string
+		want string
 	}{
-		{"model before brief", []string{"feat", "--model", "opus", "do it"}},
-		{"model after brief", []string{"feat2", "do it", "--model", "opus"}},
+		{"model before brief", []string{"feat", "--model", "opus", "do it"}, "-- --model opus --disallowedTools Artifact"},
+		{"model after brief", []string{"feat2", "do it", "--model", "opus"}, "-- --model opus --disallowedTools Artifact"},
+		{"default model", []string{"feat3", "do it"}, "-- --model haiku --disallowedTools Artifact"},
+		{"artifact", []string{"feat4", "--artifact", "do it"}, "-- --model haiku"},
 	} {
-		if errs, code := run(c.args...); code != 0 || !strings.HasSuffix(startArgs(), "-- --model opus") {
-			t.Errorf("%s: code %d %q, start %q", c.name, code, errs, startArgs())
+		if errs, code := run(c.args...); code != 0 || !strings.HasSuffix(startArgs(), c.want) {
+			t.Errorf("%s: code %d %q, start %q, want suffix %q", c.name, code, errs, startArgs(), c.want)
 		}
 		s.write("divisions.json", "{}")
 	}
-	for _, args := range [][]string{{"feat3", "do it", "extra"}, {"feat3", "--bogus", "do it"}, {"feat3", "do it", "--model"}, {"feat3"}} {
+	for _, args := range [][]string{{"feat3", "do it", "extra"}, {"feat3", "--bogus", "do it"}, {"feat3", "do it", "--model"}, {"feat3"}, {"feat3", "--artifact"}} {
 		errs, code := run(args...)
 		if code != 1 || !strings.Contains(errs, "usage: berthier division-new") || startArgs() != "" {
 			t.Errorf("%v: code %d %q", args, code, errs)
 		}
+	}
+}
+
+// Claude's launch flags by workspace: Berthier loads its persona, a Division
+// may not use Artifact unless it was spawned with --artifact.
+func TestClaudeFlags(t *testing.T) {
+	s := newSandbox(t)
+	e := LoadEnv(s.getenv)
+	e.Root = "/repo"
+	e.SetDivision("feat", &core.Division{Corps: "corps", Worktree: true, Model: "haiku"})
+	e.SetDivision("art", &core.Division{Corps: "corps", Worktree: true, Artifact: true})
+	e.SetDivision("adopted", &core.Division{Corps: "corps"})
+	for _, c := range []struct{ label, model, want string }{
+		{"corps", "", ""},
+		{"corps", "opus", "--model opus"},
+		{"berthier", "", "--append-system-prompt-file /repo/BERTHIER.md"},
+		{"feat", "haiku", "--model haiku --disallowedTools Artifact"},
+		{"art", "haiku", "--model haiku"},
+		{"adopted", "", "--disallowedTools Artifact"},
+		{".Feat", "", "--disallowedTools Artifact"},
+	} {
+		eq(t, c.label+" "+c.model, strings.Join(e.claudeFlags(c.label, c.model), " "), c.want)
 	}
 }
 

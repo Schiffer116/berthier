@@ -151,7 +151,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.FrozenMin = i64("BERTHIER_FROZEN_MIN", 50000)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
-	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "sonnet")
+	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "haiku")
 	e.StartTimeoutMS = i64("BERTHIER_START_TIMEOUT_MS", 45000)
 	// How often prompt_agent checks that Claude took a prompt (seconds).
 	e.PromptPoll = time.Duration(num("BERTHIER_PROMPT_POLL", 0.5) * float64(time.Second))

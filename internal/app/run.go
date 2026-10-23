@@ -32,9 +32,9 @@ corps-new <name> <dir> [brief]      create a Corps workspace with a Main Agent
 adopt <workspace> <corps>           make an existing workspace a Division of a Corps
 board <corps> [--adopt <board-id>]  give a Corps its Board: an existing Skipli board, else a card on the Grand Army Board;
                                     the Main Loop hands its Main Agent new tasks added there (corps-new does this itself)
-division-new <name> [--model <m>] <brief>
+division-new <name> [--model <m>] [--artifact] <brief>
                                     (Main Agent) spawn a Division: a worktree workspace with its own Agent
-                                    on --model (default $BERTHIER_DIVISION_MODEL, sonnet)
+                                    on --model (default $BERTHIER_DIVISION_MODEL, haiku); no Artifact unless --artifact
 land <division>                     (Berthier) merge a Division of Berthier into master, check, rebuild, restart
                                     the changed services and wait until they work; refuses on conflict or failure
 division-done <name>                (Main Agent) remove a spawned Division once the user reviewed it
@@ -62,7 +62,7 @@ counts                              Agent count per status plus reports, as JSON
 log [-n lines] [-f]                 the Main Loop's event log, readable
 army                                the full Grand Army view model as JSON (Corps, Divisions, Agents, asks, log)
 dashboard [server args]             serve the live Grand Army console on 127.0.0.1:8430
-hook-stop                           Claude Code Stop hook: no turn ends without a report
+hook-stop                           Claude Code Stop hook: a turn that ends unreported gets a report from its final message
 tick                                run one Main Loop pass
 loop                                run the Main Loop forever
 `

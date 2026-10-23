@@ -71,11 +71,11 @@ func (e *Env) Tick() error {
 	// --- Revive: resume the gone session in the pane it died in.
 	for _, r := range out.Revive {
 		args := []string{"agent", "start", r.Name, "--kind", "claude", "--pane", r.PaneID, "--timeout", fmt.Sprint(e.StartTimeoutMS), "--", "--resume", r.SessionID}
+		label := ""
 		if a := out.State.Agents.Get(r.PaneID); a != nil {
-			if m := e.ModelOf(strOr(a.WorkspaceLabel)); m != "" {
-				args = append(args, "--model", m)
-			}
+			label = strOr(a.WorkspaceLabel)
 		}
+		args = append(args, e.claudeFlags(label, e.ModelOf(label))...)
 		// Herdr counts the start a success even if Claude exited at once
 		// (e.g. "No conversation found"): the pane is back at its shell.
 		if _, err := e.H.Run(args...); err == nil && !e.paneAtShell(r.PaneID) {

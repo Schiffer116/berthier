@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"berthier/internal/core"
@@ -29,22 +30,42 @@ func (e *Env) Snapshot() (core.Snapshot, error) {
 	return *r.Result.Snapshot, nil
 }
 
-// StartClaude starts Claude as Agent name in pane, then sends the Brief with
-// PromptAgent: Herdr refuses multi-line start arguments. Behind a startup
-// dialog (folder trust) a detached child sends the Brief once the user
-// answers it. Returns ready, blocked or failed; why it failed goes to warn.
-func (e *Env) StartClaude(name, pane, brief, model string, warn func(string)) string {
+// claudeFlags are the flags Claude starts with after `--` in the workspace
+// labelled label: its model, and what its role allows. Only Berthier's own
+// launches load BERTHIER.md, so Divisions never think they are Berthier. A
+// Division's Agent may not use Artifact unless division-new --artifact.
+func (e *Env) claudeFlags(label, model string) []string {
+	var f []string
+	if model != "" {
+		f = append(f, "--model", model)
+	}
+	name := core.CorpsName(label)
+	if name == "berthier" {
+		f = append(f, "--append-system-prompt-file", filepath.Join(e.Root, "BERTHIER.md"))
+	}
+	if d, ok := e.ReadDivisions()[name]; ok && !d.Artifact {
+		f = append(f, "--disallowedTools", "Artifact")
+	}
+	return f
+}
+
+// StartClaude starts Claude as Agent name in pane, in the workspace labelled
+// label, then sends the Brief with PromptAgent: Herdr refuses multi-line start
+// arguments. Behind a startup dialog (folder trust) a detached child sends the
+// Brief once the user answers it. Returns ready, blocked or failed; why it
+// failed goes to warn.
+func (e *Env) StartClaude(name, pane, brief, label, model string, warn func(string)) string {
 	if brief != "" {
 		brief = core.Tag("[berthier brief]", brief)
 	}
-	return e.startClaude(name, pane, brief, model, warn)
+	return e.startClaude(name, pane, brief, label, model, warn)
 }
 
 // startClaude is StartClaude with a first prompt already tagged.
-func (e *Env) startClaude(name, pane, brief, model string, warn func(string)) string {
+func (e *Env) startClaude(name, pane, brief, label, model string, warn func(string)) string {
 	args := []string{"agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", fmt.Sprint(e.StartTimeoutMS)}
-	if model != "" {
-		args = append(args, "--", "--model", model)
+	if flags := e.claudeFlags(label, model); len(flags) > 0 {
+		args = append(append(args, "--"), flags...)
 	}
 	status := "started"
 	_, startErr := e.H.Run(args...)

@@ -349,21 +349,29 @@ func TestReportAskHookLog(t *testing.T) {
 	sessionFile(me, "s-fork", "interactive")
 	eq(t, "nested non-bg session stays its own", len(e.forkedFrom("s-fork", me)), 0)
 
-	// --- hook-stop
+	// --- hook-stop: never blocks; an unreported turn gets its report
 	tr := filepath.Join(s.home, "t.jsonl")
 	os.WriteFile(tr, []byte(`{"type":"user","timestamp":"2020-01-01T00:00:00.000Z","message":{"content":"old prompt"}}
+{"type":"assistant","timestamp":"2020-01-01T00:00:01.000Z","message":{"content":[{"type":"text","text":"old answer"}]}}
 {"type":"user","timestamp":"2099-01-01T00:00:00.000Z","message":{"content":"do the thing"}}
+{"type":"assistant","timestamp":"2099-01-01T00:00:02.000Z","message":{"content":[{"type":"tool_use"}]}}
 {"type":"user","timestamp":"2099-01-01T00:00:05.000Z","message":{"content":[{"type":"tool_result"}]}}
+{"type":"assistant","timestamp":"2099-01-01T00:00:06.000Z","message":{"content":[{"type":"text","text":"Pushed the fix. Want me to open the PR?"}]}}
 `), 0o644)
 	hook := func(in string) string { out, _, _ := s.sh(in, "hook-stop"); return strings.TrimSpace(out) }
 	in := fmt.Sprintf(`{"session_id":"s-a","transcript_path":%q}`, tr)
-	eq(t, "hook blocks unreported turn", jq(t, hook(in), "decision"), `"block"`)
-	eq(t, "hook lets a retry stop", hook(fmt.Sprintf(`{"session_id":"s-a","transcript_path":%q,"stop_hook_active":true}`, tr)), "")
+	eq(t, "hook never blocks", hook(in), "")
+	eq(t, "hook reports the unreported turn", jq(t, s.read("reports/s-a.json"), "line"), `"needs you: Pushed the fix."`)
+	os.Remove(filepath.Join(s.home, "reports", "s-a.json"))
 	delete(s.env, "HERDR_PANE_ID")
 	eq(t, "hook ignores non-herdr", hook(in), "")
+	eq(t, "hook writes nothing outside herdr", s.read("reports/s-a.json"), "")
 	s.env["HERDR_PANE_ID"] = "a:p1"
+	// An explicit report of the turn wins over the automatic one.
 	os.WriteFile(tr, []byte(strings.ReplaceAll(strings.ReplaceAll(string(must(os.ReadFile(tr))), "2099-01-01T00:00:05", "2020-01-02T00:00:00"), "2099-01-01T00:00:00", "2020-01-02T00:00:00")), 0o644)
-	eq(t, "hook passes reported turn", hook(in), "")
+	s.sh("", "report", "pushed; green")
+	eq(t, "hook keeps a reported turn", hook(in), "")
+	eq(t, "explicit report kept", jq(t, s.read("reports/s-a.json"), "line"), `"pushed; green"`)
 
 	// --- ask
 	delete(s.env, "HERDR_PANE_ID")

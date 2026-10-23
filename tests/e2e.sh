@@ -362,12 +362,13 @@ jq -e '.["dark-mode"].model == "haiku"' "$BERTHIER_HOME/divisions.json" >/dev/nu
 dpane=$(h agent get demo-dark-mode | jq -r '.result.agent.pane_id')
 model_of() { tr '\0' ' ' <"/proc/$(claude_pid "$dpane")/cmdline"; }
 [[ $(model_of) == *"--model haiku"* ]] || fail "division not running --model haiku: $(model_of)"
+[[ $(model_of) == *"--disallowedTools Artifact"* ]] || fail "division may use Artifact: $(model_of)"
 bin/berthier tick
 kill -KILL "$(claude_pid "$dpane")"
 sleep 3
 bin/berthier tick
 for _ in $(seq 30); do claude_pid "$dpane" 2>/dev/null | grep -q . && break; sleep 1; done
-[[ $(model_of) == *"--resume"*"--model haiku"* ]] || fail "revived division lost its model: $(model_of)"
+[[ $(model_of) == *"--resume"*"--model haiku"*"--disallowedTools Artifact"* ]] || fail "revived division lost its flags: $(model_of)"
 bin/berthier tick
 jq -e '.corps[] | select(.name == "demo") | any(.divisions[]; .name == "dark-mode" and .worktree)' "$BERTHIER_HOME/state.json" >/dev/null \
   || fail "state does not show the division under demo"

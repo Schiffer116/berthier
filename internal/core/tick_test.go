@@ -776,7 +776,7 @@ func TestFrozen(t *testing.T) {
 		`[[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1","why":"user"}}],["t1"],null,1]`)
 	o = tick(frozen, s2, 20000, opt{thaw: []Thaw{{ID: "t1", Pane: "w1:p1", How: "fresh", At: 19990}}})
 	check(t, "the user's Fresh Start forgets the gone session", []any{o.Fresh, o.Thawed, o.State.Agents.Get("w1:p1") == nil, o.Revive},
-		`[[{"pane_id":"w1:p1","name":"a-w1-p1","session":"sid-1","model":"claude-opus-5-5","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1","why":"user"}}],["t1"],true,[]]`)
+		`[[{"ev":{"corps":"skipli","name":"a-w1-p1","pane":"w1:p1","session":"sid-1","why":"user"},"label":"skipli","model":"claude-opus-5-5","name":"a-w1-p1","pane_id":"w1:p1","session":"sid-1"}],["t1"],true,[]]`)
 	o = tick(prev, s1, 20000, opt{thaw: []Thaw{{ID: "t2", Pane: "w1:p1", How: "revive"}}})
 	check(t, "a request for an Agent not Frozen is dropped", []any{o.Revive, o.Fresh, o.Thawed}, `[[],[],["t2"]]`)
 	// A Fresh Start's new session in the pane is not Frozen.
