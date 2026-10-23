@@ -125,7 +125,8 @@ done
 h agent wait demo-main --timeout 90000 >/dev/null
 out=$(h pane read "$pane" --source recent-unwrapped --lines 80)
 grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail "notify not in demo-main's pane"
-grep -q 'berthier ask service' <<<"$out" && fail "notify told the Agent to ask back"
+# The reply hint asks carry; the Agent itself may still choose to answer (haiku sometimes does).
+grep -q 'report back with: berthier ask service' <<<"$out" && fail "notify told the Agent to ask back"
 grep -qsF '"from":"service"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered notify left in the inbox"
 
 step "adopt makes helper a Division of demo"
@@ -201,17 +202,20 @@ h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')
 # The tick reads the newly idle pane for a limit stop; the user's view must not move.
 screen() { tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//'; }
 # Claude shows its suggested prompt a few seconds after going idle: start from a settled screen.
-still=$(screen | md5sum) steady=0
+still=$(md5sum <<<"$(screen)") steady=0
 for _ in $(seq 60); do
   sleep 0.5
-  seen=$(screen | md5sum)
+  seen=$(md5sum <<<"$(screen)")
   if [[ $seen == "$still" ]]; then ((++steady >= 8)) && break; else still=$seen steady=0; fi
 done
+echo "$(screen)" >"$work/still"
 frames=$work/frames
-(for _ in $(seq 150); do screen | md5sum; sleep 0.01; done >"$frames") &
+# Each frame's hash; the first that differs is kept whole, to say what moved.
+(for _ in $(seq 150); do f=$(screen); h=$(md5sum <<<"$f"); echo "$h"; [[ $h == "$still" || -e $work/moved ]] || echo "$f" >"$work/moved"; sleep 0.01; done >"$frames") &
 bin/berthier tick
 wait
-grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c)"
+grep -qv "$still" "$frames" && fail "a tick moved the idle pane: $(sort "$frames" | uniq -c)
+$(diff "$work/still" "$work/moved")"
 clock=$(TZ=UTC date -d '-5 min' '+%-I:%M%P')
 h agent prompt limited "Reply with exactly this line and nothing else: You've hit your session limit · resets $clock (UTC)" \
   --wait --timeout 90000 >/dev/null
