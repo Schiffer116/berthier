@@ -91,7 +91,7 @@ func (e *Env) Tick() error {
 
 	// --- Usage limits: nudge an Agent on once its limit has reset.
 	for _, r := range out.Resume {
-		if err := e.H.PromptAgent(r.PaneID, e.LimitPrompt); err == nil {
+		if err := e.H.PromptAgent(r.PaneID, core.Tag("[berthier resume]", e.LimitPrompt)); err == nil {
 			e.Event("resumed", fmt.Sprintf("resumed %s in %s: usage limit reset", r.Name, r.PaneID), r.Ev)
 		} else {
 			e.Event("resume_failed", fmt.Sprintf("resume failed: %s in %s (usage limit reset): %s", r.Name, r.PaneID, err), with(r.Ev, "why", err.Error()))
@@ -100,7 +100,7 @@ func (e *Env) Tick() error {
 
 	// --- Restart: nudge an Agent whose turn the restart cut off, once.
 	for _, p := range out.Proceed {
-		if err := e.H.PromptAgent(p.PaneID, e.RestartPrompt); err == nil {
+		if err := e.H.PromptAgent(p.PaneID, core.Tag("[berthier continue]", e.RestartPrompt)); err == nil {
 			e.Event("continued", fmt.Sprintf("continued %s in %s: restart interrupted its turn", p.Name, p.PaneID), p.Ev)
 		} else {
 			e.Event("continue_failed", fmt.Sprintf("continue failed: %s in %s (restart): %s", p.Name, p.PaneID, err), with(p.Ev, "why", err.Error()))

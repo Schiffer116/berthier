@@ -100,6 +100,7 @@ func TestFoldTranscriptOrigins(t *testing.T) {
 	} {
 		check(t, tc.prompt, OriginOf(tc.prompt), `"`+tc.origin+`"`)
 	}
+	check(t, "tagging", []string{Tag("[berthier brief]", "Build it"), Tag("[berthier brief]", "[berthier brief] Build it")}, `["[berthier brief] Build it","[berthier brief] Build it"]`)
 	// Meta lines and local commands do not start turns; a subagent's turns are "subagent".
 	_, rows := FoldTranscript(Cursor{}, TranscriptFile{Session: "p/agent-1", Parent: "p"}, lines(
 		userLine(1, "look around"),

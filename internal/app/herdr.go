@@ -38,6 +38,9 @@ func (e *Env) StartClaude(name, pane, brief, model string, warn func(string)) st
 	if model != "" {
 		args = append(args, "--", "--model", model)
 	}
+	if brief != "" {
+		brief = core.Tag("[berthier brief]", brief)
+	}
 	status := "started"
 	_, startErr := e.H.Run(args...)
 	if startErr != nil {

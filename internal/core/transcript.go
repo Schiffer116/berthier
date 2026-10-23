@@ -117,6 +117,15 @@ var originTags = []struct{ prefix, origin string }{
 	{"<task-notification>", "task"},
 }
 
+// Tag marks a prompt Berthier sends with what sent it, so the Profile can
+// tell the turn's origin; a prompt already tagged is left as it is.
+func Tag(tag, text string) string {
+	if strings.HasPrefix(strings.TrimSpace(text), tag) {
+		return text
+	}
+	return tag + " " + text
+}
+
 // OriginOf is the Turn origin of a prompt: a Berthier tag, else the user.
 func OriginOf(prompt string) string {
 	p := strings.TrimSpace(prompt)

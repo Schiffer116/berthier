@@ -53,6 +53,8 @@ func TestStartClaude(t *testing.T) {
 
 	got, _ := start("takes", brief)
 	eq(t, "brief sent as a prompt", got+" "+calls(dir), "ready agent start,agent prompt")
+	text, _ := os.ReadFile(filepath.Join(dir, "text"))
+	eq(t, "brief tagged for the Profile", string(text), "[berthier brief] Build it.\nThen report.")
 	raw, _ := os.ReadFile(filepath.Join(dir, "calls"))
 	eq(t, "start has no brief argument", strings.SplitN(string(raw), "\n", 2)[0], "agent start demo --kind claude --pane p1 --timeout 45000")
 	got, warn := start("nostart", brief)
