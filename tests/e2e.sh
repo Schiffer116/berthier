@@ -69,6 +69,22 @@ done
 (($(logged '.kind == "revived" and .pane == $p and .name == "demo-main"' "$pane"))) || fail "revive not logged"
 bin/berthier tick  # the loop's next pass sees the revived agent live
 
+step "a crashed session that never saved a transcript is forgotten, not Revived"
+# `claude --resume` of it prints "No conversation found" and returns to the shell.
+bare=$(h workspace create --cwd "$repo" --label bare --no-focus | jq -re '.result.root_pane.pane_id')
+h agent start bare --kind claude --pane "$bare" --timeout 60000 -- --model haiku >/dev/null 2>&1 || {
+  h agent send-keys bare down enter >/dev/null
+  h agent wait bare --until idle --timeout 60000 >/dev/null
+}
+bin/berthier tick
+bare_sid=$(jq -r --arg p "$bare" '.agents[$p].session_id' "$BERTHIER_HOME/state.json")
+[[ $bare_sid =~ ^[0-9a-f-]{36}$ ]] || fail "no session id recorded for the bare agent (got $bare_sid)"
+kill -KILL "$(claude_pid "$bare")"
+sleep 3
+bin/berthier tick
+(($(logged '.kind == "forgot" and .pane == $p' "$bare"))) || fail "transcript-less session not forgotten"
+(($(logged '.kind == "revived" and .pane == $p' "$bare") == 0)) || fail "transcript-less session was Revived"
+
 step "the Stop hook makes an Agent report; an ask reaches an idle Agent"
 helper=$(h workspace create --cwd "$repo" --label helper --no-focus | jq -re '.result.root_pane.pane_id')
 hook=$(jq -cn --arg c "$PWD/bin/berthier hook-stop" '{hooks: {Stop: [{hooks: [{type: "command", command: $c}]}]}}')

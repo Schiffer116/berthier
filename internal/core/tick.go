@@ -92,11 +92,12 @@ type Ask struct {
 
 // Obs is what the caller read from a pane Tick asked to look at.
 type Obs struct {
-	Exited      *bool
-	AtShell     *bool
-	LimitSeen   bool // limit_reset was read (LimitReset nil: no limit stop)
-	LimitReset  *int64
-	Interrupted *bool // its transcript ends mid-turn
+	Exited       *bool
+	AtShell      *bool
+	NoTranscript *bool // its session has no saved transcript: nothing to resume
+	LimitSeen    bool  // limit_reset was read (LimitReset nil: no limit stop)
+	LimitReset   *int64
+	Interrupted  *bool // its transcript ends mid-turn
 }
 
 // TickIn is everything Tick decides from.
@@ -379,14 +380,17 @@ func Tick(in TickIn) TickOut {
 	// Read when it vanishes, while the evidence is still at the bottom of its
 	// pane, and again right before any Revive.
 	exitCheck := uniq(append(append([]string(nil), vanished...), due...))
-	var exited, reviving []string
+	var exited, unsaved, reviving []string
 	for _, k := range exitCheck {
 		if o := obs(k); o.Exited != nil && *o.Exited {
 			exited = append(exited, k)
+		} else if o.NoTranscript != nil && *o.NoTranscript {
+			exited = append(exited, k)
+			unsaved = append(unsaved, k)
 		}
 	}
 	for _, k := range due {
-		if o := obs(k); o.Exited != nil && !*o.Exited && o.AtShell != nil {
+		if o := obs(k); o.Exited != nil && !*o.Exited && o.AtShell != nil && !inStrs(exited, k) {
 			reviving = append(reviving, k)
 		}
 	}
@@ -637,7 +641,7 @@ func Tick(in TickIn) TickOut {
 	look := []Look{}
 	for _, k := range exitCheck {
 		if o := obs(k); o.Exited == nil {
-			want := []string{"exited"}
+			want := []string{"exited", "no_transcript"}
 			if inStrs(due, k) {
 				want = append(want, "at_shell")
 			}
@@ -670,7 +674,11 @@ func Tick(in TickIn) TickOut {
 	decided := append([]Event{}, gaveUp...)
 	for _, k := range exited {
 		f := with(about(k), "session", prevAgents.M[k].SessionID)
-		decided = append(decided, Event{"forgot", fmt.Sprintf("forgot %s in %s: user exited it (session %s)", f["name"], k, strOr(prevAgents.M[k].SessionID, "null")), f})
+		why := "user exited it"
+		if inStrs(unsaved, k) {
+			why = "its session has no transcript to resume"
+		}
+		decided = append(decided, Event{"forgot", fmt.Sprintf("forgot %s in %s: %s (session %s)", f["name"], k, why, strOr(prevAgents.M[k].SessionID, "null")), f})
 	}
 	for _, k := range reviving {
 		if o := obs(k); !*o.AtShell {

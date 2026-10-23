@@ -134,7 +134,7 @@ func TestVanishedAndRevive(t *testing.T) {
 	s2 := snap(W, nil, panes(pn("w1:p1")))
 
 	o := tick(prev, s2, 1010, opt{})
-	check(t, "vanished is looked at first", []any{o.Look, o.Revive}, `[[{"pane_id":"w1:p1","session_id":"sid-1","want":["exited","at_shell"]}],[]]`)
+	check(t, "vanished is looked at first", []any{o.Look, o.Revive}, `[[{"pane_id":"w1:p1","session_id":"sid-1","want":["exited","no_transcript","at_shell"]}],[]]`)
 	a := o.State.Agents.M["w1:p1"]
 	check(t, "gone status", []any{a.Status, a.StatusSince, a.ReviveAttempts}, `["gone",1010,0]`)
 
@@ -154,12 +154,15 @@ func TestVanishedAndRevive(t *testing.T) {
 	o = tick(prev, s2, 1010, opt{obs: map[string]Obs{"w1:p1": {Exited: yes(true), AtShell: yes(true)}}})
 	check(t, "deliberate exit forgotten", []any{o.Revive, o.Events, len(o.State.Agents.M), o.State.Corps[0].Agents}, `[[],[{"Kind":"forgot","Msg":"forgot a-w1-p1 in w1:p1: user exited it (session sid-1)","Fields":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}],0,[]]`)
 
+	o = tick(prev, s2, 1010, opt{obs: map[string]Obs{"w1:p1": {Exited: yes(false), NoTranscript: yes(true), AtShell: yes(true)}}})
+	check(t, "no transcript forgotten, not revived", []any{o.Revive, o.Events, len(o.State.Agents.M)}, `[[],[{"Kind":"forgot","Msg":"forgot a-w1-p1 in w1:p1: its session has no transcript to resume (session sid-1)","Fields":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}],0]`)
+
 	// Backoff: a recent attempt suppresses another, and its pane is not read.
 	prev2 := tick(prev, s2, 1010, opt{obs: crashed}).State
 	o = tick(prev2, s2, 1030, opt{})
 	check(t, "revive backoff", []any{o.Revive, o.Look}, `[[],[]]`)
 	o = tick(prev2, s2, 1071, opt{})
-	check(t, "revive after backoff looks again", o.Look[0].Want, `["exited","at_shell"]`)
+	check(t, "revive after backoff looks again", o.Look[0].Want, `["exited","no_transcript","at_shell"]`)
 	if n := len(tick(prev2, s2, 1071, opt{obs: crashed}).Revive); n != 1 {
 		t.Errorf("revive after backoff: %d", n)
 	}
