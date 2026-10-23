@@ -37,7 +37,9 @@ division-done <name>                (Main Agent) remove a spawned Division once 
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
 notify <corps> "<text>"             (service, no pane needed) one-way message to a Corps's Main Agent, no reply expected
-prompt <pane> <text>                prompt the Agent in a pane and make sure Claude took it (not a bare herdr agent prompt)
+prompt <pane> <text>|-              prompt the Agent in a pane and make sure Claude took it (not a bare herdr agent prompt);
+                                    - reads the text from stdin
+last <pane>                         the Claude Agent's latest assistant message, from its transcript (no pane read)
 owners                              who owns what, to know whom to ask
 sample                              (status line) read session JSON on stdin, append to the quota ledger; silent, never fails
 budget [<corps> <pct>|off]          weekly quota used vs allowance per Corps; set or drop one Corps's budget (% of the week)
@@ -111,6 +113,7 @@ func init() {
 		"ask":                cmdAsk,
 		"notify":             cmdNotify,
 		"prompt":             cmdPrompt,
+		"last":               cmdLast,
 		"owners":             cmdOwners,
 		"counts":             cmdCounts,
 		"budget":             cmdBudget,

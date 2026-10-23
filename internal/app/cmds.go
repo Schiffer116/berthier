@@ -912,9 +912,50 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 
 // cmdPrompt prompts the Agent in a pane and makes sure Claude took it
 // (herdr.Client.PromptAgent): a bare `herdr agent prompt` can leave a draft.
-func cmdPrompt(e *Env, args []string, io IO) error {
-	if len(args) < 2 || strings.TrimSpace(strings.Join(args[1:], " ")) == "" {
-		return die(`usage: berthier prompt <pane> "<text>"`)
+// Text "-" is read from stdin, for long or multi-line prompts.
+func cmdPrompt(e *Env, args []string, stdio IO) error {
+	text := ""
+	if len(args) == 2 && args[1] == "-" {
+		b, err := io.ReadAll(stdio.In)
+		if err != nil {
+			return err
+		}
+		text = strings.TrimRight(string(b), "\n")
+	} else if len(args) >= 2 {
+		text = strings.Join(args[1:], " ")
 	}
-	return e.H.PromptAgent(args[0], strings.Join(args[1:], " "))
+	if strings.TrimSpace(text) == "" {
+		return die(`usage: berthier prompt <pane> "<text>"|-`)
+	}
+	return e.H.PromptAgent(args[0], text)
+}
+
+// cmdLast prints the final assistant message of the Claude Agent in a pane,
+// from its transcript (as the Console's chat reads it): no pane read, so the
+// user's view never scrolls.
+func cmdLast(e *Env, args []string, io IO) error {
+	if len(args) != 1 {
+		return die("usage: berthier last <pane>")
+	}
+	ag, err := console.GetAgent(e.H, args[0])
+	if err != nil {
+		return err
+	}
+	if ag.Kind != "claude" || ag.Session == "" {
+		return die("%s is not a Claude Agent with a session", args[0])
+	}
+	tr := console.NewTranscripts(e.ClaudeDir)
+	path := tr.Path(ag.Session)
+	if path == "" {
+		return die("no transcript for session %s", ag.Session)
+	}
+	msg, ok := tr.Last(path)
+	if !ok {
+		return die("no assistant message yet in %s", path)
+	}
+	if ag.Status == "working" {
+		fmt.Fprintf(io.Err, "(%s is still working; this is its latest message)\n", args[0])
+	}
+	fmt.Fprintln(io.Out, strings.TrimSpace(msg.Text))
+	return nil
 }
