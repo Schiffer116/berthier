@@ -3,6 +3,9 @@ Description=Berthier console (live Grand Army page on 127.0.0.1:8430)
 
 [Service]
 Type=simple
+WorkingDirectory=%h/Documents/grand-army
+# Build aside and rename: two units start at once, and Agents exec bin/berthier meanwhile.
+ExecStartPre=/bin/sh -c 'go build -o bin/.berthier.%N ./cmd/berthier && mv -f bin/.berthier.%N bin/berthier'
 ExecStart=%h/Documents/grand-army/bin/berthier dashboard
 Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always

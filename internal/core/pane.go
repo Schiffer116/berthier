@@ -1,0 +1,204 @@
+package core
+
+import (
+	"encoding/json"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+	"unicode"
+)
+
+// Classifiers over a pane's screen text: text in, verdict out.
+
+const rule = "────────"
+
+func ruleLines(lines []string) []int {
+	var r []int
+	for i, l := range lines {
+		if strings.HasPrefix(l, rule) {
+			r = append(r, i)
+		}
+	}
+	return r
+}
+
+// ExitedDeliberately: did Claude end by a deliberate exit (/exit, Ctrl+C)
+// rather than a crash? tail is its pane's tail. Only a clean exit prints its
+// resume hint; a killed process leaves none. The loop reads the pane on the
+// first tick after the agent vanished, so the hint is still at the bottom.
+func ExitedDeliberately(tail, session string) bool {
+	var l []string
+	for _, x := range strings.Split(tail, "\n") {
+		if strings.TrimSpace(x) != "" {
+			l = append(l, x)
+		}
+	}
+	if len(l) > 6 {
+		l = l[len(l)-6:]
+	}
+	t := strings.Join(l, "\n")
+	return strings.Contains(t, "Resume this session with") && strings.Contains(t, "claude --resume "+session)
+}
+
+var (
+	skipLine   = regexp.MustCompile(`^\s*$|^[^\p{L}\p{N}]+ \p{L}+ for [0-9]|^ {20}`)
+	limitLine  = regexp.MustCompile(`Usage limit reached|hit your [a-z ]*limit`)
+	withTZ     = regexp.MustCompile(`resets ([^·(]+)[(]([^)]+)[)]`)
+	bareReset  = regexp.MustCompile(`(resets|continuing automatically at) ([^·(]+)`)
+	clockSpec  = regexp.MustCompile(`(?i)^(\d{1,2})(?::(\d{2}))? ?([ap])m$`)
+	dateSpec   = regexp.MustCompile(`(?i)^([a-z]{3})[a-z]* (\d{1,2}) (\d{1,2}(?::\d{2})? ?[ap]m)$`)
+	zoneinfo   = "/usr/share/zoneinfo/"
+	monthIndex = map[string]time.Month{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+		"jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+)
+
+// UsageLimitReset: when does the usage limit an idle Agent stopped on reset?
+// screen is its pane's screen. ok is false unless Claude's usage-limit stop is
+// the last thing above the input box:
+//
+//	⎿  You've hit your session limit · resets 11pm (Asia/Ho_Chi_Minh)
+//	● Usage limit reached · continuing automatically at 11pm · esc to cancel
+//
+// A bare clock is its first occurrence after since-12h: limits reset within 5h
+// of the stop, and a late since (loop or Herdr restarted) still lands on it. An
+// unreadable time falls back to since+5h. The zone is the Agent's, else local.
+func UsageLimitReset(screen string, since int64, local *time.Location) (int64, bool) {
+	lines := strings.Split(screen, "\n")
+	if r := ruleLines(lines); len(r) >= 2 {
+		lines = lines[:r[len(r)-2]]
+	}
+	i, last := len(lines)-1, ""
+	for ; i >= 0; i-- {
+		l := lines[i]
+		// Skip blanks, turn timings, the upgrade hint and right-aligned notices.
+		if skipLine.MatchString(l) || strings.Contains(l, "· done ") || strings.Contains(l, "/upgrade") {
+			continue
+		}
+		last = l
+		break
+	}
+	if !limitLine.MatchString(last) {
+		return 0, false
+	}
+	spec, tz := "", ""
+	for end := i - 12; i >= 0 && i > end; i-- {
+		l := lines[i]
+		if m := withTZ.FindStringSubmatch(l); m != nil {
+			spec, tz = m[1], m[2]
+			break
+		} else if m := bareReset.FindStringSubmatch(l); m != nil && spec == "" {
+			spec = m[2]
+		}
+	}
+	loc := local
+	if _, err := os.Stat(zoneinfo + tz); err == nil && tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	spec = strings.TrimSpace(strings.Replace(strings.ReplaceAll(spec, ",", ""), " at ", " ", -1))
+	fallback := since + 18000
+	at := time.Unix(since-43200, 0).In(loc)
+	if m := clockSpec.FindStringSubmatch(spec); m != nil {
+		t := clockOn(at.Year(), at.Month(), at.Day(), m, loc)
+		if !(t.Unix() > since-43200) {
+			t = clockOn(at.Year(), at.Month(), at.Day()+1, m, loc)
+		}
+		return t.Unix(), true
+	}
+	if m := dateSpec.FindStringSubmatch(spec); m != nil {
+		if mon, ok := monthIndex[strings.ToLower(m[1])]; ok {
+			if c := clockSpec.FindStringSubmatch(m[3]); c != nil {
+				day := 0
+				for _, d := range m[2] {
+					day = day*10 + int(d-'0')
+				}
+				return clockOn(time.Unix(since, 0).In(loc).Year(), mon, day, c, loc).Unix(), true
+			}
+		}
+	}
+	return fallback, true
+}
+
+func clockOn(y int, mon time.Month, d int, m []string, loc *time.Location) time.Time {
+	h, min := 0, 0
+	for _, c := range m[1] {
+		h = h*10 + int(c-'0')
+	}
+	for _, c := range m[2] {
+		min = min*10 + int(c-'0')
+	}
+	h %= 12
+	if strings.EqualFold(m[3], "p") {
+		h += 12
+	}
+	return time.Date(y, mon, d, h, min, 0, 0, loc)
+}
+
+// InputHolds reports whether the Claude Code input box on a pane's screen
+// still holds text, unsent. Claude shows pasted image paths as [Image #n] and
+// long pastes as [Pasted text #n]; its idle suggestion matches neither nor
+// the text.
+func InputHolds(screen, text string) bool {
+	lines := strings.Split(screen, "\n")
+	rules := ruleLines(lines)
+	if len(rules) < 2 {
+		return false
+	}
+	box := strings.TrimPrefix(noSpace(strings.Join(lines[rules[len(rules)-2]+1:rules[len(rules)-1]], "")), "❯")
+	if box == "" {
+		return false
+	}
+	if strings.Contains(box, "[Image#") || strings.Contains(box, "[Pastedtext#") {
+		return true
+	}
+	key := []rune(noSpace(text))
+	n := min(len(key), 24)
+	return n > 0 && (strings.Contains(box, string(key[:n])) || strings.Contains(box, string(key[len(key)-n:])))
+}
+
+func noSpace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// TranscriptInterrupted: did a session's transcript end mid-turn (a tool
+// result, a task notification or a tool call nobody answered) rather than on
+// a finished assistant turn or the user's own interrupt? lines are the end of
+// the transcript (JSON Lines). No message at all counts as finished.
+func TranscriptInterrupted(lines []string) bool {
+	for i := len(lines) - 1; i >= 0; i-- {
+		var m struct {
+			Type    string `json:"type"`
+			Message struct {
+				StopReason string          `json:"stop_reason"`
+				Content    json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &m) != nil || (m.Type != "user" && m.Type != "assistant") {
+			continue
+		}
+		if m.Type == "assistant" {
+			return m.Message.StopReason != "end_turn"
+		}
+		text := string(m.Message.Content)
+		var s string
+		var parts []struct{ Text string }
+		if json.Unmarshal(m.Message.Content, &s) == nil {
+			text = s
+		} else if json.Unmarshal(m.Message.Content, &parts) == nil {
+			var t []string
+			for _, p := range parts {
+				t = append(t, p.Text)
+			}
+			text = strings.Join(t, " ")
+		}
+		return !strings.Contains(text, "[Request interrupted by user")
+	}
+	return false
+}

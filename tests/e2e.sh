@@ -4,11 +4,14 @@
 #   tests/e2e.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+go build -o bin/berthier ./cmd/berthier
 
 session=berthier-e2e-$$
 work=$(mktemp -d)
 repo=$work/berthier-e2e-$$
 export BERTHIER_HERDR_SESSION=$session BERTHIER_HOME=$work/home BERTHIER_START_TIMEOUT_MS=60000
+export BERTHIER_RESTART_GAP=${BERTHIER_RESTART_GAP:-4}
+export BERTHIER_RESTART_SETTLE=${BERTHIER_RESTART_SETTLE:-3}
 clean_env=(env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID)
 h() { "${clean_env[@]}" herdr --session "$session" "$@"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -151,6 +154,35 @@ tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$since"
 (($(logged '.kind | startswith("revive")' "" "$since"))) && fail "Revive attempted after restart: $(cat "$since")"
 (($(logged '.kind == "renamed" and .pane == $p and .name == "typed"' "$typed" "$since"))) || fail "name restore not logged"
 
+step "a Herdr restart mid-turn: the cut-off Agent is told to continue, an idle one is not"
+# Herdr resumes sessions idle; the Main Loop was down meanwhile (ticks exit 3
+# while Herdr is unreachable, writing no state), so the gap marks the restart.
+cut=$(h workspace create --cwd "$repo" --label cut --no-focus | jq -re '.result.root_pane.pane_id')
+h pane run "$cut" "claude --model haiku --settings '{\"permissions\":{\"allow\":[\"Bash\"]}}'" >/dev/null
+for _ in $(seq 30); do h agent get "$cut" >/dev/null 2>&1 && break; sleep 1; done
+h agent wait "$cut" --until idle --timeout 60000 >/dev/null
+h agent prompt "$cut" "Run this bash command, then reply with just: done. Command: sleep 60" >/dev/null
+h agent wait "$cut" --until working --timeout 60000 >/dev/null
+sleep 5  # the tool call reaches the transcript
+bin/berthier tick
+jq -e --arg p "$cut" '.agents[$p].status == "working"' "$BERTHIER_HOME/state.json" >/dev/null || fail "cut agent not working before the restart"
+mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+h server stop >/dev/null
+tmux kill-session -t "$session" 2>/dev/null || true
+sleep $((BERTHIER_RESTART_GAP + 2))
+attach
+for _ in $(seq 40); do bin/berthier tick 2>/dev/null; sleep 1; done
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "continued" and .pane == $p' "$cut" "$work/since") == 1)) || fail "cut-off agent not continued once: $(cat "$work/since")"
+(($(logged '.kind == "continued"' "" "$work/since") == 1)) || fail "an Agent that was not mid-turn was told to continue: $(cat "$work/since")"
+for _ in $(seq 30); do
+  h pane read "$cut" --source recent-unwrapped --lines 200 | grep -qF "continue where you left off" && break
+  sleep 1
+done
+h pane read "$cut" --source recent-unwrapped --lines 200 | grep -qF "continue where you left off" || fail "continue prompt not in the pane"
+# The resumed Agent sits on a permission dialog; drop it so it does not stir the screen later.
+h workspace close "$(h pane get "$cut" | jq -re '.result.pane.workspace_id')" >/dev/null
+
 step "an Agent stopped on its usage limit is nudged once the limit has reset"
 # Haiku plays the stop (Claude renders the line as a real one); without hooks,
 # so the Stop hook's report does not become its last output.
@@ -245,8 +277,7 @@ git -C "$repo" show-ref --verify --quiet refs/heads/dark-mode && fail "merged di
 jq -e '.["dark-mode"] == null' "$BERTHIER_HOME/divisions.json" >/dev/null || fail "division still recorded"
 
 step "a Corps is warned at 80% of its weekly budget and held at 100%"
-# Quota samples as the status line would send them (a row without the five-hour window
-# is ignored for week_pct); the speaker is a stub.
+# Quota samples as the status line would send them; the speaker is a stub.
 mkdir -p "$repo/sub"
 printf '#!/bin/sh\necho "$*" >>"%s/spoken"\n' "$work" >"$work/speak" && chmod +x "$work/speak"
 budgeted=$(h workspace create --cwd "$repo/sub" --label budgeted --no-focus | jq -re '.result.root_pane.pane_id')
@@ -260,16 +291,22 @@ for try in 1 2 3; do
   sleep 3
 done
 bin/berthier tick
-resets=$(date -d '+3 days' +%s)
-quota() { # cost week_pct: the status line JSON of a session working in the Corps
-  jq -cn --argjson c "$1" --argjson p "$2" --argjson r "$resets" --arg d "$repo/sub" \
-    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: $p, resets_at: $r}, five_hour: {used_percentage: 5, resets_at: ($r - 86400 * 3 + 18000)}}}' \
+resets=$(date -d '+3 days' +%s) base=40
+# The Agents' own status lines sample into this home too, reporting the real
+# account: continue its week, or their rows would start a new window.
+real=$(jq -cs 'map(select(.session != "e2e-quota" and .resets_at != null)) | last // empty' "$BERTHIER_HOME/ledger.jsonl" 2>/dev/null) || real=
+[[ -z $real ]] || { base=$(jq .week_pct <<<"$real"); resets=$(jq .resets_at <<<"$real"); }
+rm -rf "$BERTHIER_HOME"/{ledger.jsonl,usage.json,sampled}
+quota() { # cost week_pct_gain: the status line JSON of a session working in the Corps
+  # A real status line carries the five-hour window; a row without it is ignored.
+  jq -cn --argjson c "$1" --argjson p "$2" --argjson b "$base" --argjson r "$resets" --arg d "$repo/sub" \
+    '{session_id: "e2e-quota", cwd: $d, cost: {total_cost_usd: $c}, rate_limits: {seven_day: {used_percentage: ($b + $p), resets_at: $r}, five_hour: {used_percentage: 1, resets_at: ($r - 200000)}}}' \
     | bin/berthier sample
 }
 tick() { BERTHIER_SPEAK=$work/speak bin/berthier tick; }
 bin/berthier budget budgeted 10 >/dev/null
-quota 0 40
-quota 1 48
+quota 0 0
+quota 1 8
 tick
 (($(logged '.kind == "escalated" and .why == "budget_warn" and .corps == "budgeted"'))) || fail "80% not escalated: $(tail -5 "$BERTHIER_HOME/loop.log")"
 (($(logged '.kind == "spoke" and .corps == "budgeted"'))) || fail "80% not logged as spoken"
@@ -283,7 +320,7 @@ tick
 (($(logged '.kind == "escalated" and .why == "budget_warn"') == 1)) || fail "warned more than once"
 bin/berthier budget | grep -q '^budgeted  *8%  *10%  *80%' || fail "budget shows: $(bin/berthier budget)"
 bin/berthier army | jq -e '.budget.corps | any(.name == "budgeted" and .allowance == 10 and .used > 7.9)' >/dev/null || fail "Console view lacks the budget"
-quota 2 51
+quota 2 11
 tick
 (($(logged '.kind == "budget_exhausted" and .corps == "budgeted"') == 1)) || fail "100% not logged once"
 (($(grep -c 'over its weekly budget' "$work/spoken") == 1)) || fail "100% not spoken once"

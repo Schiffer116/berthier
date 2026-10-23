@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Berthier console</title>
+<meta name="theme-color" content="{{base}}">
+<link rel="stylesheet" href="theme.css">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Berthier">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root {
+  --panel: var(--mantle); --bar: var(--base); --head: var(--base);
+  --line: var(--surface1); --rule: var(--surface0); --field: var(--surface2); --sel: var(--surface0);
+  --fg: var(--text); --bright: var(--text); --soft: var(--subtext1); --muted: var(--overlay1); --dim: var(--overlay0); --faint: var(--surface2);
+  --purple: var(--mauve);
+  /* Installed on a phone the page runs edge to edge, under notch and home bar. */
+  --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+a { color: var(--blue); } a:hover { color: var(--sky); }
+.app { font-variant-ligatures: none; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: 'JetBrains Mono', 'Symbols Nerd Font Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 8px 16px; background: var(--bar); }
+header.bar { padding: calc(8px + var(--sat)) calc(16px + var(--sar)) 8px calc(16px + var(--sal)); border-bottom: 1px solid var(--line); }
+footer.bar { padding: 6px calc(16px + var(--sar)) calc(6px + var(--sab)) calc(16px + var(--sal)); border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.brand { font-weight: 700; color: var(--accent); }
+.grow { flex-grow: 1; }
+.loop { display: inline-flex; align-items: center; gap: 6px; }
+.tally b { font-weight: 700; }
+.zero { color: var(--dim); }
+main { flex-grow: 1; padding: 12px calc(16px + var(--sar)) 12px calc(16px + var(--sal)); display: flex; flex-direction: column; gap: 12px; }
+section { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
+.panel-col { display: flex; flex-direction: column; }
+.ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
+/* The Grand Army list takes the room; the selected unit and its chat sit beside it.
+   Wide screens fill the viewport and scroll inside the panels; narrow ones stack. */
+.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 680px); }
+.top > section { min-height: 0; max-height: 100%; }
+@media (min-width: 1100px) {
+  .app { height: 100vh; }
+  main { min-height: 0; }
+  .top { flex: 1 1 0; min-height: 420px; }
+}
+/* Stacked, the Grand Army list grows with its rows up to most of the screen. */
+@media (max-width: 1099px) {
+  .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 85vh; }
+  /* The conversation gets a whole screen (dvh follows the browser bars, the installed app and the on-screen keyboard). */
+  @supports (height: 100dvh) { .top { grid-template-rows: auto calc(100dvh - var(--sat) - var(--sab)); } }
+  .top > #army { min-height: 260px; max-height: 75vh; }
+  .top > #army .scroll { flex: 1 1 auto; }
+}
+/* Logs open from the top bar in a drawer over the page, never moving it. */
+.logs { display: flex; gap: 6px; }
+.logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.logbtn:hover { color: var(--fg); }
+.logbtn[aria-expanded="true"] { background: var(--sel); color: var(--bright); border-color: var(--blue); }
+.logbtn:focus-visible, .x:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.badge { min-width: 20px; padding: 0 5px; background: var(--field); color: var(--fg); font-size: 11px; font-weight: 700; text-align: center; }
+.badge.hot { background: var(--accent); color: var(--bg); }
+.badge.bad { background: var(--red); color: var(--bg); }
+.drawer { position: fixed; top: var(--drawer-top, 0); right: 0; bottom: 0; z-index: 10; width: min(600px, 100%); display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); box-shadow: -12px 0 32px color-mix(in srgb, var(--crust) 55%, transparent); transform: translateX(100%); visibility: hidden; transition: transform 0.15s ease-out, visibility 0s 0.15s; }
+.drawer { padding: 0 var(--sar) var(--sab) 0; background: var(--panel); }
+.drawer.open { transform: none; visibility: visible; transition: transform 0.15s ease-out; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer.open { transition: none; } }
+.drawer > section { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border: 0; }
+.drawer > section[hidden] { display: none; }
+.drawer ol { flex: 1 1 0; min-height: 0; overflow: auto; }
+.ph .end { display: inline-flex; align-items: center; gap: 12px; }
+.x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+.x:hover { color: var(--bright); }
+/* Quota usage: the account's 5h and 7d windows, then every Corps's share of the week (a budget, where set, as its allowance). */
+#usage { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+#usage[hidden] { display: none; }
+#usage summary { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 6px 12px; min-height: 32px; align-items: center; cursor: pointer; }
+#usage summary h2 { display: inline; }
+#usage .body { padding: 0 12px 8px; display: grid; gap: 8px; }
+#usage .win, #usage .cs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 20px; }
+.bud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; }
+.bud .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bud .sub { grid-column: 1 / -1; color: var(--dim); }
+.bud .track { grid-column: 1 / -1; height: 6px; background: var(--field); position: relative; margin: 2px 0; }
+.bud .fill { position: absolute; inset: 0 auto 0 0; }
+.bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
+/* The bar is the budget control: a 44px hit area around the 6px bar, the budget a thin accent handle on it. */
+.bud .hit { grid-column: 1 / -1; position: relative; height: 44px; margin: -14px 0 0; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.bud .hit .track { position: absolute; left: 0; right: 0; top: 19px; margin: 0; }
+.bud .mk { position: absolute; top: 9px; width: 18px; height: 26px; margin-left: -9px; cursor: ew-resize; outline: none; }
+.bud .mk::before { content: ""; position: absolute; left: 7px; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.bud .mk.unset::before { background: var(--muted); }
+.bud .mk.unset::after { content: "∞"; position: absolute; left: 8.5px; transform: translateX(-50%); top: 18px; color: var(--muted); font-size: 15px; line-height: 1; }
+.bud .inf { position: absolute; right: -3px; top: 27px; color: var(--dim); font-size: 15px; line-height: 1; pointer-events: none; }
+.bud .inf::before { content: ""; position: absolute; left: 3px; top: -8px; height: 6px; border-left: 1px dotted var(--dim); }
+.bud .mk:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent); }
+.bud .tip { position: absolute; bottom: 34px; transform: translateX(-50%); padding: 1px 6px; background: var(--bg); border: 1px solid var(--accent); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none; display: none; z-index: 2; }
+.bud .hit.live .tip { display: block; }
+.bud .hit.clearing .tip { border-color: var(--muted); color: var(--muted); }
+.bud .err, .bud .undo { grid-column: 1 / -1; color: var(--red); }
+.bud .undo { color: var(--dim); }
+.bud .undo button { min-height: 32px; padding: 0 8px; background: transparent; color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
+@media (pointer: coarse) { .bud .undo button { min-height: 44px; min-width: 44px; } }
+#army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
+#army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+#army .ph { gap: 8px 16px; }
+.controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.filter input { width: 140px; min-height: 32px; padding: 4px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+.filter input:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); cursor: pointer; }
+.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+#show-loop { accent-color: var(--blue); }
+.table { min-width: 480px; }
+.grid { display: grid; grid-template-columns: minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
+/* A narrow Grand Army panel drops the PANE and FOR columns instead of scrolling. */
+#army { container-type: inline-size; }
+@container (max-width: 559px) {
+  .table { min-width: 0; }
+  .grid { grid-template-columns: minmax(64px, 96px) 76px minmax(0, 1fr); }
+  .grid > :nth-child(2), .grid > :nth-child(4) { display: none; }
+}
+.thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
+.agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
+.agent:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+.agent[aria-pressed="true"] { background: var(--sel); }
+.agent:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corps { font-weight: 700; }
+.muted { color: var(--muted); } .dim { color: var(--dim); }
+.empty { padding: 14px 12px; color: var(--dim); }
+#det { flex: none; } /* never scrolls: only the chat does, the message box stays below it */
+#detail .ph { flex-wrap: nowrap; }
+#detail h2 span { color: var(--fg); }
+.body { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.link { padding: 0; margin-right: 8px; background: none; border: 0; color: var(--blue); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: var(--sky); }
+.mates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.mate { display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 5px 6px; text-align: left; font: inherit; color: var(--fg); background: transparent; border: 0; border-bottom: 1px solid var(--rule); cursor: pointer; }
+.mate:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+.mate[aria-pressed="true"] { background: var(--sel); }
+.mate:focus-visible, .link:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.mate-l { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.mate-l b { font-weight: 700; min-width: 0; }
+.mate-r { color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.mate-m { font-size: 11px; }
+/* Chat with the selected Agent: its transcript (or terminal), newest at the bottom. */
+#chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); background: var(--bg); }
+#chat[hidden] { display: none; }
+.msg .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; max-width: 88%; padding: 4px 8px; background: var(--sel); border: 1px solid var(--field); }
+.msg.user .who { color: var(--dim); font-size: 11px; }
+.msg.bot { color: var(--bright); }
+.md { overflow-wrap: anywhere; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md blockquote, .md .tbl { margin: 0 0 6px; }
+.md ul, .md ol { padding: 0 0 0 20px; list-style: disc; }
+.md ol { list-style: decimal; }
+.md .mh { margin: 8px 0 4px; font-weight: 700; color: var(--accent); }
+.md code { padding: 0 3px; background: var(--crust); color: var(--sky); }
+.md pre { padding: 6px 8px; background: var(--crust); border: 1px solid var(--rule); overflow-x: auto; font-size: 12px; }
+.md pre code { padding: 0; color: var(--soft); }
+.md blockquote { padding-left: 8px; border-left: 2px solid var(--field); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--rule); margin: 8px 0; }
+.md .tbl { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: 12px; }
+.md th, .md td { padding: 2px 8px; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.md th { color: var(--muted); }
+.tool summary { display: block; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; list-style: none; }
+.tool summary::-webkit-details-marker { display: none; }
+.tool summary::before { content: '▸ '; color: var(--dim); }
+.tool[open] summary::before { content: '▾ '; }
+.tool summary:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.tool .tn { color: var(--purple); }
+.tool.err .tn { color: var(--red); }
+.tool pre, pre.term { margin: 4px 0 0; padding: 6px 8px; background: var(--crust); border: 1px solid var(--rule); font: inherit; font-size: 11px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool pre { max-height: 280px; overflow: auto; }
+pre.term { margin: 0; border: 0; background: transparent; }
+#chat-state { font-size: 12px; }
+/* Narrow screens keep the top bar to the essentials. */
+@media (max-width: 699px) {
+  .wide, .tally.zero, header .brand + .dim { display: none; }
+  header.bar { gap: 4px 12px; padding: calc(6px + var(--sat)) calc(12px + var(--sar)) 6px calc(12px + var(--sal)); }
+  .logbtn { padding: 2px 6px; }
+}
+.needs { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--base)); background: color-mix(in srgb, var(--accent) 8%, var(--mantle)); padding: 6px 10px; }
+.needs div:first-child { color: var(--accent); font-weight: 700; }
+.needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
+dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
+dl.ainfo { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
+dl.ainfo dd.span2 { grid-column: 2 / -1; }
+dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
+.cap { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
+.cmd { margin-top: 4px; padding: 6px 10px; background: var(--crust); border: 1px solid var(--field); overflow-x: auto; white-space: nowrap; }
+.cmd.run { color: var(--bright); }
+ol { margin: 0; padding: 6px 12px; list-style: none; }
+.esc { display: grid; grid-template-columns: 48px 112px minmax(0, 1fr); gap: 4px 12px; padding: 4px 0; }
+.esc .why { grid-column: 3; color: var(--dim); overflow-wrap: anywhere; }
+@media (max-width: 480px) { .esc { grid-template-columns: 40px 64px minmax(0, 1fr); } }
+.ask { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 1px 0; }
+#log { background: var(--crust); }
+#log .ph { padding: 0 12px; }
+#log h2 { padding: 6px 0; }
+#log ol { padding: 8px 12px; }
+.log { display: grid; grid-template-columns: 72px 64px minmax(0, 1fr); gap: 12px; white-space: nowrap; }
+.log span:last-child { color: var(--soft); }
+.log.now span:last-child { color: var(--dim); }
+.log.now b { color: var(--fg); font-weight: 400; }
+.none { color: var(--dim); padding: 4px 0; }
+#send { padding: 8px 12px 10px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px; }
+#send[hidden] { display: none; }
+#send textarea { width: 100%; min-height: 56px; height: 56px; resize: vertical; padding: 6px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; }
+#send textarea:focus { outline: 1px solid var(--blue); outline-offset: -1px; }
+#send .acts { display: flex; align-items: center; gap: 12px; }
+#send button { min-height: 32px; padding: 4px 14px; background: var(--accent); color: var(--bg); border: 0; border-radius: 0; font: inherit; font-weight: 700; cursor: pointer; }
+#send button:disabled { opacity: 0.5; cursor: default; }
+#send button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
+#send-status { overflow-wrap: anywhere; }
+#skills { list-style: none; margin: 0; padding: 0; max-height: min(40vh, 280px); overflow-y: auto; border: 1px solid var(--field); background: var(--bar); }
+#skills[hidden] { display: none; }
+#skills li { padding: 5px 10px; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; border-bottom: 1px solid var(--rule); }
+#skills li.on { background: var(--sel); box-shadow: inset 2px 0 var(--accent); }
+#skills .sn { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+#skills .sd { color: var(--muted); overflow-wrap: anywhere; }
+#skills .sd i { font-style: normal; color: var(--dim); }
+#skills .none { padding: 8px 10px; }
+#send button.slash { background: transparent; color: var(--accent); border: 1px solid var(--field); padding: 4px 12px; }
+@media (pointer: coarse) { #skills li { min-height: 44px; align-items: center; } #send button.slash { min-height: 44px; min-width: 44px; } }
+@media (max-width: 480px) { #skills li { grid-template-columns: minmax(0, 1fr); } }
+/* iOS zooms into any field under 16px when it takes focus. */
+@media (pointer: coarse) { .filter input, #send textarea { font-size: 16px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">berthier</span>
+    <span class="dim">▸ grand army</span>
+    <span class="loop" id="loop"><span class="dim">connecting…</span></span>
+    <span class="muted" id="fresh"></span>
+    <span class="grow"></span>
+    <span id="tallies" style="display: contents"></span>
+    <span class="logs">
+      <button type="button" class="logbtn" data-log="escalations" aria-controls="drawer" aria-expanded="false">escalations <span class="badge" id="esc-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="asks" aria-controls="drawer" aria-expanded="false">asks <span class="badge" id="ask-badge">0</span></button>
+      <button type="button" class="logbtn" data-log="log" aria-controls="drawer" aria-expanded="false">main loop <span class="badge" id="log-badge">0</span></button>
+    </span>
+  </header>
+
+  <main>
+    <div class="top">
+      <section id="army" class="panel-col" aria-labelledby="army-h">
+        <div class="ph">
+          <h2 id="army-h">GRAND ARMY <small id="army-sub"></small></h2>
+          <div class="controls">
+            <label class="filter">
+              <span aria-hidden="true">/</span>
+              <span class="sr">Filter agents</span>
+              <input type="text" id="q" placeholder="filter" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="needs-only">
+              needs you only
+            </label>
+          </div>
+        </div>
+        <details id="usage" aria-label="quota usage" open hidden></details>
+        <div class="scroll">
+          <div class="table">
+            <div class="grid thead" aria-hidden="true"><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
+            <div id="rows"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="detail" class="panel-col" aria-labelledby="det-h">
+        <div id="det" aria-live="polite"></div>
+        <div id="chat" aria-label="conversation" hidden></div>
+        <!-- Outside #det so re-renders keep what the user is typing. -->
+        <form id="send" hidden>
+          <div id="chat-state" role="status"></div>
+          <label class="sr" for="msg">message <span id="send-to"></span></label>
+          <ul id="skills" role="listbox" aria-label="skills and commands" hidden></ul>
+          <textarea id="msg" placeholder="message this agent · enter sends, shift+enter for a new line" spellcheck="false"></textarea>
+          <div class="acts">
+            <button type="submit" id="send-btn">send</button>
+            <button type="button" class="slash" id="slash-btn" aria-label="skills and commands" aria-expanded="false" aria-controls="skills">/</button>
+            <span class="dim" id="send-status" role="status"></span>
+          </div>
+        </form>
+      </section>
+    </div>
+
+  </main>
+
+  <aside id="drawer" class="drawer" aria-label="logs">
+    <section id="escalations" aria-labelledby="esc-h" hidden>
+      <div class="ph">
+        <h2 id="esc-h">ESCALATIONS <small>· 7d</small></h2>
+        <span class="end"><span class="dim" id="esc-n"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="esc"></ol>
+    </section>
+    <section id="asks" aria-labelledby="ask-h" hidden>
+      <div class="ph">
+        <h2 id="ask-h">ASKS <small>· delivered, last 1h</small></h2>
+        <span class="end"><span id="inbox"></span><button type="button" class="x" aria-label="close">✕</button></span>
+      </div>
+      <ol id="ask"></ol>
+    </section>
+    <section id="log" aria-labelledby="log-h" hidden>
+      <div class="ph">
+        <h2 id="log-h">MAIN LOOP <small>· state/loop.log</small></h2>
+        <span class="end">
+          <label class="toggle">
+            <input type="checkbox" id="show-loop">
+            show loop restarts
+          </label>
+          <button type="button" class="x" aria-label="close">✕</button>
+        </span>
+      </div>
+      <ol id="lines"></ol>
+    </section>
+  </aside>
+
+  <footer class="bar">
+    <span>reads state/ · sends only what you type</span>
+    <span style="color: var(--accent)">needs you</span>
+    <span style="color: var(--blue)">working</span>
+    <span style="color: var(--red)">blocked</span>
+    <span style="color: var(--green)">done / idle</span>
+    <span style="color: var(--purple)">gone</span>
+  </footer>
+</div>
+
+<script>
+'use strict';
+// Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
+// /api/events. The only state here is what the viewer picked and is typing;
+// the one write is a message to an Agent (POST api/prompt).
+
+const C = Object.fromEntries(['accent', 'blue', 'sky', 'soft', 'muted', 'dim', 'faint', 'green', 'red', 'purple', 'bright']
+  .map((k) => [k, `var(--${k})`]));
+const LIVE = { working: ['▶', C.blue], blocked: ['■', C.red], done: ['✓', C.green], idle: ['✓', C.green],
+  gone: ['✕', C.purple], unknown: ['?', C.muted] };
+const TAG = { loop: C.faint, revive: C.purple, forget: C.purple, speak: C.accent, escal: C.accent,
+  ask: C.blue, army: C.green, limit: C.sky, error: C.red, budget: C.accent, other: C.muted };
+const LOG_LINES = 40;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) === '1'; localStorage.setItem(k, v ? '1' : '0'); } catch { return false; } };
+
+let army = null, connected = false;
+const drafts = {}; // unsent message per pane
+// The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
+const ui = { log: null, q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+$('needs-only').checked = ui.needsOnly;
+$('show-loop').checked = ui.showLoop;
+
+const now = () => Date.now() / 1000;
+const pad = (n) => String(n).padStart(2, '0');
+const clock = (t, secs = true) => {
+  if (t == null) return '-';
+  const d = new Date(t * 1000);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + (secs ? ':' + pad(d.getSeconds()) : '');
+};
+const sameDay = (t) => new Date(t * 1000).toDateString() === new Date().toDateString();
+const day = (t) => sameDay(t) ? clock(t, false) : new Date(t * 1000).toLocaleDateString('en', { weekday: 'short' });
+const ago = (t) => {
+  if (t == null) return '-';
+  const s = Math.max(0, Math.floor(now() - t));
+  return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm' : s < 86400 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
+};
+const home = (p) => (p || '-').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+
+// Every Agent once, in Herdr's workspace order (army.jq's units), with the unit
+// it belongs to: a Corps or Berthier, each followed by its Divisions.
+function agents() {
+  const out = [];
+  const add = (unit, role, parent) => unit.agents.forEach((a) => out.push({ ...a, unit, role, parent }));
+  for (const u of army.units) {
+    add(u, 'corps');
+    for (const d of u.divisions) add(d, 'division', u.name);
+  }
+  return out.map((a) => {
+    const [glyph, color] = a.needs_you ? ['●', C.accent] : LIVE[a.status] || LIVE.unknown;
+    // Waiting since the report that asked, or since the dialog appeared.
+    const waitFrom = a.status === 'blocked' || a.report_at == null ? a.status_since : a.report_at;
+    return { ...a, glyph, color, state: a.needs_you ? 'needs you' : a.status || 'unknown', from: a.needs_you ? waitFrom : a.status_since };
+  });
+}
+
+function visible(all) {
+  const q = ui.q.trim().toLowerCase();
+  return all
+    .filter((a) => !ui.needsOnly || a.needs_you)
+    .filter((a) => !q || [a.who, a.pane_id, a.name, a.report, a.parent].join(' ').toLowerCase().includes(q));
+}
+
+const ageSpan = (t) => `<span class="muted" data-ago="${t ?? ''}">${ago(t)}</span>`;
+
+function renderHeader(all) {
+  const k = army.counts, fresh = army.available;
+  $('loop').innerHTML = fresh
+    ? `<span style="color: ${C.green}" aria-hidden="true">●</span>main loop running<span class="span2"> · ${army.loop.interval}s · since ${clock(army.loop.started_at, false)}</span>`
+    : `<span style="color: ${C.red}" aria-hidden="true">■</span>main loop not writing state`;
+  const link = connected ? '' : ` · <span style="color: ${C.red}">console disconnected</span>`;
+  $('fresh').classList.toggle('wide', fresh && connected); // narrow screens show it only when something is wrong
+  $('fresh').innerHTML = `grand army state ${clock(army.updated_at)} · ${fresh ? 'fresh' : `<span style="color: ${C.accent}">stale</span>`}${link}`;
+  const tally = (n, label, color) => n
+    ? `<span class="tally"><b style="color: ${color}">${n}</b> ${label}</span>`
+    : `<span class="tally zero"><b>0</b> ${label}</span>`;
+  $('tallies').innerHTML = tally(all.filter((a) => a.needs_you).length, 'need you', C.accent) + tally(k.working, 'working', C.blue)
+    + tally(k.blocked, 'blocked', C.red) + tally(k.done + k.idle, 'ready', C.green) + tally(k.gone, 'gone', C.purple);
+  const corps = army.corps.length, divs = army.corps.reduce((n, c) => n + c.divisions.length, 0) + army.berthier_divisions.length;
+  $('army-sub').textContent = `· ${all.length} agent${all.length === 1 ? '' : 's'} · ${corps} corps`
+    + (divs ? ` · ${divs} division${divs === 1 ? '' : 's'}` : '') + (army.berthier ? ' + berthier' : '');
+}
+
+// Quota usage: the account's 5h and 7d windows and every Corps's share of the
+// week. With a budget the bar is the share of the allowance (the tick marks
+// where its Main Agent is told); without, the share of the week.
+function renderBudget() {
+  if (ui.budgetDrag) return; // a bar being dragged must not be rebuilt under the finger
+  const b = army.budget, el = $('usage'), focus = document.activeElement?.closest?.('.hit')?.dataset?.budget;
+  const corps = b?.corps || [], five = b?.five_hour;
+  el.hidden = !(five || b?.week_pct != null || corps.length);
+  if (el.hidden) return;
+  if (!el.dataset.seen) { el.dataset.seen = '1'; el.open = !matchMedia('(max-width: 699px)').matches; } // compact on phones
+  const pct = (n) => (Math.round(n * 10) / 10) + '%';
+  const until = (t) => {
+    if (t == null) return 'reset time unknown';
+    const s = Math.max(0, Math.floor(t - now())), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return `resets in ${h >= 24 ? Math.floor(h / 24) + 'd ' + (h % 24) + 'h' : h ? h + 'h ' + m + 'm' : m + 'm'} · ${sameDay(t) ? '' : day(t) + ' '}${clock(t, false)}`;
+  };
+  const bar = (name, text, ratio, color, sub, label, warn, extra = '') => `<div class="bud">
+      <span class="name">${esc(name)}</span><span style="color: ${color}">${text}</span>
+      ${extra || `<span class="track" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(ratio * 100)}"><span class="fill" style="width: ${Math.min(100, ratio * 100)}%; background: ${color}"></span>${warn != null ? `<span class="warn" style="left: ${warn}%"></span>` : ''}</span>`}
+      ${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
+  const level = (p) => p >= 90 ? C.red : p >= 70 ? C.accent : C.green;
+  const win = (name, p, t) => p == null ? '' : bar(name, pct(p), p / 100, level(p), until(t), `${name} account quota`);
+  // Each Corps bar spans 0-100% of the week over its left 92%; the last 8% is the unlimited (∞) zone.
+  const INF = 92;
+  const corpsRow = (c) => {
+    const has = c.allowance != null, v = has ? Math.round(c.allowance) : 0;
+    const color = !has ? C.blue : c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
+    const note = ui.undo?.[c.name] && !has
+      ? `<span class="undo">back to unlimited · <button type="button" data-undo="${esc(c.name)}">undo (${ui.undo[c.name].pct}%)</button></span>`
+      : c.ratio >= 1 ? '<span class="sub">budget spent · Revives, resumes and asks held</span>' : '';
+    const track = `<span class="hit" data-budget="${esc(c.name)}" data-was="${has ? 1 : 0}"><span class="track" role="meter" aria-label="${esc(c.name)} share of the week" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.used)}"><span class="fill" style="width: ${Math.min(INF, c.used * INF / 100)}%; background: ${color}"></span></span>
+      ${has ? '<span class="inf">∞</span>' : ''}<span class="mk${has ? '' : ' unset'}" tabindex="0" role="slider" aria-label="${esc(c.name)} weekly budget" aria-valuemin="1" aria-valuemax="100" ${has ? `aria-valuenow="${v}"` : ''} aria-valuetext="${has ? v + '% of the week' : 'unlimited'}" style="left: ${has ? Math.min(INF, c.allowance * INF / 100) : 100}%"></span>
+      <span class="tip"></span></span>`;
+    return bar(c.name, has ? `${pct(c.used)} / ${pct(c.allowance)}` : pct(c.used), 0, color, null, '', null, track).replace(/<\/div>$/, note + '</div>');
+  };
+  const rows = corps.map(corpsRow).join('');
+  el.innerHTML = `<summary><h2>QUOTA</h2>${five ? `<span>5h ${pct(five.pct)}</span>` : ''}${b.week_pct != null ? `<span>7d ${pct(b.week_pct)}</span>` : ''}</summary>
+    <div class="body"><div class="win">${win('5h', five?.pct, five?.resets_at)}${win('7d', b.week_pct, b.resets_at)}</div>
+    ${rows ? `<div class="cs">${rows}</div>` : ''}</div>`;
+  if (focus) el.querySelector(`[data-budget="${CSS.escape(focus)}"] .mk`)?.focus();
+}
+
+// Budget bars: the usage bar is the control. No budget means unlimited: the handle is parked at the right
+// end on a short ∞ zone past the 0-100% range. Pointer down anywhere on a Corps's bar sets the budget there
+// and a drag adjusts it; release commits (the same write as `berthier budget <corps> <pct>|off`). Releasing
+// in the ∞ zone (the last 6%) is unlimited again, as is double-click or a long press on the handle, with
+// an undo for a few seconds. Arrows +/-1, shift +/-5, Delete or End: unlimited.
+async function setBudget(corps, pct) {
+  try {
+    const res = await fetch('api/budget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps, pct }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    return true;
+  } catch (err) {
+    ui.budgetDrag = false;
+    renderBudget();
+    const row = [...$('usage').querySelectorAll('.hit')].find((r) => r.dataset.budget === corps)?.closest('.bud');
+    row?.insertAdjacentHTML('beforeend', `<span class="err">not saved: ${esc(err.message)}</span>`);
+    return false;
+  }
+}
+const budgetOf = (corps) => army.budget?.corps?.find((c) => c.name === corps)?.allowance;
+async function commitBudget(corps, pct) { // pct null clears
+  const prev = budgetOf(corps);
+  if (pct == null && prev == null) { ui.budgetDrag = false; renderBudget(); return; }
+  const ok = await setBudget(corps, pct);
+  ui.budgetDrag = false;
+  if (ok && pct == null) {
+    (ui.undo ||= {})[corps] = { pct: Math.round(prev) };
+    setTimeout(() => { delete ui.undo[corps]; renderBudget(); }, 8000);
+  } else if (ok && ui.undo) delete ui.undo[corps];
+  renderBudget();
+}
+const drag = { hit: null, long: null, value: null, moved: false };
+function budgetAt(hit, x) { // pointer x -> pct, or null in the clearing zone
+  const r = hit.getBoundingClientRect(), f = Math.min(1, Math.max(0, (x - r.left) / r.width));
+  return f >= 0.94 ? null : Math.max(1, Math.min(100, Math.round(f / 0.92 * 100)));
+}
+function showBudget(hit, v) {
+  const mk = hit.querySelector('.mk'), tip = hit.querySelector('.tip');
+  mk.classList.toggle('unset', v == null);
+  mk.style.left = (v == null ? 100 : Math.min(92, v * 0.92)) + '%';
+  if (v != null) { mk.setAttribute('aria-valuenow', v); mk.setAttribute('aria-valuetext', v + '% of the week'); }
+  else { mk.removeAttribute('aria-valuenow'); mk.setAttribute('aria-valuetext', 'unlimited'); }
+  tip.textContent = v == null ? 'unlimited ∞' : v + '%';
+  tip.style.left = (v == null ? 90 : Math.min(88, v * 0.92)) + '%';
+  hit.classList.add('live'); hit.classList.toggle('clearing', v == null);
+}
+$('usage').addEventListener('pointerdown', (e) => {
+  const hit = e.target.closest('.hit');
+  if (!hit || e.button) return;
+  ui.budgetDrag = true;
+  Object.assign(drag, { hit, moved: false, value: undefined, start: [e.clientX, e.clientY] });
+  hit.setPointerCapture(e.pointerId);
+  if (e.target.closest('.mk') && hit.dataset.was === '1') { // a long press on the handle clears
+    drag.long = setTimeout(() => { if (!drag.moved && drag.hit) { const h = drag.hit; drag.hit = null; commitBudget(h.dataset.budget, null); } }, 600);
+  } else { drag.value = budgetAt(hit, e.clientX); showBudget(hit, drag.value); drag.moved = true; }
+});
+$('usage').addEventListener('pointermove', (e) => {
+  if (!drag.hit) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+  drag.moved = true; clearTimeout(drag.long);
+  drag.value = budgetAt(drag.hit, e.clientX); showBudget(drag.hit, drag.value);
+});
+const dragEnd = (e) => {
+  clearTimeout(drag.long);
+  const { hit, value, moved } = drag;
+  if (!hit) return;
+  drag.hit = null;
+  if (e.type === 'pointercancel' || !moved) { ui.budgetDrag = false; renderBudget(); return; }
+  commitBudget(hit.dataset.budget, value);
+};
+$('usage').addEventListener('pointerup', dragEnd);
+$('usage').addEventListener('pointercancel', dragEnd);
+$('usage').addEventListener('dblclick', (e) => {
+  const mk = e.target.closest('.mk'), hit = mk?.closest('.hit');
+  if (hit && hit.dataset.was === '1') commitBudget(hit.dataset.budget, null);
+});
+$('usage').addEventListener('click', (e) => {
+  const u = e.target.closest('button[data-undo]');
+  if (u) { const c = u.dataset.undo; commitBudget(c, ui.undo[c].pct); }
+});
+let keyTimer;
+$('usage').addEventListener('keydown', (e) => {
+  const mk = e.target.closest('.mk');
+  if (!mk) return;
+  const hit = mk.closest('.hit'), corps = hit.dataset.budget;
+  const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+  let v = ui.keyValue && corps in ui.keyValue ? ui.keyValue[corps] : budgetOf(corps) ?? null;
+  if (e.key === 'End' || e.key === 'Delete' || e.key === 'Backspace') v = null; // unlimited
+  else if (step && v == null) { if (step < 0) v = 100; } // left from unlimited: 100%
+  else if (step) v = Math.min(100, Math.max(1, Math.round(v) + step * (e.shiftKey ? 5 : 1)));
+  else return;
+  e.preventDefault();
+  ui.budgetDrag = true;
+  (ui.keyValue ||= {})[corps] = v;
+  showBudget(hit, v);
+  clearTimeout(keyTimer);
+  keyTimer = setTimeout(() => { delete ui.keyValue[corps]; commitBudget(corps, v); }, 450);
+});
+
+function renderRows(rows) {
+  const focused = document.activeElement?.dataset?.pane;
+  $('rows').innerHTML = rows.map((a) => {
+    const on = a.pane_id === ui.sel;
+    return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
+      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${a.parent ? '<span class="dim" aria-hidden="true">└ </span>' : ''}${esc(a.who)}</span>
+      <span class="muted">${esc(a.pane_id)}</span>
+      <span style="color: ${a.color}">${a.state}</span>
+      ${ageSpan(a.from)}
+      ${a.report == null && !a.needs_you ? '<span class="clip dim">no report yet</span>'
+        : `<span class="clip" style="color: ${a.needs_you ? C.bright : C.muted}">${esc(a.report ?? 'on an approval or question dialog')}</span>`}
+    </button>`;
+  }).join('') || `<div class="empty">${army.corps.length || army.berthier ? 'no agents match' : 'no agents'}</div>`;
+  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+}
+
+// A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
+const askedCmd = (r) => (r && (r.match(/`([^`]+)`/)?.[1] || r.match(/(?:^|\s)(! \S.*)$/)?.[1])) || null;
+
+// The selected Agent's own facts: the view model's, plus what its transcript
+// says (model, context, effort, branch), which the chat poll brings.
+let selAgent = null;
+const usd = (n) => '$' + (n < 10 ? n.toFixed(2) : n.toFixed(1));
+function renderInfo() {
+  const a = selAgent, el = $('ainfo');
+  if (!a || !el) return;
+  const i = chat.info?.pane === a.pane_id ? chat.info : {};
+  const model = i.model ? esc(i.model) + (a.division_model ? ` <span class="dim">· division ${esc(a.division_model)}</span>` : '')
+    : a.division_model ? `${esc(a.division_model)} <span class="dim">· division</span>` : null;
+  const ctx = i.context_tokens == null ? null
+    : `<span style="color: ${i.context_pct >= 90 ? C.red : i.context_pct >= 70 ? C.accent : C.muted}">${i.context_pct}%</span> <span class="dim">${Math.round(i.context_tokens / 1000)}k</span>`;
+  const rows = [
+    ['model*', model], ['effort', i.effort && esc(i.effort)], ['context', ctx],
+    ['cost', a.cost != null && usd(a.cost)],
+    ['branch', i.branch && esc(i.branch)],
+    ['session', a.session_id && `<span title="${esc(a.session_id)}">${esc(a.session_id.slice(0, 8))}</span>`],
+    ['status', `<span style="color: ${a.color}">${a.state}</span> ${ageSpan(a.from)}${a.last_revive_at == null ? '' : ` <span style="color: ${C.purple}" title="revived ${clock(a.last_revive_at, false)}">↻${a.revive_attempts}/${army.loop.revive_max ?? 3}</span>`}`],
+    ['report*', a.report == null ? '<span class="dim">no report yet</span>' : `<span class="dim">${clock(a.report_at, false)}</span> ${esc(a.report)}`],
+  ];
+  el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k.replace('*', '')}</dt><dd${k.endsWith('*') ? ' class="span2"' : ''}>${v}</dd>`).join('');
+}
+
+// The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
+function renderDetail(a, all) {
+  renderSend(a);
+  if (!a) {
+    $('det').innerHTML = `<div class="ph"><h2 id="det-h">SELECTED</h2></div><div class="body"><span class="dim">nothing selected</span></div>`;
+    return;
+  }
+  const u = a.unit, mates = all.filter((x) => x.unit === u);
+  const kind = a.role === 'division' ? 'DIVISION' : u.name === 'berthier' ? 'BERTHIER' : 'CORPS';
+  // Selecting a unit means selecting its first Agent's row.
+  const link = (name, unit) => {
+    const pane = unit?.agents?.[0]?.pane_id ?? all.find((x) => x.unit === unit)?.pane_id;
+    return pane ? `<button type="button" class="link" data-pane="${esc(pane)}">${esc(name)}</button>` : esc(name);
+  };
+  const facts = [];
+  if (a.role === 'division') {
+    const corps = all.find((x) => x.role === 'corps' && x.unit.name === a.parent)?.unit;
+    facts.push(['corps', link(a.parent, corps)], ['kind', a.unit.worktree ? 'worktree · ends on review' : 'adopted workspace']);
+  } else {
+    const d = u.divisions || [];
+    facts.push(['divisions', d.length ? d.map((x) => link(x.name, x)).join(' ') : '<span class="dim">none</span>']);
+  }
+  facts.push(['where', esc(home(a.cwd))]);
+  if (u.workspace_id) facts.push(['workspace', esc(u.workspace_id)]);
+  const cmd = a.needs_you ? askedCmd(a.report) : null;
+  const max = army.loop.revive_max ?? 3;
+  const mate = (m) => {
+    const on = m.pane_id === a.pane_id;
+    const revived = m.last_revive_at == null ? '' : ` · <span style="color: ${C.purple}">revived ${clock(m.last_revive_at, false)} (${m.revive_attempts}/${max})</span>`;
+    return `<li><button type="button" class="mate" data-pane="${esc(m.pane_id)}" aria-pressed="${on}">
+        <span class="mate-l"><span style="color: ${m.color}" aria-hidden="true">${m.glyph}</span>
+          <b class="clip">${esc(m.name ?? '(unnamed)')}</b>
+          <span class="muted">${esc(m.pane_id)}</span>
+          <span style="color: ${m.color}">${m.state}</span>
+          ${ageSpan(m.from)}</span>
+        ${on && m.needs_you ? '' : `<span class="mate-r ${m.report == null ? 'dim' : ''}">${m.report == null ? 'no report yet' : `<span class="dim">${clock(m.report_at, false)}</span> ${esc(m.report)}`}</span>`}
+        ${on ? `<span class="mate-m dim">${esc(m.kind ?? '-')} · session ${esc((m.session_id ?? '-').slice(0, 8))}${revived}</span>` : ''}
+      </button></li>`;
+  };
+  selAgent = a;
+  const focused = $('det').contains(document.activeElement) ? document.activeElement.dataset?.pane : null;
+  $('det').innerHTML = `
+    <div class="ph">
+      <h2 id="det-h">${kind} <span>${esc(u.name)}</span></h2>
+      <span class="dim">${mates.length} agent${mates.length === 1 ? '' : 's'}</span>
+    </div>
+    <div class="body">
+      ${a.needs_you ? `<div class="needs">
+        <div>needs you · waiting <span data-ago="${a.from ?? ''}">${ago(a.from)}</span></div>
+        <div>${esc(a.report ?? 'on an approval or question dialog')}</div>
+      </div>` : ''}
+      ${cmd ? `<div class="cmd run" title="it asks you to run">${esc(cmd)}</div>` : ''}
+      <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <dl id="ainfo" class="ainfo" aria-label="agent info"></dl>
+      ${mates.length > 1 ? `<ul class="mates" aria-label="agents">${mates.map(mate).join('')}</ul>` : ''}
+    </div>`;
+  renderInfo();
+  if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+}
+
+// The message box follows the selected Agent, keeping each pane's draft.
+let sendPane = null;
+function renderSend(a) {
+  $('send').hidden = $('chat').hidden = !a;
+  if (!a || a.pane_id === sendPane) return;
+  if (sendPane != null) drafts[sendPane] = $('msg').value;
+  sendPane = a.pane_id;
+  $('msg').value = drafts[sendPane] ?? '';
+  setPicker(false);
+  $('send-to').textContent = `→ ${a.name ?? a.who} · ${a.pane_id}`;
+  $('send-status').textContent = '';
+  chat.rev = null;
+  chat.info = null;
+  $('chat').innerHTML = '<div class="dim">loading…</div>';
+  $('chat-state').textContent = '';
+  pollChat();
+}
+
+// The conversation of the selected Agent, polled while the page is visible.
+// Tool calls stay collapsed unless the viewer opened them.
+const chat = { rev: null, open: new Set(), busy: false, info: null };
+async function pollChat() {
+  const pane = sendPane;
+  if (!pane || document.hidden || chat.busy) return;
+  chat.busy = true;
+  try {
+    const res = await fetch('api/chat?pane=' + encodeURIComponent(pane));
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    const v = await res.json();
+    if (pane === sendPane) {
+      chat.info = v.info ? { ...v.info, pane } : null;
+      renderInfo();
+      renderChat(v);
+    }
+  } catch (err) {
+    if (pane === sendPane) $('chat-state').innerHTML = `<span style="color: ${C.red}">chat unavailable: ${esc(err.message)}</span>`;
+  } finally {
+    chat.busy = false;
+  }
+}
+
+// Markdown for Agent replies. Safe by construction: every piece of source text
+// goes through esc(), the only tags are the ones written here, and links must
+// be http(s).
+function mdInline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
+  s = esc(s)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, (_, a, b) => `<strong>${a ?? b}</strong>`)
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+    .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+    .replace(/\n/g, '<br>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, n) => `<code>${esc(codes[n])}</code>`);
+}
+function md(src) {
+  const lines = String(src).replace(/\r/g, '').split('\n'), out = [];
+  let para = [], list = null, i = 0;
+  const flush = () => {
+    if (para.length) out.push(`<p>${mdInline(para.join('\n'))}</p>`);
+    if (list) out.push(`<${list.tag}>${list.items.map((x) => `<li>${mdInline(x)}</li>`).join('')}</${list.tag}>`);
+    para = []; list = null;
+  };
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if ((m = l.match(/^\s*(```|~~~)/))) {
+      flush();
+      const code = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(m[1]); i++) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      i++;
+    } else if ((m = l.match(/^#{1,6}\s+(.*)$/))) {
+      flush(); out.push(`<div class="mh">${mdInline(m[1])}</div>`); i++;
+    } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) {
+      flush(); out.push('<hr>'); i++;
+    } else if ((m = l.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/))) {
+      const tag = /\d/.test(m[1]) ? 'ol' : 'ul';
+      if (para.length || (list && list.tag !== tag)) flush();
+      list ??= { tag, items: [] };
+      list.items.push(m[2]); i++;
+    } else if (list && /^\s{2,}\S/.test(l)) {
+      list.items[list.items.length - 1] += '\n' + l.trim(); i++;
+    } else if (/^\s*>/.test(l)) {
+      flush();
+      const q = [];
+      for (; i < lines.length && /^\s*>/.test(lines[i]); i++) q.push(lines[i].replace(/^\s*>\s?/, ''));
+      out.push(`<blockquote>${mdInline(q.join('\n'))}</blockquote>`);
+    } else if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] ?? '') && lines[i + 1].includes('-')) {
+      flush();
+      const head = cells(l), rows = [];
+      for (i += 2; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]); i++) rows.push(cells(lines[i]));
+      out.push(`<div class="tbl"><table><tr>${head.map((c) => `<th>${mdInline(c)}</th>`).join('')}</tr>`
+        + rows.map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join('')}</tr>`).join('') + '</table></div>');
+    } else if (!l.trim()) {
+      flush(); i++;
+    } else {
+      if (list) flush();
+      para.push(l); i++;
+    }
+  }
+  flush();
+  return out.join('');
+}
+
+const STATE_TEXT = { working: 'working…', blocked: 'blocked on a dialog in its pane', done: 'done · your turn', idle: 'idle · your turn' };
+function renderChat(v) {
+  const [glyph, color] = LIVE[v.status] || LIVE.unknown;
+  const src = v.source === 'transcript' ? `transcript ${esc((v.session || '').slice(0, 8))}` : 'terminal';
+  $('chat-state').innerHTML = `<span style="color: ${color}">${glyph} ${esc(STATE_TEXT[v.status] || v.status || 'unknown')}</span> <span class="dim">· ${src}</span>`;
+  if (v.rev === chat.rev) return;
+  const first = chat.rev === null, box = $('chat');
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  chat.rev = v.rev;
+  box.innerHTML = v.source === 'terminal' ? `<pre class="term">${esc(v.text)}</pre>`
+    : v.items.map((it) => {
+      if (it.role === 'user') return `<div class="msg user"><div class="who">you${it.at ? ' · ' + clock(Date.parse(it.at) / 1000, false) : ''}</div><div class="txt">${esc(it.text)}</div></div>`;
+      if (it.role === 'assistant') return `<div class="msg bot md">${md(it.text)}</div>`;
+      const key = `${it.at}|${it.tool}|${it.input}`;
+      return `<details class="tool${it.error ? ' err' : ''}" data-k="${esc(key)}"${chat.open.has(key) ? ' open' : ''}>
+        <summary><span class="tn" title="${esc(it.tool)}">${esc(it.tool.replace(/^mcp__.+?__/, ''))}</span> <span>${esc(it.input)}</span>${it.result == null ? ' <span class="dim">· running</span>' : ''}</summary>
+        <pre>${it.result == null ? '…' : esc(it.result) || '(no output)'}</pre></details>`;
+    }).join('') || '<div class="dim">no conversation yet</div>';
+  if (first || atEnd) box.scrollTop = box.scrollHeight;
+}
+$('chat').addEventListener('toggle', (e) => {
+  const k = e.target.dataset?.k;
+  if (k != null) e.target.open ? chat.open.add(k) : chat.open.delete(k);
+}, true);
+setInterval(pollChat, 2000);
+document.addEventListener('visibilitychange', pollChat);
+
+async function send() {
+  const pane = sendPane, text = $('msg').value;
+  if (!pane || !text.trim() || $('send-btn').disabled) return;
+  $('send-btn').disabled = true;
+  $('send-status').style.color = '';
+  $('send-status').textContent = 'sending…';
+  try {
+    const res = await fetch('api/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane, text }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    drafts[pane] = '';
+    if (sendPane === pane) {
+      $('msg').value = '';
+      setPicker(false);
+      $('send-status').textContent = `sent ${clock(now())}`;
+      setTimeout(pollChat, 400);
+    }
+  } catch (err) {
+    if (sendPane === pane) {
+      $('send-status').style.color = C.red;
+      $('send-status').textContent = 'not sent: ' + err.message;
+    }
+  } finally {
+    $('send-btn').disabled = false;
+  }
+}
+
+// A top-bar log button's count; `level` colors it: hot needs a look, bad is an error.
+function badge(id, n, level) {
+  $(id).textContent = n;
+  $(id).className = 'badge' + (level ? ' ' + level : '');
+}
+
+function renderEscalations() {
+  const list = army.escalations;
+  $('esc-n').textContent = list.length;
+  badge('esc-badge', list.length, list.some((e) => e.at >= now() - 3600) && 'hot');
+  $('esc').innerHTML = list.map((e) => {
+    const to = e.kind === 'speak' ? ['→ you, aloud', C.accent] : ['→ ' + e.to, C.sky];
+    const why = e.kind === 'speak' ? `spoke “${e.why.replace(/\.$/, '')}”` : e.why;
+    const when = new Date(e.at * 1000).toLocaleString();
+    return `<li class="esc">
+      <span class="muted" title="${esc(when)}">${day(e.at)}</span>
+      <span style="color: ${C.accent}">${esc(e.label)}</span>
+      <span>${e.who ? esc(e.who) + ' ' : ''}<span style="color: ${to[1]}">${esc(to[0])}</span></span>
+      <span class="why">${esc(why)}</span>
+    </li>`;
+  }).join('') || '<li class="none">none in 7 days</li>';
+}
+
+function renderAsks() {
+  const pending = army.asks.length;
+  $('inbox').innerHTML = `<span style="color: ${pending ? C.accent : C.green}">inbox ${pending}</span>`;
+  const since = now() - 3600;
+  const line = (at, from, to, extra, color) => `<li class="ask">
+      <span class="muted">${clock(at)}</span>
+      <span style="color: ${color}">${esc(from)} → ${esc(to)}${extra}</span>
+    </li>`;
+  const done = army.ask_log.filter((a) => a.at >= since).reverse()
+    .map((a) => line(a.at, a.from, a.to, '', a.from === 'berthier' ? C.sky : C.soft));
+  const queued = army.asks.map((a) => line(a.at, a.from, a.to, ' <span class="dim">· queued</span>', C.accent));
+  $('ask').innerHTML = done.concat(queued).join('') || '<li class="none">none in the last hour</li>';
+  badge('ask-badge', done.length + queued.length, pending && 'hot');
+}
+
+function logText(t) {
+  return t.replace(/^delivered ask /, 'delivered ').replace(/ -> /g, ' → ');
+}
+
+function renderLog() {
+  const lines = army.activity.filter((l) => ui.showLoop || l.tag !== 'loop').slice(0, LOG_LINES).reverse();
+  const hour = lines.filter((l) => l.at >= now() - 3600);
+  badge('log-badge', hour.length, hour.some((l) => l.tag === 'error') && 'bad');
+  const ol = $('lines'), atEnd = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 8;
+  ol.innerHTML = lines.map((l) => `<li class="log">
+      <span class="dim">${clock(l.at)}</span>
+      <span style="color: ${TAG[l.tag] || C.muted}">${esc(l.label)}</span>
+      <span>${esc(logText(l.text))}</span>
+    </li>`).join('') + `<li class="log now" id="tick"></li>`;
+  renderTick();
+  if (atEnd) ol.scrollTop = ol.scrollHeight; // follow the newest line
+}
+
+function renderTick() {
+  const el = $('tick');
+  if (!el || !army) return;
+  const next = Math.max(0, Math.ceil(army.updated_at + army.loop.interval - now()));
+  el.innerHTML = army.available
+    ? `<span class="dim">${clock(army.updated_at)}</span><span style="color: ${C.green}">tick</span><span>watching · next tick in ${next}s <b>▍</b></span>`
+    : `<span class="dim">${clock(army.updated_at)}</span><span style="color: ${C.red}">tick</span><span>no tick since ${army.updated_at ? clock(army.updated_at) : 'ever'} · is berthier-loop running?</span>`;
+}
+
+// Updates arrive every few seconds: they must leave the page and its panels
+// where the viewer scrolled them (the logs and chat follow their newest line
+// themselves).
+function render() {
+  if (!army) return;
+  const kept = [document.scrollingElement, document.querySelector('#army .scroll'), $('det')].map((el) => [el, el.scrollTop]);
+  const all = agents();
+  const rows = visible(all);
+  if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
+  renderHeader(all);
+  renderBudget();
+  renderRows(rows);
+  renderDetail(all.find((a) => a.pane_id === ui.sel), all);
+  renderEscalations();
+  renderAsks();
+  renderLog();
+  for (const [el, top] of kept) if (el.scrollTop !== top) el.scrollTop = top;
+}
+
+const select = (e) => {
+  const b = e.target.closest('[data-pane]');
+  if (!b) return;
+  ui.sel = b.dataset.pane;
+  history.replaceState(null, '', '#' + ui.sel);
+  render();
+  // Stacked, the conversation is below the list: bring it up.
+  if (b.closest('#rows') && matchMedia('(max-width: 1099px)').matches) $('detail').scrollIntoView({ block: 'start' });
+};
+$('rows').addEventListener('click', select);
+$('det').addEventListener('click', select);
+// One log open at a time in the drawer, under the top bar.
+function openLog(id) {
+  const open = id && ui.log !== id ? id : null;
+  ui.log = open;
+  document.querySelectorAll('.logbtn').forEach((b) => b.setAttribute('aria-expanded', b.dataset.log === open));
+  document.querySelectorAll('#drawer > section').forEach((sec) => { sec.hidden = sec.id !== open; });
+  $('drawer').classList.toggle('open', !!open);
+  if (open === 'log') $('lines').scrollTop = $('lines').scrollHeight;
+}
+const placeDrawer = () => document.documentElement.style.setProperty('--drawer-top', document.querySelector('header').getBoundingClientRect().bottom + 'px');
+placeDrawer();
+addEventListener('resize', placeDrawer);
+document.querySelectorAll('.logbtn').forEach((b) => b.addEventListener('click', () => { placeDrawer(); openLog(b.dataset.log); }));
+// Closing hands focus back to the log's button.
+function closeLog() {
+  const was = ui.log;
+  openLog(null);
+  document.querySelector(`.logbtn[data-log="${was}"]`)?.focus();
+}
+document.querySelectorAll('#drawer .x').forEach((b) => b.addEventListener('click', closeLog));
+
+// Slash picker: the selected Agent's skills and commands (GET api/skills).
+const skillCache = new Map(); // pane -> {at, list}
+const pick = { open: false, list: [], shown: [], on: 0, forced: false };
+async function loadSkills(pane) {
+  const hit = skillCache.get(pane);
+  if (hit && Date.now() - hit.at < 60000) return hit.list;
+  const res = await fetch('api/skills?pane=' + encodeURIComponent(pane));
+  if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  const list = (await res.json()).skills;
+  skillCache.set(pane, { at: Date.now(), list });
+  return list;
+}
+function skillRank(s, q) {
+  const n = s.name.toLowerCase(), t = n.split(':').pop();
+  if (!q) return 0;
+  if (n.startsWith(q) || t.startsWith(q)) return 1;
+  if (n.includes(q)) return 2;
+  return s.desc.toLowerCase().includes(q) ? 3 : 9;
+}
+function renderSkills() {
+  const q = pick.q.toLowerCase();
+  pick.shown = pick.list.map((s) => [skillRank(s, q), s]).filter(([r]) => r < 9)
+    .sort((a, b) => a[0] - b[0]).map(([, s]) => s);
+  pick.on = Math.min(pick.on, Math.max(0, pick.shown.length - 1));
+  $('skills').innerHTML = pick.shown.map((s, i) => `<li role="option" id="sk${i}" data-i="${i}" aria-selected="${i === pick.on}"${i === pick.on ? ' class="on"' : ''}>
+    <span class="sn">/${esc(s.name)}</span><span class="sd">${esc(s.desc)} <i>· ${esc(s.src)}</i></span></li>`).join('')
+    || `<li class="none">${pick.list.length ? 'no match' : 'loading…'}</li>`;
+  $('skills').querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  $('msg').setAttribute('aria-activedescendant', pick.shown.length ? 'sk' + pick.on : '');
+}
+function setPicker(open, q = '') {
+  pick.open = open;
+  pick.q = q;
+  $('skills').hidden = !open;
+  $('msg').setAttribute('aria-expanded', open);
+  $('slash-btn').setAttribute('aria-expanded', open);
+  if (!open) { pick.forced = false; return; }
+  const pane = sendPane;
+  pick.on = 0;
+  pick.list = skillCache.get(pane)?.list ?? [];
+  renderSkills();
+  loadSkills(pane).then((list) => {
+    if (pane !== sendPane || !pick.open) return;
+    pick.list = list;
+    renderSkills();
+  }, (err) => {
+    if (pane === sendPane && pick.open) $('skills').innerHTML = `<li class="none" style="color: ${C.red}">skills unavailable: ${esc(err.message)}</li>`;
+  });
+}
+// A first word starting with "/" opens the picker; the button opens it anywhere.
+function syncPicker() {
+  const m = /^\/([^\s]*)$/.exec($('msg').value);
+  if (m) {
+    if (!pick.open) setPicker(true, m[1]);
+    else { pick.q = m[1]; pick.on = 0; renderSkills(); }
+  } else if (pick.open && !pick.forced) setPicker(false);
+}
+function choose(i) {
+  const s = pick.shown[i];
+  if (!s) return false;
+  const v = $('msg').value, rest = v.startsWith('/') ? v.replace(/^\/\S*\s*/, '') : v;
+  $('msg').value = `/${s.name} ${rest}`;
+  setPicker(false);
+  $('msg').focus();
+  $('msg').setSelectionRange($('msg').value.length, $('msg').value.length);
+  return true;
+}
+$('msg').addEventListener('input', syncPicker);
+$('slash-btn').addEventListener('click', () => {
+  if (pick.open) { setPicker(false); $('msg').focus(); return; }
+  pick.forced = true;
+  setPicker(true, '');
+});
+$('skills').addEventListener('mousedown', (e) => e.preventDefault()); // keep the keyboard up on phones
+$('skills').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if (li) choose(+li.dataset.i);
+});
+
+$('send').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+$('msg').addEventListener('keydown', (e) => {
+  if (pick.open && !e.isComposing) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      pick.on = (pick.on + (e.key === 'ArrowDown' ? 1 : -1) + pick.shown.length) % (pick.shown.length || 1);
+      return renderSkills();
+    }
+    if ((e.key === 'Enter' && !e.shiftKey || e.key === 'Tab') && pick.shown.length) { e.preventDefault(); return choose(pick.on); }
+    if (e.key === 'Escape') { e.preventDefault(); return setPicker(false); }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+$('q').addEventListener('input', (e) => { ui.q = e.target.value; render(); });
+$('needs-only').addEventListener('change', (e) => { ui.needsOnly = e.target.checked; pref('needsOnly', ui.needsOnly); render(); });
+$('show-loop').addEventListener('change', (e) => { ui.showLoop = e.target.checked; pref('showLoop', ui.showLoop); render(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !e.target.matches('input, textarea')) { e.preventDefault(); $('q').focus(); }
+  else if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; ui.q = ''; $('q').blur(); render(); }
+  else if (e.key === 'Escape' && ui.log) closeLog();
+});
+
+// Ages and the next-tick countdown move every second without re-rendering.
+setInterval(() => {
+  document.querySelectorAll('[data-ago]').forEach((el) => { el.textContent = ago(el.dataset.ago === '' ? null : +el.dataset.ago); });
+  renderTick();
+}, 1000);
+
+const events = new EventSource('api/events');
+events.onmessage = (e) => { army = JSON.parse(e.data); connected = true; render(); };
+events.onopen = () => { connected = true; render(); };
+events.onerror = () => { connected = false; render(); };
+
+// Installable: the worker keeps the page itself for opening offline (sw.js).
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker:', err));
+</script>
+</body>
+</html>

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Print who owns what in the Grand Army, so an Agent knows whom to `berthier ask`.
-# shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
-
-cat "$BERTHIER_ROOT/owners.md"
