@@ -444,4 +444,23 @@ for _ in $(seq 30); do claude_pid "$budgeted" 2>/dev/null | grep -q . && break; 
 claude_pid "$budgeted" | grep -q . \
   || fail "not revived once its budget was raised: $(tail -4 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$budgeted" '.agents[$p]' "$BERTHIER_HOME/state.json")"
 
+step "the SessionStart hook gives Berthier's repo root its persona, through a real Claude"
+# The worktree is the repo root, so its session is Berthier's. Its hook prints BERTHIER.md.
+root=$PWD
+rootws=$(h workspace create --cwd "$root" --label persona-check --no-focus | jq -re '.result.root_pane.pane_id')
+hook=$(jq -cn --arg c "$root/bin/berthier session-start" '{hooks: {SessionStart: [{hooks: [{type: "command", command: $c}]}]}}')
+h agent start persona --kind claude --pane "$rootws" --timeout 60000 -- --model haiku --settings "$hook" >/dev/null 2>&1 || {
+  h agent send-keys persona down enter >/dev/null
+  h agent wait persona --until idle --timeout 60000 >/dev/null
+}
+h agent prompt persona "Reply with just the name your persona gives you, nothing else." --wait --timeout 120000 >/dev/null
+h pane read "$rootws" --source recent-unwrapped --lines 40 | grep -q '● Berthier' || fail "repo root's session is not Berthier"
+h workspace close "$(h pane get "$rootws" | jq -re '.result.pane.workspace_id')" >/dev/null
+
+step "session-start is silent outside the Army, and fast"
+start_ns=$(date +%s%N)
+echo '{"session_id":"x","cwd":"/nonexistent"}' | env -u HERDR_WORKSPACE_ID bin/berthier session-start >"$work/ss" || fail "session-start failed outside the Army"
+(( ($(date +%s%N) - start_ns) < 2000000000 )) || fail "session-start took too long"
+[[ ! -s $work/ss ]] || fail "session-start printed outside the Army: $(cat "$work/ss")"
+
 printf '\nE2E PASSED\n'
