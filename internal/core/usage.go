@@ -3,19 +3,19 @@ package core
 import (
 	"math"
 	"sort"
-	"strings"
 )
 
 // Weekly quota attribution, pure. `berthier sample` appends one Row per change
-// of a session's status line to the ledger; Fold turns new rows into the
-// usage record (state/usage.json), so each Corps knows how much of the
-// account's seven-day quota it used.
+// of a session's status line to the ledger: the account's week_pct, resets_at
+// and five-hour window. Fold turns new rows into the usage record
+// (state/usage.json), so each Corps knows how much of the account's seven-day
+// quota it used (ADR 0005).
 //
-// Each rise in week_pct is split across the sessions whose cost rose since the
-// last rise, weighted by that rise in cost, and credited to the Corps their cwd
-// belongs to (a Division counts toward its Corps; no Corps: "other"). A rise
-// no session's cost explains goes to "other". The first row ever seen is only a
-// baseline: what the account used before sampling started belongs to no one.
+// Each rise in week_pct is split across the Spend of the turns since the
+// previous rise (from the transcripts, SpendAt), by Corps. A rise no Spend
+// explains (claude.ai, another machine) goes to "other". The first row ever
+// seen is only a baseline: what the account used before sampling started
+// belongs to no one.
 
 // Row is one ledger line.
 type Row struct {
@@ -29,72 +29,34 @@ type Row struct {
 	FiveResetsAt *float64 `json:"five_resets_at,omitempty"`
 }
 
-// SessionUse is what the record remembers of a session.
+// SessionUse is what the record remembers of a session: its status line cost.
 type SessionUse struct {
-	Cost  float64 `json:"cost"`
-	Corps string  `json:"corps"`
-	Ts    float64 `json:"ts"`
+	Cost float64 `json:"cost"`
+	Ts   float64 `json:"ts"`
 }
+
+// SpendAt is Spend credited to a Corps at a time: one Profile row.
+type SpendAt struct {
+	Ts    float64
+	Corps string
+	USD   float64
+}
+
+// UsageSource marks a record attributed from transcript Spend; one without it
+// is refolded from the ledger once.
+const UsageSource = "transcripts"
 
 // Usage is state/usage.json.
 type Usage struct {
+	Source       string                `json:"source"`
 	ResetsAt     *float64              `json:"resets_at"`
 	WeekPct      *float64              `json:"week_pct"`
 	FivePct      *float64              `json:"five_pct,omitempty"`
 	FiveResetsAt *float64              `json:"five_resets_at,omitempty"`
 	ByCorps      map[string]float64    `json:"by_corps"`
-	Acc          map[string]float64    `json:"acc"`
+	LastRise     float64               `json:"last_rise"` // Spend after this explains the next rise
 	Sessions     map[string]SessionUse `json:"sessions"`
 	Offset       int64                 `json:"offset"`
-}
-
-// PathCorps maps a working directory prefix to the Corps it counts toward.
-type PathCorps struct{ Path, Corps string }
-
-// PathMap lists where each Corps's Agents and Divisions work, from the Grand
-// Army State. The longest path wins, so a Division's worktree beats its repo.
-func PathMap(s *State, d Divisions) []PathCorps {
-	b := "berthier"
-	if a := s.Agents.Get(deref(s.Berthier)); a != nil && a.WorkspaceLabel != nil {
-		b = CorpsName(*a.WorkspaceLabel)
-	}
-	var m []PathCorps
-	for _, k := range s.Agents.Keys {
-		a := s.Agents.M[k]
-		if a.Cwd != nil && *a.Cwd != "/" {
-			m = append(m, PathCorps{*a.Cwd, d.Owner(deref(a.WorkspaceLabel))})
-		}
-	}
-	for _, c := range s.Corps {
-		n := CorpsName(c.Name)
-		if c.RepoRoot != nil {
-			m = append(m, PathCorps{*c.RepoRoot, n})
-		}
-		for _, dv := range c.Divisions {
-			if dv.Path != nil {
-				m = append(m, PathCorps{*dv.Path, n})
-			}
-		}
-	}
-	for _, dv := range s.BerthierDivisions {
-		if dv.Path != nil {
-			m = append(m, PathCorps{*dv.Path, b})
-		}
-	}
-	return m
-}
-
-func corpsOf(cwd *string, m []PathCorps) (string, bool) {
-	if cwd == nil {
-		return "", false
-	}
-	best, found := PathCorps{}, false
-	for _, e := range m {
-		if (*cwd == e.Path || strings.HasPrefix(*cwd, e.Path+"/")) && (!found || len(e.Path) >= len(best.Path)) {
-			best, found = e, true
-		}
-	}
-	return best.Corps, found
 }
 
 // newWindow: a row from another window: resets_at moved or the quota fell
@@ -114,61 +76,42 @@ func (u *Usage) newWindow(r Row) bool {
 // first render, carrying a cached week_pct. Its cost counts, its week_pct does not.
 func (u *Usage) stale(r Row) bool { return u.FivePct != nil && r.FivePct == nil }
 
-func (u *Usage) rise(amt float64) {
-	keys := make([]string, 0, len(u.Acc))
+// rise splits amt across the Spend in (LastRise, until], by Corps. Rows carry
+// whole seconds and Spend milliseconds: until is the row's second, plus one.
+func (u *Usage) rise(amt float64, spend []SpendAt, until float64) {
+	i := sort.Search(len(spend), func(i int) bool { return spend[i].Ts > u.LastRise })
+	acc := map[string]float64{}
 	total := 0.0
-	for k := range u.Acc {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		total += u.Acc[k]
+	for ; i < len(spend) && spend[i].Ts <= until; i++ {
+		acc[spend[i].Corps] += spend[i].USD
+		total += spend[i].USD
 	}
 	if total > 0 {
-		for _, k := range keys {
-			c := "other"
-			if s, ok := u.Sessions[k]; ok {
-				c = s.Corps
-			}
-			u.ByCorps[c] += amt * u.Acc[k] / total
+		for _, k := range sortedMapKeys(acc) {
+			u.ByCorps[k] += amt * acc[k] / total
 		}
 	} else {
 		u.ByCorps["other"] += amt
 	}
-	u.Acc = map[string]float64{}
 }
 
-func (u *Usage) step(r Row, m []PathCorps) {
+func (u *Usage) step(r Row, spend []SpendAt) {
 	stale := u.stale(r)
 	if !stale && u.newWindow(r) {
 		z := 0.0
 		u.WeekPct = &z
 		u.ByCorps = map[string]float64{}
-		u.Acc = map[string]float64{}
 	}
-	s, seen := u.Sessions[r.Session]
-	corps, ok := corpsOf(r.Cwd, m)
-	if !ok {
-		corps = "other"
-		if seen {
-			corps = s.Corps
-		}
-	}
-	d := 0.0
-	if seen {
-		d = math.Max(r.Cost-s.Cost, 0)
-	}
-	u.Sessions[r.Session] = SessionUse{Cost: r.Cost, Corps: corps, Ts: r.Ts}
-	if d > 0 {
-		u.Acc[r.Session] += d
-	}
+	u.Sessions[r.Session] = SessionUse{Cost: r.Cost, Ts: r.Ts}
 	if !stale {
 		switch {
 		case u.WeekPct == nil:
 			w := r.WeekPct
 			u.WeekPct = &w
+			u.LastRise = r.Ts + 1
 		case r.WeekPct > *u.WeekPct:
-			u.rise(r.WeekPct - *u.WeekPct)
+			u.rise(r.WeekPct-*u.WeekPct, spend, r.Ts+1)
+			u.LastRise = r.Ts + 1
 			w := r.WeekPct
 			u.WeekPct = &w
 		}
@@ -181,10 +124,11 @@ func (u *Usage) step(r Row, m []PathCorps) {
 	}
 }
 
-// Fold returns u folded over rows in ledger order; sessions idle for two
-// weeks are forgotten. offset is how many ledger bytes the record has seen.
-func (u Usage) Fold(rows []Row, m []PathCorps, offset int64) Usage {
-	u.Acc = copyMap(u.Acc)
+// Fold returns u folded over rows in ledger order, splitting each rise by
+// spend (sorted by time); sessions idle for two weeks are forgotten. offset
+// is how many ledger bytes the record has seen.
+func (u Usage) Fold(rows []Row, spend []SpendAt, offset int64) Usage {
+	u.Source = UsageSource
 	u.ByCorps = copyMap(u.ByCorps)
 	sessions := make(map[string]SessionUse, len(u.Sessions))
 	for k, v := range u.Sessions {
@@ -193,7 +137,7 @@ func (u Usage) Fold(rows []Row, m []PathCorps, offset int64) Usage {
 	u.Sessions = sessions
 	latest := 0.0
 	for _, r := range rows {
-		u.step(r, m)
+		u.step(r, spend)
 		latest = math.Max(latest, r.Ts)
 	}
 	for k, s := range u.Sessions {
@@ -203,6 +147,15 @@ func (u Usage) Fold(rows []Row, m []PathCorps, offset int64) Usage {
 	}
 	u.Offset = offset
 	return u
+}
+
+func sortedMapKeys(m map[string]float64) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func copyMap(m map[string]float64) map[string]float64 {

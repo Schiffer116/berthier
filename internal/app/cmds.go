@@ -38,7 +38,7 @@ func (e *Env) ArmyView() core.ArmyView {
 	for id, s := range in.Usage.Sessions {
 		in.Costs[id] = s.Cost
 	}
-	in.Usage.Sessions, in.Usage.Acc = nil, nil
+	in.Usage.Sessions = nil
 	return core.Army(in)
 }
 

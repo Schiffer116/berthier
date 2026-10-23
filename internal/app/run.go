@@ -45,6 +45,10 @@ last <pane>                         the Claude Agent's latest assistant message,
 owners                              who owns what, to know whom to ask
 sample                              (status line) read session JSON on stdin, append to the quota ledger; silent, never fails
 budget [<corps> <pct>|off]          weekly quota used vs allowance per Corps; set or drop one Corps's budget (% of the week)
+profile [--waste] [--corps <c>] [--session <id>] [--week <n>]
+                                    Spend of a quota week (JSON): Corps -> Division -> session, by model, token kind,
+                                    cache hit and Turn origin, Spend per Delivered unit, ranked Waste signals;
+                                    --waste: only the Waste signals, all of them; --session: that session's turns
 counts                              Agent count per status plus reports, as JSON for status bars
 log [-n lines] [-f]                 the Main Loop's event log, readable
 army                                the full Grand Army view model as JSON (Corps, Divisions, Agents, asks, log)
@@ -120,6 +124,7 @@ func init() {
 		"owners":             cmdOwners,
 		"counts":             cmdCounts,
 		"budget":             cmdBudget,
+		"profile":            cmdProfile,
 		"log":                cmdLog,
 		"hook-stop":          cmdHookStop,
 		"tick":               func(e *Env, a []string, io IO) error { return e.Tick() },

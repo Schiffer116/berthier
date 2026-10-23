@@ -218,12 +218,15 @@ func lockFile(path string, wait bool) (unlock func(), err error) {
 	return func() { f.Close() }, nil
 }
 
-// UpdateUsage folds the ledger rows added since last time into
-// state/usage.json (core.Usage.Fold) and returns the record. Locked, so the
-// Main Loop and `berthier budget` never fold the same rows twice. A ledger
-// past BERTHIER_LEDGER_MAX is moved aside once folded: new samples start a
-// fresh file.
+// UpdateUsage folds the Profile (UpdateProfile) and then the ledger rows
+// added since last time into state/usage.json (core.Usage.Fold, each rise in
+// week_pct split by transcript Spend) and returns the record. Locked, so the
+// Main Loop and `berthier budget` never fold the same rows twice. A record
+// from before transcripts were the source is refolded from the whole ledger
+// once. A ledger past BERTHIER_LEDGER_MAX is moved aside once folded: new
+// samples start a fresh file.
 func (e *Env) UpdateUsage() (core.Usage, error) {
+	e.UpdateProfile() // its errors are the profile command's to report
 	unlock, err := lockFile(filepath.Join(e.Home, "usage.lock"), true)
 	if err != nil {
 		return core.Usage{}, err
@@ -239,15 +242,19 @@ func (e *Env) UpdateUsage() (core.Usage, error) {
 	if st, err := os.Stat(e.Ledger); err == nil {
 		size = st.Size()
 	}
+	var rows []core.Row
 	offset := u.Offset
+	if u.Source != core.UsageSource {
+		u, offset = core.Usage{}, 0
+		if st, err := os.Stat(e.Ledger + ".prev"); err == nil {
+			rows = ledgerRows(e.Ledger+".prev", 0, st.Size())
+		}
+	}
 	if offset > size { // the ledger was replaced
 		offset = 0
 	}
-	if size > offset {
-		rows := ledgerRows(e.Ledger, offset, size)
-		var st core.State
-		readJSON(e.State, &st)
-		m := core.PathMap(&st, e.ReadDivisions())
+	if size > offset || u.Source != core.UsageSource {
+		rows = append(rows, ledgerRows(e.Ledger, offset, size)...)
 		moved := false
 		if size > e.LedgerMax {
 			if os.Rename(e.Ledger, e.Ledger+".prev") == nil {
@@ -258,7 +265,7 @@ func (e *Env) UpdateUsage() (core.Usage, error) {
 		if moved {
 			next = 0
 		}
-		u = u.Fold(rows, m, next)
+		u = u.Fold(rows, e.SpendSeries(), next)
 		if err := writeAtomic(e.Usage, mustJSON(u)); err != nil {
 			return u, err
 		}
