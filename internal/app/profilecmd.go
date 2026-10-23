@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -222,4 +223,33 @@ func landedIn(root, branch, corps, main string, since float64) []core.Landed {
 	}
 	landedCache.Store(k, l)
 	return l
+}
+
+type profileKey struct {
+	week    int
+	session string
+}
+
+type profileHit struct {
+	at   time.Time
+	body []byte
+}
+
+var profileCache sync.Map // profileKey -> profileHit
+
+// profileJSON is the Console's Profile: the view of the index as the Main
+// Loop last folded it (the Console never folds), kept for 15 seconds.
+func (e *Env) profileJSON(weeksAgo int, session string) ([]byte, error) {
+	k := profileKey{weeksAgo, session}
+	if v, ok := profileCache.Load(k); ok && time.Since(v.(profileHit).at) < 15*time.Second {
+		return v.(profileHit).body, nil
+	}
+	var u core.Usage
+	readJSON(e.Usage, &u)
+	var b bytes.Buffer
+	if err := encode(&b, e.profileView(u, ProfileOpts{WeeksAgo: weeksAgo, Session: session})); err != nil {
+		return nil, err
+	}
+	profileCache.Store(k, profileHit{time.Now(), b.Bytes()})
+	return b.Bytes(), nil
 }

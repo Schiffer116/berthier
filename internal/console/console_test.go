@@ -1,7 +1,6 @@
 package console
 
 import (
-	"berthier/internal/herdr"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"berthier/internal/herdr"
 )
 
 // fakeSource is an army source whose output is a file the test changes.
@@ -235,5 +236,36 @@ func TestBudgetEndpoint(t *testing.T) {
 	// Only the three accepted requests and the failing write reached the setter.
 	if len(calls) != 4 || *calls[0].pct != 25 || calls[1].pct != nil || *calls[2].pct != 100 {
 		t.Errorf("setter calls = %+v", calls)
+	}
+}
+
+func TestProfileRoute(t *testing.T) {
+	var asked []string
+	src := func(week int, session string) ([]byte, error) {
+		asked = append(asked, fmt.Sprintf("%d %q", week, session))
+		return []byte(`{"week":{}}`), nil
+	}
+	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, src))
+	defer srv.Close()
+	for _, tc := range []struct {
+		q    string
+		code int
+	}{{"", 200}, {"?week=1&session=abc", 200}, {"?week=x", 400}, {"?week=-1", 400}} {
+		resp, err := http.Get(srv.URL + "/api/profile" + tc.q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.code {
+			t.Errorf("%s: %d, want %d", tc.q, resp.StatusCode, tc.code)
+		}
+	}
+	if got := strings.Join(asked, ","); got != `0 "",1 "abc"` {
+		t.Errorf("asked %s", got)
+	}
+	none := httptest.NewServer(Handler(NewArmy(), herdr.Client{}, nil, nil))
+	defer none.Close()
+	if resp, _ := http.Get(none.URL + "/api/profile"); resp.StatusCode != 404 {
+		t.Errorf("without a Profile: %d", resp.StatusCode)
 	}
 }
