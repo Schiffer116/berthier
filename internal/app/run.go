@@ -33,6 +33,8 @@ adopt <workspace> <corps>           make an existing workspace a Division of a C
 division-new <name> [--model <m>] <brief>
                                     (Main Agent) spawn a Division: a worktree workspace with its own Agent
                                     on --model (default $BERTHIER_DIVISION_MODEL, sonnet)
+land <division>                     (Berthier) merge a Division of Berthier into master, check, rebuild, restart
+                                    the changed services and wait until they work; refuses on conflict or failure
 division-done <name>                (Main Agent) remove a spawned Division once the user reviewed it
 report "<line>"                     (any Agent) one-line status for the user; "needs you: ..." when they must act
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
@@ -109,6 +111,7 @@ func init() {
 		"dashboard":          cmdDashboard,
 		"division-new":       cmdDivisionNew,
 		"division-done":      cmdDivisionDone,
+		"land":               cmdLand,
 		"report":             cmdReport,
 		"ask":                cmdAsk,
 		"notify":             cmdNotify,

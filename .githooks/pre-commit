@@ -4,6 +4,9 @@
 # Checks the working tree, so stage everything you mean to commit.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
+# Git exports GIT_INDEX_FILE etc. to hooks: tests that run git on scratch
+# repos would act on this one.
+unset $(git rev-parse --local-env-vars)
 max=$((1024 * 1024))
 fail=0
 while IFS=$'\t' read -r added _ path; do
