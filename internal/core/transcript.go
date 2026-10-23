@@ -49,6 +49,9 @@ type Turn struct {
 	Reread  int64    `json:"reread,omitempty"`
 	BigTool string   `json:"big_tool,omitempty"` // the largest oversized result's tool
 	Rereads []string `json:"rereads,omitempty"`  // what was read again
+	// What the turn shipped: "commit <sha>" from git commit's output, "pr <n>"
+	// from gh pr create's; Delivered units are credited by them.
+	Ships []string `json:"ships,omitempty"`
 }
 
 // Key identifies the turn and model a row belongs to.
@@ -79,6 +82,11 @@ func (t *Turn) Merge(o Turn) {
 	for _, r := range o.Rereads {
 		if len(t.Rereads) < 20 && !inStrs(t.Rereads, r) {
 			t.Rereads = append(t.Rereads, r)
+		}
+	}
+	for _, x := range o.Ships {
+		if !inStrs(t.Ships, x) {
+			t.Ships = append(t.Ships, x)
 		}
 	}
 }
@@ -240,7 +248,21 @@ func FoldTranscript(c Cursor, f TranscriptFile, lines [][]byte, place func(cwd s
 				if b.Type != "tool_result" {
 					continue
 				}
-				n := resultBytes(b.Content)
+				text := resultText(b.Content)
+				n := int64(len(text))
+				if ship := c.Pending[b.ToolUseID+"#ship"]; ship != "" {
+					to := last
+					if to == nil && c.MsgModel != "" {
+						to = row(&l, c.MsgModel, ts)
+					}
+					if to != nil {
+						for _, x := range shipped(ship, text) {
+							if !inStrs(to.Ships, x) {
+								to.Ships = append(to.Ships, x)
+							}
+						}
+					}
+				}
 				if n > BigResult && last != nil {
 					last.Big += n / charsPerToken
 					if last.BigTool == "" {
@@ -260,6 +282,7 @@ func FoldTranscript(c Cursor, f TranscriptFile, lines [][]byte, place func(cwd s
 				}
 				delete(c.Pending, b.ToolUseID)
 				delete(c.Pending, b.ToolUseID+"#tool")
+				delete(c.Pending, b.ToolUseID+"#ship")
 			}
 			if isText && !l.IsMeta && !l.IsCompactSummary && c.Parent == "" && !strings.HasPrefix(strings.TrimSpace(text), "<local-command") && !strings.HasPrefix(strings.TrimSpace(text), "<command-") {
 				c.Seq++
@@ -294,6 +317,9 @@ func FoldTranscript(c Cursor, f TranscriptFile, lines [][]byte, place func(cwd s
 				c.Pending[b.ID+"#tool"] = b.Name
 				if key := readKey(b.Name, b.Input); key != "" {
 					c.Pending[b.ID] = key
+				}
+				if ship := shipKind(b.Name, b.Input); ship != "" {
+					c.Pending[b.ID+"#ship"] = ship
 				}
 			}
 			if l.Message.ID != "" && l.Message.ID == c.Msg {
@@ -347,27 +373,68 @@ func FoldTranscript(c Cursor, f TranscriptFile, lines [][]byte, place func(cwd s
 	return c, out
 }
 
-// resultBytes is the text of a tool result; images are left out (they cost
+// resultText is the text of a tool result; images are left out (they cost
 // tokens by size in pixels, not bytes).
-func resultBytes(raw json.RawMessage) int64 {
+func resultText(raw json.RawMessage) string {
 	if len(raw) == 0 {
-		return 0
+		return ""
 	}
 	if raw[0] == '"' {
 		var s string
 		json.Unmarshal(raw, &s)
-		return int64(len(s))
+		return s
 	}
 	var parts []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	json.Unmarshal(raw, &parts)
-	n := 0
+	var b strings.Builder
 	for _, p := range parts {
-		n += len(p.Text)
+		b.WriteString(p.Text)
 	}
-	return int64(n)
+	return b.String()
+}
+
+var (
+	shipCommit  = regexp.MustCompile(`\bgit\b[^|;&]*\bcommit\b`)
+	shipPR      = regexp.MustCompile(`\bpr[ -]create\b`)
+	commitLine  = regexp.MustCompile(`(?m)^\[[^\s\]]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] `)
+	pullRequest = regexp.MustCompile(`github\.com/[^/\s]+/[^/\s]+/pull/(\d+)`)
+)
+
+// shipKind is what a tool call may ship: a commit, a pull request, or nothing.
+func shipKind(tool string, input json.RawMessage) string {
+	if tool != "Bash" {
+		return ""
+	}
+	var in struct {
+		Command string `json:"command"`
+	}
+	json.Unmarshal(input, &in)
+	switch {
+	case shipPR.MatchString(in.Command):
+		return "pr"
+	case shipCommit.MatchString(in.Command):
+		return "commit"
+	}
+	return ""
+}
+
+// shipped reads what a commit or pull request call's output says it made.
+func shipped(kind, out string) []string {
+	var l []string
+	if kind == "commit" || kind == "pr" {
+		for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
+			l = append(l, "commit "+m[1][:7])
+		}
+	}
+	if kind == "pr" {
+		for _, m := range pullRequest.FindAllStringSubmatch(out, -1) {
+			l = append(l, "pr "+m[1])
+		}
+	}
+	return l
 }
 
 func callUSD(model string, t Tokens, speed string) (float64, bool) {

@@ -1,12 +1,15 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"berthier/internal/core"
 )
 
 func TestProfileFold(t *testing.T) {
@@ -64,25 +67,61 @@ func TestProfileFold(t *testing.T) {
 
 func TestLanded(t *testing.T) {
 	repo := t.TempDir()
-	git := func(args ...string) {
+	git := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		out, err := cmd.CombinedOutput()
+		if err != nil {
 			t.Fatalf("git %v: %s", args, out)
 		}
+		return strings.TrimSpace(string(out))
 	}
 	git("init", "-q")
 	git("commit", "-q", "--allow-empty", "-m", "init")
+	git("checkout", "-q", "-b", "dev")
 	git("commit", "-q", "--allow-empty", "-m", "main work")
+	// dark-mode lands by a merge commit, fast-mode by fast-forward, share by a
+	// squash-merged pull request (a new commit no branch has).
 	git("checkout", "-q", "-b", "dark-mode")
 	git("commit", "-q", "--allow-empty", "-m", "d1")
 	git("commit", "-q", "--allow-empty", "-m", "d2")
-	git("checkout", "-q", "main")
+	git("checkout", "-q", "dev")
 	git("merge", "-q", "--no-ff", "--no-edit", "dark-mode")
-	l := landedIn(repo, "skipli", "skipli", 0)
-	got := []string{}
-	for _, x := range l {
-		got = append(got, x.Corps+"/"+x.Division+" "+string(rune('0'+x.Units())))
+	git("checkout", "-q", "-b", "fast-mode")
+	git("commit", "-q", "--allow-empty", "-m", "f1")
+	fast := git("rev-parse", "HEAD")
+	git("checkout", "-q", "dev")
+	git("merge", "-q", "--ff-only", "fast-mode")
+	git("commit", "-q", "--allow-empty", "-m", "Share dialog (#28)")
+	// The Main Agent works mostly on master and is now on a feature branch
+	// grown from dev: dev, where pull requests and merges land and which it
+	// worked more than the feature branch, is the integration branch.
+	git("branch", "master", "main")
+	git("checkout", "-q", "-b", "fix/unmerged")
+	git("commit", "-q", "--allow-empty", "-m", "not landed")
+
+	turns := []core.Turn{
+		{Corps: "skipli", Branch: "dev"}, {Corps: "skipli", Branch: "dev"}, {Corps: "skipli", Branch: "fix/unmerged"},
+		{Corps: "skipli", Division: "dark-mode", Branch: "dark-mode"},
+		{Corps: "skipli", Division: "fast-mode", Branch: "fast-mode", Ships: []string{"commit " + fast[:7]}},
+		{Corps: "skipli", Division: "share", Branch: "feat/share", Ships: []string{"pr 28"}},
 	}
-	eq(t, "merge brings its commits and finishes the Division", strings.Join(got, ","), "skipli/dark-mode 3,skipli/ 1,skipli/ 1")
+	turns = append(turns, core.Turn{Corps: "skipli", Branch: "master"}, core.Turn{Corps: "skipli", Branch: "master"}, core.Turn{Corps: "skipli", Branch: "master"})
+	br := mainBranches(turns)
+	eq(t, "the Main Agent's branches, most worked first", br["skipli"], []string{"master", "dev", "fix/unmerged"})
+	got := []string{}
+	for _, x := range core.Credit(landedOn(repo, br["skipli"], "skipli", "skipli", 0), turns) {
+		got = append(got, fmt.Sprintf("%s/%s %d", x.Corps, x.Division, x.Units()))
+	}
+	eq(t, "every way a Division lands is credited to it", strings.Join(got, ","),
+		"skipli/share 2,skipli/fast-mode 1,skipli/dark-mode 3,skipli/ 1,skipli/ 1")
+	// With no pull requests or merges anywhere, the most worked branch wins,
+	// not an old branch it grew from.
+	plain := t.TempDir()
+	for _, a := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "a"}, {"branch", "old"}, {"commit", "-q", "--allow-empty", "-m", "b"}} {
+		exec.Command("git", append([]string{"-C", plain, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"}, a...)...).Run()
+	}
+	eq(t, "no landings: most worked", landedOn(plain, []string{"main", "old"}, "dotfiles", "dotfiles", 0)[0].Subject, "b")
+	b := landedIn(repo, "", "grand-army", core.Overhead, 0)
+	eq(t, "no branch known: HEAD", b[0].Subject, "not landed")
 }

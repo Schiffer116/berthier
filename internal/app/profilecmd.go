@@ -1,12 +1,13 @@
 package app
 
 import (
-	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"berthier/internal/core"
 )
@@ -36,7 +37,8 @@ func (e *Env) profileView(u core.Usage, o ProfileOpts) core.ProfileView {
 	now := float64(e.now())
 	since := core.WeekStart(now, u.ResetsAt) - float64(e.ProfileWeeks-1)*core.Week
 	v := u.View(nil, int64(now))
-	in := core.ProfileIn{Turns: e.LoadTurns(), Archive: e.ReadArchive(), Landed: e.Landed(since), Now: now,
+	turns := e.LoadTurns()
+	in := core.ProfileIn{Turns: turns, Archive: e.ReadArchive(), Landed: e.Landed(since, mainBranches(turns)), Now: now,
 		ResetsAt: u.ResetsAt, WeekPct: v.WeekPct, ByCorps: map[string]float64{},
 		WeeksAgo: o.WeeksAgo, Corps: core.CorpsName(o.Corps), Session: o.Session, WasteMax: o.WasteMax}
 	for _, c := range v.Corps {
@@ -100,54 +102,103 @@ func cmdProfile(e *Env, args []string, io IO) error {
 
 // --- Delivered units from git
 
-var mergeBranch = regexp.MustCompile(`^Merge branch '([^']+)'`)
-
 type landedKey struct {
-	root, head string
-	since      float64
+	root, branch, head string
+	since              float64
 }
 
 var landedCache sync.Map // landedKey -> []core.Landed
 
-// Landed lists the Delivered units since a time in every Corps's repository:
-// commits on the branch its Main Agent works (HEAD at the repo root), each
-// Division merge with the commits it brought. Berthier's own commits are
-// Command overhead.
-func (e *Env) Landed(since float64) []core.Landed {
+// mainBranches lists, per Corps, the branches its Main Agent worked on, most
+// worked first: where its integration branch is to be found.
+func mainBranches(turns []core.Turn) map[string][]string {
+	counts := map[string]map[string]int{}
+	for _, t := range turns {
+		if t.Division != "" || t.Branch == "" || t.Branch == "HEAD" {
+			continue
+		}
+		if counts[t.Corps] == nil {
+			counts[t.Corps] = map[string]int{}
+		}
+		counts[t.Corps][t.Branch]++
+	}
+	out := map[string][]string{}
+	for c, m := range counts {
+		l := sortedKeys(m)
+		sort.SliceStable(l, func(i, j int) bool { return m[l[i]] > m[l[j]] })
+		out[c] = l
+	}
+	return out
+}
+
+// Landed lists every commit since a time on the main branch of every Corps's
+// repository (first parents; a merge counts the commits it brought), for
+// core.Credit to give to the Division that delivered it. Berthier's own
+// commits are Command overhead.
+func (e *Env) Landed(since float64, branches map[string][]string) []core.Landed {
 	st := e.ReadState()
 	b := "berthier"
 	if a := st.Agents.Get(strOr(st.Berthier)); a != nil && a.WorkspaceLabel != nil {
 		b = core.CorpsName(*a.WorkspaceLabel)
 	}
-	type repo struct{ root, corps, main string }
-	repos := []repo{}
+	out := []core.Landed{}
 	for _, c := range st.Corps {
 		if c.RepoRoot != nil {
 			n := core.CorpsName(c.Name)
-			repos = append(repos, repo{*c.RepoRoot, n, n})
+			out = append(out, landedOn(*c.RepoRoot, branches[n], n, n, since)...)
 		}
 	}
 	if e.Root != "" {
-		repos = append(repos, repo{e.Root, b, core.Overhead})
-	}
-	out := []core.Landed{}
-	for _, r := range repos {
-		out = append(out, landedIn(r.root, r.corps, r.main, since)...)
+		out = append(out, landedOn(e.Root, branches[core.Overhead], b, core.Overhead, since)...)
 	}
 	return out
 }
 
-func landedIn(root, corps, main string, since float64) []core.Landed {
-	head, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+// landedOn reads the integration branch among the Main Agent's branches (at
+// most four, most worked first): the one where the most pull requests and
+// merges landed, ties to the most worked (a feature branch holds its
+// base's landings too). skipli's Main Agent sits on master
+// and feature branches, but its pull requests land on dev.
+func landedOn(root string, branches []string, corps, main string, since float64) []core.Landed {
+	if len(branches) > 4 {
+		branches = branches[:4]
+	}
+	var best []core.Landed
+	bestN := -1
+	for _, b := range append(branches, "") {
+		l := landedIn(root, b, corps, main, since)
+		n := 0
+		for _, x := range l {
+			if x.Merge || squashed.MatchString(x.Subject) {
+				n++
+			}
+		}
+		if n > bestN {
+			best, bestN = l, n
+		}
+	}
+	return best
+}
+
+var squashed = regexp.MustCompile(`\(#\d+\)\s*$`)
+
+// landedIn reads branch's first-parent history in root (HEAD when branch is
+// empty or unknown).
+func landedIn(root, branch, corps, main string, since float64) []core.Landed {
+	ref := "HEAD"
+	if branch != "" && exec.Command("git", "-C", root, "rev-parse", "--verify", "-q", branch).Run() == nil {
+		ref = branch
+	}
+	head, err := exec.Command("git", "-C", root, "rev-parse", ref).Output()
 	if err != nil {
 		return nil
 	}
-	k := landedKey{root, strings.TrimSpace(string(head)), since}
+	k := landedKey{root, ref, strings.TrimSpace(string(head)), since}
 	if v, ok := landedCache.Load(k); ok {
 		return v.([]core.Landed)
 	}
-	out, err := exec.Command("git", "-C", root, "log", "--first-parent", fmt.Sprintf("--since=@%d", int64(since)),
-		"--format=%H%x1f%ct%x1f%P%x1f%s", "HEAD").Output()
+	out, err := exec.Command("git", "-C", root, "log", "--first-parent", "--since="+time.Unix(int64(since), 0).UTC().Format(time.RFC3339),
+		"--format=%H%x1f%ct%x1f%P%x1f%s", ref).Output()
 	if err != nil {
 		return nil
 	}
@@ -159,13 +210,11 @@ func landedIn(root, corps, main string, since float64) []core.Landed {
 		}
 		at, _ := strconv.ParseFloat(f[1], 64)
 		parents := strings.Fields(f[2])
-		x := core.Landed{Corps: main, Commits: 1, At: at, Subject: f[3]}
+		x := core.Landed{Corps: corps, Main: main, Commits: 1, At: at, Subject: f[3], Sha: f[0]}
 		if len(parents) == 2 {
-			n, err := exec.Command("git", "-C", root, "rev-list", "--count", parents[0]+".."+parents[1]).Output()
-			c, _ := strconv.Atoi(strings.TrimSpace(string(n)))
-			if m := mergeBranch.FindStringSubmatch(f[3]); m != nil && err == nil {
-				x = core.Landed{Corps: corps, Division: core.CorpsName(m[1]), Commits: c, Finished: true, At: at, Subject: f[3]}
-			} else if err == nil {
+			x.Merge = true
+			if n, err := exec.Command("git", "-C", root, "rev-list", "--count", parents[0]+".."+parents[1]).Output(); err == nil {
+				c, _ := strconv.Atoi(strings.TrimSpace(string(n)))
 				x.Commits = max(c, 1)
 			}
 		}

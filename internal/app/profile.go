@@ -150,7 +150,7 @@ func (e *Env) UpdateProfile() error {
 
 // profileVersion changes when the fold changes what it writes: the index is
 // then rebuilt from the transcripts.
-const profileVersion = 3
+const profileVersion = 4
 
 // readLines reads [offset, size) of a file as complete lines; next is the
 // offset after the last newline, so a line still being written waits.

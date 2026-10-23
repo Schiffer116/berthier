@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -77,9 +78,9 @@ func (s *Totals) add(t Turn) {
 	}
 }
 
-// Landed is Delivered work the shell found in git: commits that reached a
-// Corps's main branch from its Main Agent (Division "") or a Division's
-// branch, and whether that merge finished the Division.
+// Landed is Delivered work: a commit on a Corps's main branch (a merge counts
+// the commits it brought), credited to its Main Agent (Division "") or to the
+// Division that delivered it (Credit), and whether it finished that work.
 type Landed struct {
 	Corps    string  `json:"corps"`
 	Division string  `json:"division,omitempty"`
@@ -87,15 +88,79 @@ type Landed struct {
 	Finished bool    `json:"finished,omitempty"`
 	At       float64 `json:"at"`
 	Subject  string  `json:"subject,omitempty"`
+	Sha      string  `json:"sha,omitempty"`
+	Merge    bool    `json:"merge,omitempty"`
+	Main     string  `json:"main,omitempty"` // who gets it without a Division: the Corps, or Berthier for its own repo
 }
 
 // Units is how many Delivered units it counts for: each commit, plus one for
-// a finished Division.
+// finished work (a Division's branch or pull request merged).
 func (l Landed) Units() int {
 	if l.Finished {
 		return l.Commits + 1
 	}
 	return l.Commits
+}
+
+var (
+	squashPR    = regexp.MustCompile(`\(#(\d+)\)\s*$`)
+	mergePR     = regexp.MustCompile(`^Merge pull request #(\d+) from [^/\s]+/(\S+)`)
+	mergeBranch = regexp.MustCompile(`^Merge branch '([^']+)'`)
+)
+
+// Credit finds which Division delivered each landed commit, from what the
+// Divisions' turns shipped and worked on: a squash-merged or merged pull
+// request ("(#28)", "Merge pull request #28") a Division created, a commit
+// whatever way it landed (fast-forward, rebase keeping its sha) a Division
+// made, a merged branch a Division worked. Merged branches and pull requests
+// finish that work. The rest is the Main Agent's (Landed.Main).
+func Credit(landed []Landed, turns []Turn) []Landed {
+	pr, sha, branch := map[string]string{}, map[string]string{}, map[string]string{}
+	for _, t := range turns {
+		if t.Division == "" {
+			continue
+		}
+		for _, x := range t.Ships {
+			kind, v, _ := strings.Cut(x, " ")
+			switch kind {
+			case "pr":
+				pr[t.Corps+"#"+v] = t.Division
+			case "commit":
+				sha[t.Corps+"@"+v] = t.Division
+			}
+		}
+		if t.Branch != "" && t.Branch != "HEAD" {
+			branch[t.Corps+":"+t.Branch] = t.Division
+		}
+	}
+	out := make([]Landed, 0, len(landed))
+	for _, l := range landed {
+		if l.Division == "" {
+			div, finished := "", false
+			if m := mergePR.FindStringSubmatch(l.Subject); m != nil {
+				div, finished = pr[l.Corps+"#"+m[1]], true
+				if div == "" {
+					div = branch[l.Corps+":"+m[2]]
+				}
+			} else if m := squashPR.FindStringSubmatch(l.Subject); m != nil && pr[l.Corps+"#"+m[1]] != "" {
+				div, finished = pr[l.Corps+"#"+m[1]], true
+			} else if m := mergeBranch.FindStringSubmatch(l.Subject); m != nil && l.Merge {
+				div, finished = branch[l.Corps+":"+m[1]], true
+				if div == "" {
+					div = CorpsName(m[1])
+				}
+			} else if len(l.Sha) >= 7 {
+				div = sha[l.Corps+"@"+l.Sha[:7]]
+			}
+			if div != "" {
+				l.Division, l.Finished = div, l.Finished || finished
+			} else if l.Main != "" {
+				l.Corps = l.Main
+			}
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // Line is one row of the Profile table: a Corps, a Division, or Command overhead.
@@ -235,7 +300,7 @@ func Profile(in ProfileIn) ProfileView {
 		}
 	}
 	units := map[[2]string]int{}
-	for _, l := range in.Landed {
+	for _, l := range Credit(in.Landed, in.Turns) {
 		if l.At >= start && l.At < end {
 			units[[2]string{l.Corps, l.Division}] += l.Units()
 		}

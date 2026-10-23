@@ -231,3 +231,51 @@ func TestWasteRanking(t *testing.T) {
 	check(t, "evidence", []any{w[1].Evidence, w[3].Evidence}, `["context peaked at 300k tokens; 2.0M tokens above 150k in 1 turn(s)","read again: pane w1:p2 (~10k tokens)"]`)
 	check(t, "a Corps's line", WasteLine(w, "skipli", 3), `"cache_miss $0.78 (a:1), bloat $0.40 (a:1)"`)
 }
+
+func TestCredit(t *testing.T) {
+	turns := []Turn{
+		{Corps: "skipli", Division: "share", Branch: "feat/share", Ships: []string{"pr 28", "commit abc1234"}},
+		{Corps: "skipli", Division: "fast", Branch: "fast", Ships: []string{"commit def5678"}},
+		{Corps: "skipli", Division: "board", Branch: "ui/board"},
+		{Corps: "skipli", Branch: "dev", Ships: []string{"commit 9999999"}}, // the Main Agent's own
+		{Corps: "dotfiles", Division: "x", Ships: []string{"pr 5"}},
+	}
+	for _, tc := range []struct {
+		l    Landed
+		want string
+	}{
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 1, Subject: "feat: share dialog (#28)", Sha: "1111111aaa"}, `["skipli","share",2]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 1, Subject: "fix: thing (#5)", Sha: "2222222"}, `["skipli","",1]`}, // another repo's #5
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 3, Merge: true, Subject: "Merge pull request #28 from o/feat/share", Sha: "3333333"}, `["skipli","share",4]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 2, Merge: true, Subject: "Merge pull request #40 from o/ui/board", Sha: "4444444"}, `["skipli","board",3]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 1, Subject: "f1", Sha: "def5678ffff"}, `["skipli","fast",1]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 2, Merge: true, Subject: "Merge branch 'ui/board'", Sha: "5555555"}, `["skipli","board",3]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 2, Merge: true, Subject: "Merge branch 'Old-Div'", Sha: "6666666"}, `["skipli","old-div",3]`},
+		{Landed{Corps: "skipli", Main: "skipli", Commits: 1, Subject: "main work", Sha: "9999999"}, `["skipli","",1]`},
+		{Landed{Corps: "grand-army", Main: Overhead, Commits: 1, Subject: "notes", Sha: "7777777"}, `["berthier","",1]`},
+		{Landed{Corps: "skipli", Division: "set", Commits: 1, Finished: true}, `["skipli","set",2]`},
+	} {
+		c := Credit([]Landed{tc.l}, turns)[0]
+		check(t, tc.l.Subject, []any{c.Corps, c.Division, c.Units()}, tc.want)
+	}
+}
+
+func TestFoldTranscriptShips(t *testing.T) {
+	bash := func(id, cmd string) string {
+		return fmt.Sprintf(`{"type":"tool_use","id":%q,"name":"Bash","input":{"command":%q}}`, id, cmd)
+	}
+	c, rows := FoldTranscript(Cursor{}, TranscriptFile{Session: "s"}, lines(
+		userLine(0, "ship it"),
+		call(1, "m1", "claude-sonnet-5-5", 1, 0, 10, 0, 5, bash("t1", "git add -A && git commit -q -m 'Share dialog'")),
+		resultLine(2, "t1", "[feat/share 1a2b3c4d] Share dialog\n 3 files changed"),
+		call(3, "m2", "claude-sonnet-5-5", 1, 10, 0, 0, 5, bash("t2", "git push -u origin feat/share && gh pr create --base dev --fill")),
+		resultLine(4, "t2", "https://github.com/o/skipli/pull/28"),
+		call(5, "m3", "claude-sonnet-5-5", 1, 10, 0, 0, 5, bash("t3", "git log --oneline -1")),
+		resultLine(6, "t3", "[main 9999999] not a commit made here"),
+		call(7, "m4", "claude-sonnet-5-5", 1, 10, 0, 0, 5, bash("t4", "git commit --amend --no-edit")),
+	), skipliPlace)
+	check(t, "commits and pull requests shipped", rows[0].Ships, `["commit 1a2b3c4","pr 28"]`)
+	// A result read in the next pass still lands on the turn.
+	_, rows = FoldTranscript(c, TranscriptFile{Session: "s"}, lines(resultLine(8, "t4", "[feat/share (root-commit) 5e6f7a8] Share")), skipliPlace)
+	check(t, "result in a later pass", []any{rows[0].ID, rows[0].Ships}, `["s:1",["commit 5e6f7a8"]]`)
+}
