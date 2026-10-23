@@ -45,9 +45,10 @@ func (e *Env) Tick() error {
 	}
 	budgets := e.ReadBudgets()
 	divisions := e.ReadDivisions()
+	spend := e.spendBrief(usage, now)
 	decide := func(obs map[string]core.Obs) core.TickOut {
 		return core.Tick(core.TickIn{Prev: prev, Snap: snap, Now: now, Cfg: e.CoreConfig(), Divisions: divisions,
-			Inbox: inbox, Usage: usage, Budgets: budgets, Obs: obs})
+			Inbox: inbox, Usage: usage, Budgets: budgets, Obs: obs, Spend: spend})
 	}
 
 	// --- Observe what the decisions need: most ticks need nothing, else one more run.
@@ -144,6 +145,29 @@ func (e *Env) Tick() error {
 	}
 
 	return writeJSONAtomic(e.State, out.State, true)
+}
+
+// spendBrief is what the Main Loop needs of the Profile: this quota week's
+// Waste signals and last week's Spend.
+func (e *Env) spendBrief(u core.Usage, now int64) core.SpendBrief {
+	start := core.WeekStart(float64(now), u.ResetsAt)
+	var this, last []core.Turn
+	for _, t := range e.LoadTurns() {
+		switch {
+		case t.Start >= start:
+			this = append(this, t)
+		case t.Start >= start-core.Week:
+			last = append(last, t)
+		}
+	}
+	b := core.SpendBrief{Waste: core.Waste(this)}
+	for _, t := range last {
+		b.LastWeekUSD += t.USD
+	}
+	for _, w := range core.Waste(last) {
+		b.LastWeekWaste += w.USD
+	}
+	return b
 }
 
 func strOr(p *string) string {

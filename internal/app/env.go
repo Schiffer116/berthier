@@ -34,6 +34,7 @@ type Env struct {
 	LedgerMax                                 int64
 	ProfileWeeks                              int
 	ProfileSince                              float64
+	ProfileProjects                           string
 	BudgetWarn                                float64
 	Speak                                     string
 	DivisionModel                             string
@@ -114,6 +115,8 @@ func LoadEnv(getenv func(string) string) Env {
 	// seconds; tests set it to their start).
 	e.ProfileWeeks = int(max(i64("BERTHIER_PROFILE_WEEKS", 5), 1))
 	e.ProfileSince = num("BERTHIER_PROFILE_SINCE", 0)
+	// Which of Claude's project directories (a glob) the Profile reads.
+	e.ProfileProjects = str("BERTHIER_PROFILE_PROJECTS", "*")
 	// Share of its budget at which a Corps's Main Agent is told and the user hears (percent).
 	e.BudgetWarn = num("BERTHIER_BUDGET_WARN", 80)
 	// Claude model of spawned Divisions (division-new --model overrides); Main

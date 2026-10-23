@@ -92,6 +92,7 @@ type opt struct {
 	usage   Usage
 	budgets map[string]float64
 	gap     int64 // restart gap; default: never
+	spend   SpendBrief
 }
 
 var (
@@ -107,7 +108,7 @@ func tick(prev State, s Snapshot, now int64, o opt) TickOut {
 	if o.gap != 0 {
 		cfg.RestartGap = o.gap
 	}
-	return Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: o.obs})
+	return Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: o.obs, Spend: o.spend})
 }
 
 func yes(b bool) *bool { return &b }
@@ -491,6 +492,10 @@ func TestBudgets(t *testing.T) {
 	check(t, "no main agent: berthier hears", []any{r.Escalate[0].Key, r.Escalate[0].To, r.Escalate[0].Ev["to"]}, `["budget_warn:skipli:9000",null,"berthier"]`)
 	r = o(prev, sb, 1010, used(8, 0))
 	check(t, "a division's use counts for its corps", r.Escalate[0].Ev["corps"], `"skipli"`)
+	r = tick(prev, sb, 1010, opt{usage: used(8, 0), budgets: budgets, inbox: []Ask{}, spend: SpendBrief{Waste: []WasteItem{
+		{Kind: "bloat", Corps: "skipli", Turn: "s:4", USD: 1.5}, {Kind: "reread", Corps: "notes", Turn: "n:1", USD: 1}, {Kind: "cache_miss", Corps: "skipli", Turn: "s:9", USD: 0.25}}}})
+	check(t, "the warning carries the Corps's waste profile", r.Escalate[0].Text,
+		`"skipli has used 8% of the week, 80% of its 10% budget: wind down low-value work, since at 100% its Revives, usage-limit resumes and ask delivery are held. Its top Waste signals this week: bloat $1.50 (s:4), cache_miss $0.25 (s:9); details: berthier profile --waste --corps skipli"`)
 	u = used(20, 20)
 	u.ResetsAt = ptr(1000.0)
 	r = o(prev, sb, 1010, u)
@@ -633,4 +638,23 @@ func TestRestartResume(t *testing.T) {
 	// A Corps over budget keeps its Agent waiting.
 	r := tick(p3, si, 1140, opt{gap: 45, obs: obsInt(true), usage: used(1, 0), budgets: map[string]float64{"skipli": 1}})
 	check(t, "over budget: held, kept", []any{r.Proceed, keys(r.State)}, `[[],["sid-1"]]`)
+}
+
+func TestWeeklyOptimizer(t *testing.T) {
+	sb := snap(W, panes(ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")), panes(pn("w3:p1")))
+	prev := tick(State{}, sb, 1000, opt{}).State
+	week := Usage{ResetsAt: ptr(float64(Week) * 3)} // weeks start at multiples of Week
+	start := int64(Week * 2)
+	spend := SpendBrief{LastWeekUSD: 120.5, LastWeekWaste: 30.25}
+	r := tick(prev, sb, start+3599, opt{usage: week, spend: spend})
+	check(t, "not in the week's first hour", r.Escalate, `[]`)
+	r = tick(prev, sb, start+3600, opt{usage: week, spend: spend})
+	check(t, "Berthier asked to spawn an optimizer", []any{len(r.Escalate), r.Escalate[0].Key, r.Escalate[0].Head, r.Escalate[0].Ev},
+		`[1,"optimize:1209600","[berthier-loop] Weekly Profile review:",{"why":"optimize","reason":"weekly Profile review","usd":120.5,"to":"berthier"}]`)
+	check(t, "the ask", strings.Contains(r.Escalate[0].Text, "last week the Grand Army spent $120.50, $30.25 of it on Waste signals") &&
+		strings.Contains(r.Escalate[0].Text, "as an Artifact for the user's approval; it never applies them itself"), `true`)
+	r = tick(r.State, sb, start+7200, opt{usage: week, spend: spend})
+	check(t, "once a week", r.Escalate, `[]`)
+	r = tick(prev, sb, start+3600, opt{usage: week})
+	check(t, "nothing spent last week, nothing to review", r.Escalate, `[]`)
 }

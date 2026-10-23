@@ -10,6 +10,9 @@ session=berthier-e2e-$$
 work=$(mktemp -d)
 repo=$work/berthier-e2e-$$
 export BERTHIER_HERDR_SESSION=$session BERTHIER_HOME=$work/home BERTHIER_START_TIMEOUT_MS=60000
+# The Profile reads only this run's transcripts (Claude names a project
+# directory after its cwd, with / and . as -).
+export BERTHIER_PROFILE_SINCE=$(date +%s) BERTHIER_PROFILE_PROJECTS="$(sed 's|[/.]|-|g' <<<"$work")*"
 export BERTHIER_RESTART_GAP=${BERTHIER_RESTART_GAP:-4}
 export BERTHIER_RESTART_SETTLE=${BERTHIER_RESTART_SETTLE:-3}
 clean_env=(env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID)
@@ -288,6 +291,10 @@ resets=$(date -d '+3 days' +%s) base=40
 real=$(jq -cs 'map(select(.session != "e2e-quota" and .resets_at != null)) | last // empty' "$BERTHIER_HOME/ledger.jsonl" 2>/dev/null) || real=
 [[ -z $real ]] || { base=$(jq .week_pct <<<"$real"); resets=$(jq .resets_at <<<"$real"); }
 rm -rf "$BERTHIER_HOME"/{ledger.jsonl,usage.json,sampled}
+pong() { # a turn of the budgeted Corps: its Spend explains the next rise
+  h agent prompt budgeted "Reply with just: pong" --wait --timeout 90000 >/dev/null 2>&1 || fail "budgeted agent did not answer"
+  sleep 1
+}
 quota() { # cost week_pct_gain: the status line JSON of a session working in the Corps
   # A real status line carries the five-hour window; a row without it is ignored.
   jq -cn --argjson c "$1" --argjson p "$2" --argjson b "$base" --argjson r "$resets" --arg d "$repo/sub" \
@@ -297,6 +304,7 @@ quota() { # cost week_pct_gain: the status line JSON of a session working in the
 tick() { BERTHIER_SPEAK=$work/speak bin/berthier tick; }
 bin/berthier budget budgeted 10 >/dev/null
 quota 0 0
+pong
 quota 1 8
 tick
 (($(logged '.kind == "escalated" and .why == "budget_warn" and .corps == "budgeted"'))) || fail "80% not escalated: $(tail -5 "$BERTHIER_HOME/loop.log")"
@@ -311,6 +319,7 @@ tick
 (($(logged '.kind == "escalated" and .why == "budget_warn"') == 1)) || fail "warned more than once"
 bin/berthier budget | grep -q '^budgeted  *8%  *10%  *80%' || fail "budget shows: $(bin/berthier budget)"
 bin/berthier army | jq -e '.budget.corps | any(.name == "budgeted" and .allowance == 10 and .used > 7.9)' >/dev/null || fail "Console view lacks the budget"
+pong
 quota 2 11
 tick
 (($(logged '.kind == "budget_exhausted" and .corps == "budgeted"') == 1)) || fail "100% not logged once"

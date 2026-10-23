@@ -42,8 +42,8 @@ func (e *Env) profileSince(now int64) float64 {
 // transcriptFiles lists Claude Code's transcripts: main sessions and subagents.
 func (e *Env) transcriptFiles() []string {
 	root := filepath.Join(e.ClaudeDir, "projects")
-	a, _ := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
-	b, _ := filepath.Glob(filepath.Join(root, "*", "*", "subagents", "*.jsonl"))
+	a, _ := filepath.Glob(filepath.Join(root, e.ProfileProjects, "*.jsonl"))
+	b, _ := filepath.Glob(filepath.Join(root, e.ProfileProjects, "*", "subagents", "*.jsonl"))
 	return append(a, b...)
 }
 
