@@ -27,9 +27,10 @@ type boardRec struct {
 // boardStore is state/boards.json, written by `board` and the Main Loop (under
 // state/boards.lock), never by core.Tick.
 type boardStore struct {
-	Shared   string              `json:"shared,omitempty"` // the Grand Army Board
-	Corps    map[string]boardRec `json:"corps"`            // by core.CorpsName
-	Seen     map[string][]string `json:"seen"`             // card and task ids seen per Board; absent: seed silently
+	Shared   string              `json:"shared,omitempty"`  // the Grand Army Board
+	Corps    map[string]boardRec `json:"corps"`             // by core.CorpsName
+	Seen     map[string][]string `json:"seen"`              // card and task ids seen per Board; absent: seed silently
+	Failing  map[string]int64    `json:"failing,omitempty"` // Board -> when its run of failed polls began
 	PolledAt int64               `json:"polled_at"`
 	Alerts   map[string]bool     `json:"alerts"` // Escalations made and not yet recovered
 }
@@ -208,9 +209,19 @@ func (e *Env) pollBoards(out core.TickOut) {
 			break
 		}
 		if err != nil {
-			once("error:"+id, "board_error", fmt.Sprintf("Board %s not read (%s); its Corps get no new tasks until it works", id, err))
+			// A blip is not news: escalate once it has failed poll after poll for BoardFailAfter.
+			if s.Failing == nil {
+				s.Failing = map[string]int64{}
+			}
+			if s.Failing[id] == 0 {
+				s.Failing[id] = now
+			}
+			if now-s.Failing[id] >= e.BoardFailAfter {
+				once("error:"+id, "board_error", fmt.Sprintf("Board %s not read for %dm (%s); its Corps get no new tasks until it works", id, (now-s.Failing[id])/60, err))
+			}
 			continue
 		}
+		delete(s.Failing, id)
 		delete(s.Alerts, "session")
 		delete(s.Alerts, "error:"+id)
 		corpsOf := byBoard[id]

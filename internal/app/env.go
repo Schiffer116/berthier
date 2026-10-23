@@ -19,7 +19,7 @@ type Env struct {
 	State, Log, Inbox, Reports, Demos, Divisions string
 	Ledger, Usage, Budgets, BoardsFile           string
 	SkipliBin, SkipliEnv                         string
-	BoardPoll                                    int64
+	BoardPoll, BoardFailAfter                    int64
 	H                                            herdr.Client
 	HerdrSession                                 string
 	Interval                                     string // raw, as the loop prints it
@@ -127,6 +127,8 @@ func LoadEnv(getenv func(string) string) Env {
 	e.SkipliBin = str("BERTHIER_SKIPLI_BIN", "skipli-cli")
 	e.SkipliEnv = str("BERTHIER_SKIPLI_ENV", "dev")
 	e.BoardPoll = i64("BERTHIER_BOARD_POLL", 60)
+	// A Board that cannot be read is escalated once it has failed this long (seconds); a missing Session at once.
+	e.BoardFailAfter = i64("BERTHIER_BOARD_FAIL_AFTER", 300)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
 	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "sonnet")

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"berthier/internal/core"
 )
@@ -137,19 +138,40 @@ board|skipli|[board] new task t-ui1 "dark mode" on Skipli`)
 	e.pollBoards(out)
 	eq(t, "alert re-arms after recovery", prompts(), 3)
 
-	// --- any other failure is escalated once too, and re-arms
+	// --- any other failure is escalated once it has lasted BoardFailAfter, and re-arms
 	os.Remove(filepath.Join(sk, "expired"))
+	base := time.Now().Unix() + 1000
+	at := base
+	e.Now = func() time.Time { return time.Unix(at, 0) }
+	e.BoardFailAfter = 300
 	os.WriteFile(filepath.Join(sk, "broken"), nil, 0o644)
+	for _, at = range []int64{base, base + 60, base + 299} {
+		e.pollBoards(out)
+	}
+	eq(t, "a blip is not escalated", prompts(), 3)
+	os.Remove(filepath.Join(sk, "broken"))
+	at = base + 300
 	e.pollBoards(out)
+	os.WriteFile(filepath.Join(sk, "broken"), nil, 0o644)
+	at = base + 360
 	e.pollBoards(out)
-	eq(t, "error alert once", prompts(), 4)
-	if txt := readFile(filepath.Join(hd, "text")); !strings.Contains(txt, "not read") || !strings.Contains(txt, "exec: not found") {
+	at = base + 600
+	e.pollBoards(out)
+	eq(t, "a success resets the run", prompts(), 3)
+	for _, at = range []int64{base + 660, base + 661, base + 700} {
+		e.pollBoards(out)
+	}
+	eq(t, "escalated once after 5 minutes", prompts(), 4)
+	if txt := readFile(filepath.Join(hd, "text")); !strings.Contains(txt, "not read for 5m") || !strings.Contains(txt, "exec: not found") {
 		t.Errorf("error text: %q", txt)
 	}
 	os.Remove(filepath.Join(sk, "broken"))
+	at = base + 800
 	e.pollBoards(out)
 	os.WriteFile(filepath.Join(sk, "broken"), nil, 0o644)
-	e.pollBoards(out)
+	for _, at = range []int64{base + 900, base + 1300} {
+		e.pollBoards(out)
+	}
 	eq(t, "error alert re-arms", prompts(), 5)
 	os.Remove(filepath.Join(sk, "broken"))
 
