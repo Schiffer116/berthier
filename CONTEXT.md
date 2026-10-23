@@ -48,6 +48,14 @@ _Avoid_: status file, snapshot
 The initial instructions handed to a new Agent (by Berthier to a Main Agent, or by a Main Agent to a Division's Agent): the goal and what done looks like.
 _Avoid_: orders, prompt, task description
 
+**Board**:
+The Skipli board a Corps works from (Development environment for now): its own, or its card on the Grand Army Board. The user adds work there; the Corps shows its plan and progress there. Only the Corps's Main Agent changes its work items; its Divisions report to the Main Agent as usual. A work item is done when all its tasks are; only the user deletes finished work.
+_Avoid_: backlog, kanban, todo list
+
+**Grand Army Board**:
+The one Board shared by every Corps without its own: one card per Corps, named after it, whose tasks are that Corps's work. Berthier owns its cards; a Corps moves to its own Board only when the user decides.
+_Avoid_: army board, master board
+
 ### Supervision
 
 **Revive**:
