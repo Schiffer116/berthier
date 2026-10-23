@@ -9,6 +9,7 @@
 #   typing   the user's draft sits in the box
 #   nostart  Herdr refuses to start Claude
 #   dialog   Claude starts behind a dialog the user answers; then takes
+# A file `shell` puts the pane at a shell prompt (process-info).
 d=$(dirname "$0")
 mode=$(cat "$d/mode") seq=$(cat "$d/seq" 2>/dev/null || echo 1)
 printf '%s\n' "${*//$'\n'/ }" >>"$d/calls"
@@ -34,6 +35,7 @@ case "$1 $2" in
     esac ;;
   "api snapshot") echo '{"result":{"snapshot":{"workspaces":[],"agents":[],"panes":[]}}}' ;;
   "agent wait") touch "$d/answered" ;;
+  "pane process-info") [[ -e $d/shell ]] && echo '{"result":{"process_info":{"foreground_processes":[{"name":"zsh"}]}}}' ;;
   "agent send-keys") [[ $mode == draft ]] && { rm -f "$d/box"; bump; } ;;
   "pane read")
     [[ $mode == typing ]] && echo 'half a thought' >"$d/box"

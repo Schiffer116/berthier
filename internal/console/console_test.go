@@ -245,7 +245,7 @@ func TestProfileRoute(t *testing.T) {
 		asked = append(asked, fmt.Sprintf("%d %q", week, session))
 		return []byte(`{"week":{}}`), nil
 	}
-	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, src))
+	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, src, nil))
 	defer srv.Close()
 	for _, tc := range []struct {
 		q    string
@@ -267,5 +267,46 @@ func TestProfileRoute(t *testing.T) {
 	defer none.Close()
 	if resp, _ := http.Get(none.URL + "/api/profile"); resp.StatusCode != 404 {
 		t.Errorf("without a Profile: %d", resp.StatusCode)
+	}
+}
+
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+func (refusal) Bad() bool       { return true }
+
+func TestThaw(t *testing.T) {
+	var got []string
+	thaw := func(pane, how string) error {
+		if how != "revive" && how != "fresh" {
+			return refusal("want revive or fresh")
+		}
+		got = append(got, pane+" "+how)
+		return nil
+	}
+	a := NewArmy()
+	a.Set([]byte(`{"corps":[{"agents":[{"pane_id":"w1:p1"}],"divisions":[]}]}`))
+	srv := httptest.NewServer(HandlerWith(a, herdr.Client{}, nil, nil, nil, thaw))
+	defer srv.Close()
+	for _, c := range []struct {
+		name, ctype, body string
+		status            int
+	}{
+		{"fresh", "application/json", `{"pane":"w1:p1","how":"fresh"}`, http.StatusNoContent},
+		{"revive", "application/json", `{"pane":"w1:p1","how":"revive"}`, http.StatusNoContent},
+		{"unknown agent", "application/json", `{"pane":"w9:p1","how":"fresh"}`, http.StatusNotFound},
+		{"refused", "application/json", `{"pane":"w1:p1","how":"melt"}`, http.StatusBadRequest},
+		{"form post", "application/x-www-form-urlencoded", `pane=w1:p1`, http.StatusUnsupportedMediaType},
+	} {
+		res, err := http.Post(srv.URL+"/api/thaw", c.ctype, strings.NewReader(c.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != c.status {
+			t.Errorf("%s: status %d, want %d", c.name, res.StatusCode, c.status)
+		}
+	}
+	if strings.Join(got, ",") != "w1:p1 fresh,w1:p1 revive" {
+		t.Errorf("thawed: %v", got)
 	}
 }

@@ -31,7 +31,7 @@ func armyIn() ArmyIn {
 
 func TestArmyCountsAndNeeds(t *testing.T) {
 	v := Army(armyIn())
-	check(t, "counts", v.Counts, `{"working":1,"blocked":1,"done":0,"idle":2,"unknown":0,"gone":0}`)
+	check(t, "counts", v.Counts, `{"working":1,"blocked":1,"done":0,"idle":2,"unknown":0,"gone":0,"frozen":0}`)
 	who := []string{}
 	for _, a := range v.NeedsYou {
 		who = append(who, a.Who)
@@ -111,7 +111,7 @@ func TestArmyHerdrOrder(t *testing.T) {
 
 func TestArmyEmpty(t *testing.T) {
 	v := Army(ArmyIn{})
-	check(t, "empty counts", v.Counts, `{"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0}`)
+	check(t, "empty counts", v.Counts, `{"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0,"frozen":0}`)
 	check(t, "empty lists are lists", []any{v.Corps, v.Units, v.NeedsYou, v.Asks, v.Activity, v.Escalations, v.AskLog}, `[[],[],[],[],[],[],[]]`)
 }
 

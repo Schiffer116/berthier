@@ -73,7 +73,7 @@ func cmdCounts(e *Env, args []string, io IO) error {
 	}
 	var live []core.AgentView
 	for _, a := range agents {
-		if a.Status == nil || *a.Status != "gone" {
+		if a.Status == nil || *a.Status != "gone" || a.Frozen != nil {
 			live = append(live, a)
 		}
 	}
@@ -91,6 +91,9 @@ func cmdCounts(e *Env, args []string, io IO) error {
 		}
 		if a.NeedsYou {
 			state = "needs you"
+		}
+		if a.Frozen != nil {
+			state = "frozen"
 		}
 		if a.Report != nil {
 			report = *a.Report
@@ -374,7 +377,7 @@ func cmdAsk(e *Env, args []string, io IO) error {
 	known := map[string]bool{}
 	for _, k := range st.Agents.Keys {
 		a := st.Agents.M[k]
-		if a.Status == "gone" {
+		if a.Status == "gone" && a.Frozen == nil { // a Frozen one gets it once the user has chosen
 			continue
 		}
 		if st.Berthier != nil && k == *st.Berthier {
@@ -426,7 +429,7 @@ func cmdNotify(e *Env, args []string, io IO) error {
 	known := false
 	for _, k := range st.Agents.Keys {
 		a := st.Agents.M[k]
-		if a.Status == "gone" {
+		if a.Status == "gone" && a.Frozen == nil {
 			continue
 		}
 		if st.Berthier != nil && k == *st.Berthier {
@@ -924,6 +927,9 @@ func cmdDivisionNew(e *Env, args []string, io IO) error {
 	if err := e.SetDivision(branch, &core.Division{Corps: corps, Worktree: true, Model: model}); err != nil {
 		return err
 	}
+	if err := e.saveBrief(branch, brief); err != nil {
+		return err
+	}
 	agent := core.Slug(corps + "-" + branch)
 	switch e.StartClaude(agent, pane, brief, model, func(s string) { fmt.Fprintln(io.Err, s) }) {
 	case "ready":
@@ -982,6 +988,7 @@ func cmdDivisionDone(e *Env, args []string, io IO) error {
 	if err := e.SetDivision(branch, nil); err != nil {
 		return err
 	}
+	os.Remove(e.briefFile(branch))
 	repo := ""
 	if div.Worktree != nil && div.Worktree.RepoRoot != nil {
 		repo = *div.Worktree.RepoRoot
@@ -1019,7 +1026,7 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 		err := encode(&b, e.ArmyView())
 		return b.Bytes(), err
 	}
-	return console.Serve(*addr, source, e.H, e.setBudgetFor, e.profileJSON, *claude, *every)
+	return console.Serve(*addr, source, e.H, e.setBudgetFor, e.profileJSON, e.thawAndTick, *claude, *every)
 }
 
 // cmdPrompt prompts the Agent in a pane and makes sure Claude took it

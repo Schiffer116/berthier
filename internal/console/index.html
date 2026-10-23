@@ -224,6 +224,9 @@ pre.term { margin: 0; border: 0; background: transparent; }
 .needs { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--base)); background: color-mix(in srgb, var(--accent) 8%, var(--mantle)); padding: 6px 10px; }
 .needs div:first-child { color: var(--accent); font-weight: 700; }
 .needs div + div { color: var(--bright); font-family: system-ui, sans-serif; font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
+.needs.frozen { border-color: color-mix(in srgb, var(--sky) 40%, var(--base)); background: color-mix(in srgb, var(--sky) 8%, var(--mantle)); }
+.needs.frozen div:first-child { color: var(--sky); }
+.needs .thaw { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-family: inherit; }
 dl { margin: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 1px 10px; }
 dl.ainfo { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line, currentColor); }
 dl.ainfo dd.span2 { grid-column: 2 / -1; }
@@ -469,6 +472,7 @@ svg.spark { display: block; width: 92px; height: 20px; }
     <span style="color: var(--red)">blocked</span>
     <span style="color: var(--green)">done / idle</span>
     <span style="color: var(--purple)">gone</span>
+    <span style="color: var(--sky)">frozen</span>
   </footer>
 </div>
 
@@ -476,7 +480,8 @@ svg.spark { display: block; width: 92px; height: 20px; }
 'use strict';
 // Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
 // /api/events. The only state here is what the viewer picked and is typing;
-// the one write is a message to an Agent (POST api/prompt).
+// the writes are a message to an Agent (POST api/prompt), a Corps's budget
+// (POST api/budget) and the choice for a Frozen Agent (POST api/thaw).
 
 const C = Object.fromEntries(['accent', 'blue', 'sky', 'soft', 'muted', 'dim', 'faint', 'green', 'red', 'purple', 'bright']
   .map((k) => [k, `var(--${k})`]));
@@ -524,6 +529,8 @@ function agents() {
     for (const d of u.divisions) add(d, 'division', u.name);
   }
   return out.map((a) => {
+    // Frozen: due a Revive with a cold cache, waiting on the user's choice.
+    if (a.frozen) return { ...a, glyph: '❄', color: C.sky, state: 'frozen', from: a.frozen.since };
     const [glyph, color] = a.needs_you ? ['●', C.accent] : LIVE[a.status] || LIVE.unknown;
     // Waiting since the report that asked, or since the dialog appeared.
     const waitFrom = a.status === 'blocked' || a.report_at == null ? a.status_since : a.report_at;
@@ -552,7 +559,7 @@ function renderHeader(all) {
     ? `<span class="tally"><b style="color: ${color}">${n}</b> ${label}</span>`
     : `<span class="tally zero"><b>0</b> ${label}</span>`;
   $('tallies').innerHTML = tally(all.filter((a) => a.needs_you).length, 'need you', C.accent) + tally(k.working, 'working', C.blue)
-    + tally(k.blocked, 'blocked', C.red) + tally(k.done + k.idle, 'ready', C.green) + tally(k.gone, 'gone', C.purple);
+    + tally(k.blocked, 'blocked', C.red) + tally(k.done + k.idle, 'ready', C.green) + tally(k.gone, 'gone', C.purple) + (k.frozen ? tally(k.frozen, 'frozen', C.sky) : '');
   const corps = army.corps.length, divs = army.corps.reduce((n, c) => n + c.divisions.length, 0) + army.berthier_divisions.length;
   $('army-sub').textContent = `· ${all.length} agent${all.length === 1 ? '' : 's'} · ${corps} corps`
     + (divs ? ` · ${divs} division${divs === 1 ? '' : 's'}` : '') + (army.berthier ? ' + berthier' : '');
@@ -712,7 +719,8 @@ function renderRows(rows, all) {
   const keep = new Set(rows.map((a) => a.pane_id)), filtering = !!ui.q.trim() || ui.needsOnly;
   const unitAgents = (u) => all.filter((a) => a.unit === u);
   const selUnit = all.find((a) => a.pane_id === ui.sel)?.unit;
-  const line = (a) => a.report == null && !a.needs_you ? '<span class="ls dim">no report yet</span>'
+  const line = (a) => a.frozen ? `<span class="ls" style="color: ${C.sky}">frozen: Revive or Fresh Start?</span>`
+    : a.report == null && !a.needs_you ? '<span class="ls dim">no report yet</span>'
     : `<span class="ls${a.needs_you ? ' need' : ''}">${esc(a.report ?? 'on an approval or question dialog')}</span>`;
   const head = (u, first, n, open, shown) => {
     const mine = unitAgents(u), need = mine.some((a) => a.needs_you), a = first;
@@ -891,7 +899,7 @@ function renderDetail(a, all) {
   $('det').innerHTML = `
     <div class="body">
       <h2 id="det-h">${kind} <span>${esc(u.name)}</span> <small>· ${mates.length} agent${mates.length === 1 ? '' : 's'}</small></h2>
-      ${a.needs_you ? `<div class="needs">
+      ${a.frozen ? frozenBox(a) : a.needs_you ? `<div class="needs">
         <div>needs you · waiting <span data-ago="${a.from ?? ''}">${ago(a.from)}</span></div>
         <div>${esc(a.report ?? 'on an approval or question dialog')}</div>
       </div>` : ''}
@@ -904,6 +912,38 @@ function renderDetail(a, all) {
   renderInfo();
   if (focused) $('det').querySelector(`.mate[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
+
+// A Frozen Agent: resuming rewrites its whole context to the cache, so the user chooses.
+const thawing = {}; // pane -> what was asked, until the view moves on
+function frozenBox(a) {
+  const f = a.frozen, k = Math.round(f.context / 1000);
+  const why = f.why === 'limit' ? 'its usage limit reset' : 'it crashed';
+  const cost = f.revive_usd == null ? '' : ` (~${usd(f.revive_usd)} cache rewrite)`;
+  const asked = thawing[a.pane_id];
+  return `<div class="needs frozen">
+    <div>frozen · waiting <span data-ago="${f.since}">${ago(f.since)}</span></div>
+    <div>${why} with a cold cache: ${k}k tokens, last call ${ago(f.last_at)} ago. Its messages wait for your choice.</div>
+    <div class="thaw">${asked ? `<span class="dim">${esc(asked)}</span>` : `<button type="button" class="btn" data-thaw="revive" data-for="${esc(a.pane_id)}">Revive${cost}</button>
+      <button type="button" class="btn" data-thaw="fresh" data-for="${esc(a.pane_id)}" title="a new session in the same pane, rebuilt from Notes, Board, last report and git">Fresh Start</button>`}</div>
+  </div>`;
+}
+$('det').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-thaw]');
+  if (!b) return;
+  const pane = b.dataset.for, how = b.dataset.thaw;
+  thawing[pane] = how === 'fresh' ? 'starting fresh…' : 'reviving…';
+  render();
+  try {
+    const res = await fetch('api/thaw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane, how }) });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  } catch (err) {
+    thawing[pane] = `failed: ${err.message}`;
+    render();
+    setTimeout(() => { delete thawing[pane]; render(); }, 8000);
+    return;
+  }
+  setTimeout(() => { delete thawing[pane]; render(); }, 30000);
+});
 
 // The message box follows the selected Agent, keeping each pane's draft.
 let sendPane = null;

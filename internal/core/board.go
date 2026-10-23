@@ -13,10 +13,16 @@ type BoardDoc struct {
 }
 
 type BoardCard struct {
-	ID    string      `json:"id"`
-	Name  string      `json:"name"`
-	Tasks []BoardTask `json:"tasks"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Tasks       []BoardTask `json:"tasks"`
 }
+
+// NotesCard names the card at the top of a Corps's own Board whose
+// description holds the Corps's Notes (a Corps on the Grand Army Board keeps
+// them in its card's description). It is not work: never Board news.
+const NotesCard = "notes"
 
 type BoardTask struct {
 	ID     string `json:"id"`
@@ -53,6 +59,13 @@ func BoardNews(doc BoardDoc, corps, card string, seen []string) ([]BoardNew, []s
 		return seen != nil
 	}
 	for _, c := range doc.Cards {
+		if card == "" && c.Name == NotesCard {
+			note(c.ID)
+			for _, t := range c.Tasks {
+				note(t.ID)
+			}
+			continue
+		}
 		if note(c.ID) && card == "" {
 			news = append(news, BoardNew{corps, c.ID, fmt.Sprintf("[board] new card %s %q on %s", c.ID, c.Name, doc.Name)})
 		}

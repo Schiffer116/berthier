@@ -291,7 +291,7 @@ func TestLedgerRotation(t *testing.T) {
 func TestCounts(t *testing.T) {
 	s := newSandbox(t)
 	out, _, _ := s.sh("", "counts")
-	eq(t, "no state", out, `{"available":false,"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0,"report":""}`+"\n")
+	eq(t, "no state", out, `{"available":false,"working":0,"blocked":0,"done":0,"idle":0,"unknown":0,"gone":0,"frozen":0,"report":""}`+"\n")
 	s.write("state.json", `{"berthier": "b:p1",
  "corps": [{"name": "skipli", "agents": ["a:p1"], "divisions": [{"name": "dark-mode", "worktree": true, "agents": ["d:p1"]}]},
            {"name": ".dotfiles", "agents": ["c:p1"], "divisions": []}],

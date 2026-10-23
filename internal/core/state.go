@@ -82,6 +82,8 @@ type Agent struct {
 	LastReviveAt   *int64 `json:"last_revive_at"`
 	// Last time its input box was read holding the user's draft.
 	DraftAt *int64 `json:"draft_at,omitempty"`
+	// Due a Revive or a usage-limit resume with a cold cache: held for the user.
+	Frozen *Frozen `json:"frozen,omitempty"`
 }
 
 // Agents is an object of Agents by pane id that keeps insertion order, which
@@ -106,6 +108,19 @@ func (a *Agents) Set(k string, v *Agent) {
 		a.Keys = append(a.Keys, k)
 	}
 	a.M[k] = v
+}
+
+func (a *Agents) Delete(k string) {
+	if _, ok := a.M[k]; !ok {
+		return
+	}
+	delete(a.M, k)
+	for i, x := range a.Keys {
+		if x == k {
+			a.Keys = append(a.Keys[:i:i], a.Keys[i+1:]...)
+			break
+		}
+	}
 }
 
 func (a Agents) MarshalJSON() ([]byte, error) {

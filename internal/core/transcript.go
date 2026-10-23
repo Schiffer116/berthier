@@ -123,6 +123,7 @@ var originTags = []struct{ prefix, origin string }{
 	{"[berthier brief]", "brief"},
 	{"[berthier continue]", "continue"},
 	{"[berthier resume]", "resume"},
+	{"[berthier fresh]", "fresh"},
 	{"<task-notification>", "task"},
 }
 

@@ -4,6 +4,7 @@
 #   boards  lines  <board>|<name>
 #   cards   lines  <board>|<card>|<name>
 #   tasks   lines  <card>|<task>|<name>|<status>
+#   desc.<card>    a card's description
 #   broken   exists: every command fails with an error that is not about logging in
 #   expired  exists: every command says to log in. `calls` logs each command.
 d=$(dirname "$0")
@@ -25,7 +26,8 @@ case $1 in
     sep=
     while IFS='|' read -r b c cname; do
       [[ $b == "$2" ]] || continue
-      printf '%s{"id":"%s","name":"%s","tasks":[' "$sep" "$c" "$cname"; sep=,
+      desc=$(jq -Rs . <"$d/desc.$c" 2>/dev/null || echo '""')
+      printf '%s{"id":"%s","name":"%s","description":%s,"tasks":[' "$sep" "$c" "$cname" "$desc"; sep=,
       tsep=
       while IFS='|' read -r tc t tname st; do
         [[ $tc == "$c" ]] || continue
@@ -36,5 +38,12 @@ case $1 in
     printf ']}\n' ;;
   new-board) echo "ga-$(($(wc -l <"$d/boards") + 1))|$2" >>"$d/boards" ;;
   add-card) echo "$2|c-$(($(wc -l <"$d/cards") + 1))|$3" >>"$d/cards" ;;
+  edit-card)
+    grep -q "^$2|$3|" "$d/cards" || { echo "skipli-cli: no card \"$3\" on board \"$2\"" >&2; exit 1; }
+    [[ $4 == --description ]] && printf '%s' "$5" >"$d/desc.$3" ;;
+  move-card) # <board> <card> --before <other>
+    line=$(grep "^$2|$3|" "$d/cards")
+    grep -v "^$2|$3|" "$d/cards" | awk -v m="$line" -v b="$2|$5|" 'index($0, b) == 1 {print m} {print}' >"$d/cards.new"
+    mv "$d/cards.new" "$d/cards" ;;
   *) echo "skipli-cli: fake has no $1" >&2; exit 2 ;;
 esac

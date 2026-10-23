@@ -11,7 +11,7 @@ import (
 var testCfg = Config{BerthierRoot: "/home/u/berthier", BlockedAfter: 120, LongAfter: 3600, DivisionSettle: 30,
 	ReviveMax: 3, ReviveBackoff: 60, ReviveReset: 300, EscalationTTL: 604800, SpeakAfter: 30, AskStuck: 1800,
 	PingpongMax: 10, LimitGrace: 60, LimitRetry: 1800, BudgetWarn: 80,
-	RestartGap: 1000000, RestartWait: 3600, RestartSettle: 20}
+	RestartGap: 1000000, RestartWait: 3600, RestartSettle: 20, CacheWarm: 3300, FrozenMin: 50000}
 
 // js normalizes any value to what its JSON decodes to, for comparing with want.
 func js(t *testing.T, v any) any {
@@ -94,6 +94,7 @@ type opt struct {
 	gap     int64 // restart gap; default: never
 	spend   SpendBrief
 	quiet   int64 // draft quiet period
+	thaw    []Thaw
 }
 
 var (
@@ -119,11 +120,16 @@ func tick(prev State, s Snapshot, now int64, o opt) TickOut {
 		obs[k] = v
 	}
 	for {
-		out := Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: obs, Spend: o.spend})
+		out := Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: obs, Spend: o.spend, Thaw: o.thaw})
 		more := false
+		// ... and every transcript a resume waits on: warm unless the test's obs says otherwise.
 		for _, l := range out.Look {
 			if v := obs[l.PaneID]; inStrs(l.Want, "draft") && v.Draft == nil {
 				v.Draft, more = yes(false), true
+				obs[l.PaneID] = v
+			}
+			if v := obs[l.PaneID]; len(l.Want) == 1 && l.Want[0] == "cache" && v.Cache == nil {
+				v.Cache, more = &Cache{LastAt: now, Context: 1000}, true
 				obs[l.PaneID] = v
 			}
 		}
@@ -157,7 +163,7 @@ func TestVanishedAndRevive(t *testing.T) {
 	s2 := snap(W, nil, panes(pn("w1:p1")))
 
 	o := tick(prev, s2, 1010, opt{})
-	check(t, "vanished is looked at first", []any{o.Look, o.Revive}, `[[{"pane_id":"w1:p1","session_id":"sid-1","want":["exited","no_transcript","at_shell"]}],[]]`)
+	check(t, "vanished is looked at first", []any{o.Look, o.Revive}, `[[{"pane_id":"w1:p1","session_id":"sid-1","want":["exited","no_transcript","at_shell","cache"]}],[]]`)
 	a := o.State.Agents.M["w1:p1"]
 	check(t, "gone status", []any{a.Status, a.StatusSince, a.ReviveAttempts}, `["gone",1010,0]`)
 
@@ -185,7 +191,7 @@ func TestVanishedAndRevive(t *testing.T) {
 	o = tick(prev2, s2, 1030, opt{})
 	check(t, "revive backoff", []any{o.Revive, o.Look}, `[[],[]]`)
 	o = tick(prev2, s2, 1071, opt{})
-	check(t, "revive after backoff looks again", o.Look[0].Want, `["exited","no_transcript","at_shell"]`)
+	check(t, "revive after backoff looks again", o.Look[0].Want, `["exited","no_transcript","at_shell","cache"]`)
 	if n := len(tick(prev2, s2, 1071, opt{obs: crashed}).Revive); n != 1 {
 		t.Errorf("revive after backoff: %d", n)
 	}
@@ -734,4 +740,115 @@ func TestWeeklyOptimizer(t *testing.T) {
 	check(t, "once a week", r.Escalate, `[]`)
 	r = tick(prev, sb, start+3600, opt{usage: week})
 	check(t, "nothing spent last week, nothing to review", r.Escalate, `[]`)
+}
+
+func TestFrozen(t *testing.T) {
+	berthier := ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")
+	s1 := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", ""), berthier), panes(pn("w1:p1"), pn("w3:p1")))
+	prev := tick(State{}, s1, 1000, opt{}).State
+	s2 := snap(W, panes(berthier), panes(pn("w1:p1"), pn("w3:p1")))
+	crashed := func(c Cache) map[string]Obs {
+		return map[string]Obs{"w1:p1": {Exited: yes(false), AtShell: yes(true), Cache: &c}}
+	}
+	cold := Cache{LastAt: 10000 - 3400, Context: 183000, Model: "claude-opus-5-5", TTL1h: true}
+
+	check(t, "warm cache: Revived", len(tick(prev, s2, 10000, opt{obs: crashed(Cache{LastAt: 10000 - 3200, Context: 183000})}).Revive), `1`)
+	check(t, "small context: Revived", len(tick(prev, s2, 10000, opt{obs: crashed(Cache{LastAt: 0, Context: 49000})}).Revive), `1`)
+	o := tick(prev, s2, 10000, opt{obs: crashed(cold)})
+	a := o.State.Agents.M["w1:p1"]
+	check(t, "cold and big: Frozen, not Revived", []any{o.Revive, a.Status, a.Frozen, a.ReviveAttempts},
+		`[[],"gone",{"since":10000,"why":"crash","last_at":6600,"context":183000,"model":"claude-opus-5-5","ttl_1h":true},0]`)
+	check(t, "frozen logged", []any{o.Events[0].Kind, o.Events[0].Msg},
+		`["frozen","froze a-w1-p1 in w1:p1: due a Revive with a cold cache (183k tokens, last call 56m ago); held for the user"]`)
+	check(t, "Berthier hears", []any{escKeys(o.Escalate), o.Escalate[0].Text, o.Escalate[0].Ev["to"]},
+		`[["frozen:w1:p1:10000"],"crashed with a cold cache (183k tokens, last call 56m ago): agent '-' in skipli (pane w1:p1), Revive ~$1.46","berthier"]`)
+	check(t, "the user hears", []any{o.Speak[0].Key, o.Speak[0].Text}, `["speak_frozen:w1:p1:10000","skipli is frozen: Revive or Fresh Start?"]`)
+	frozen := o.State
+
+	inbox := []Ask{ask("1", "notes", "skipli", "hi", 9000), {ID: "b1", Kind: "board", From: "skipli", To: "skipli", Text: "[board] new task", At: 9000}}
+	o = tick(frozen, s2, 20000, opt{inbox: inbox})
+	check(t, "Frozen stays: no read, no Revive, no second Escalation, messages held, never stuck",
+		[]any{looksAt(o, "w1:p1"), o.Revive, o.Escalate, o.Speak, o.Deliver, o.State.Agents.M["w1:p1"].Frozen.Since}, `[[],[],[],[],[],10000]`)
+
+	o = tick(frozen, s2, 20000, opt{thaw: []Thaw{{ID: "t1", Pane: "w1:p1", How: "revive", At: 19990}}})
+	a = o.State.Agents.M["w1:p1"]
+	check(t, "the user's Revive", []any{o.Revive, o.Thawed, a.Frozen, a.ReviveAttempts},
+		`[[{"pane_id":"w1:p1","name":"a-w1-p1","session_id":"sid-1","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1","why":"user"}}],["t1"],null,1]`)
+	o = tick(frozen, s2, 20000, opt{thaw: []Thaw{{ID: "t1", Pane: "w1:p1", How: "fresh", At: 19990}}})
+	check(t, "the user's Fresh Start forgets the gone session", []any{o.Fresh, o.Thawed, o.State.Agents.Get("w1:p1") == nil, o.Revive},
+		`[[{"pane_id":"w1:p1","name":"a-w1-p1","session":"sid-1","model":"claude-opus-5-5","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1","why":"user"}}],["t1"],true,[]]`)
+	o = tick(prev, s1, 20000, opt{thaw: []Thaw{{ID: "t2", Pane: "w1:p1", How: "revive"}}})
+	check(t, "a request for an Agent not Frozen is dropped", []any{o.Revive, o.Fresh, o.Thawed}, `[[],[],["t2"]]`)
+	// A Fresh Start's new session in the pane is not Frozen.
+	s3 := snap(W, panes(ag("w1:p1", "idle", "sid-new", "", ""), berthier), panes(pn("w1:p1"), pn("w3:p1")))
+	check(t, "new session is not Frozen", tick(frozen, s3, 20000, opt{}).State.Agents.M["w1:p1"].Frozen, `null`)
+
+	// Usage limit: the resume is a Revive too.
+	si := snap(W, panes(seq(ag("w1:p1", "idle", "sid-1", "skipli", ""), 2), berthier), panes(pn("w1:p1"), pn("w3:p1")))
+	limited := tick(prev, si, 1100, opt{obs: map[string]Obs{"w1:p1": {LimitSeen: true, LimitReset: ptr(int64(5000))}}}).State
+	o = Tick(TickIn{Prev: limited, Snap: si, Now: 5060, Cfg: testCfg, Divisions: D0})
+	check(t, "resume reads the transcript first", []any{o.Resume, looksAt(o, "w1:p1")}, `[[],[{"pane_id":"w1:p1","session_id":"sid-1","want":["cache"]}]]`)
+	o = tick(limited, si, 5060, opt{obs: map[string]Obs{"w1:p1": {Cache: &Cache{LastAt: 1090, Context: 120000, Model: "claude-sonnet-5-5"}}}})
+	a = o.State.Agents.M["w1:p1"]
+	check(t, "cold: Frozen, not resumed", []any{o.Resume, a.Frozen.Why, escKeys(o.Escalate), o.Escalate[0].Text},
+		`[[],"limit",["frozen:w1:p1:5060"],"its usage limit reset with a cold cache (120k tokens, last call 66m ago): agent 'skipli' in skipli (pane w1:p1), Revive ~$0.30"]`)
+	lf := o.State
+	check(t, "Frozen holds asks to an idle Agent", tick(lf, si, 5070, opt{inbox: inbox[:1]}).Deliver, `[]`)
+	check(t, "Frozen is never resumed by itself", []any{tick(lf, si, 9000, opt{}).Resume, looksAt(tick(lf, si, 9000, opt{}), "w1:p1")}, `[[],[]]`)
+	o = tick(lf, si, 9000, opt{thaw: []Thaw{{ID: "t3", Pane: "w1:p1", How: "revive"}}})
+	check(t, "the user's Revive resumes it", []any{o.Resume, o.Thawed, o.State.Agents.M["w1:p1"].Frozen, o.State.Agents.M["w1:p1"].Limit.Resumed},
+		`[[{"pane_id":"w1:p1","name":"skipli","reset_at":5000,"ev":{"pane":"w1:p1","corps":"skipli","name":"skipli","session":"sid-1","why":"user"}}],["t3"],null,true]`)
+	o = tick(lf, si, 9000, opt{thaw: []Thaw{{ID: "t3", Pane: "w1:p1", How: "revive"}}, obs: map[string]Obs{"w1:p1": {Draft: yes(true)}}})
+	check(t, "a draft holds the user's Revive", []any{o.Resume, o.Thawed}, `[[],null]`)
+	o = tick(lf, si, 9000, opt{thaw: []Thaw{{ID: "t4", Pane: "w1:p1", How: "fresh"}}})
+	check(t, "Fresh Start of a live Claude", []any{o.Fresh[0].Live, o.Thawed, o.State.Agents.M["w1:p1"].Frozen}, `[true,["t4"],null]`)
+	sw := snap(W, panes(seq(ag("w1:p1", "working", "sid-1", "skipli", ""), 3), berthier), panes(pn("w1:p1"), pn("w3:p1")))
+	check(t, "the user prompting it thaws it", tick(lf, sw, 9000, opt{}).State.Agents.M["w1:p1"].Frozen, `null`)
+	check(t, "a warm small one resumes", len(tick(limited, si, 5060, opt{obs: map[string]Obs{"w1:p1": {Cache: &Cache{LastAt: 1090, Context: 20000}}}}).Resume), `1`)
+}
+
+func looksAt(o TickOut, pane string) []Look {
+	l := []Look{}
+	for _, x := range o.Look {
+		if x.PaneID == pane {
+			l = append(l, x)
+		}
+	}
+	return l
+}
+
+func TestFrozenRouting(t *testing.T) {
+	dv := Divisions{"dark-mode": {Corps: "skipli", Worktree: true}}
+	berthier := ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")
+	all := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", ""), ag("w2:p1", "idle", "sid-2", "", ""), berthier), panes(pn("w1:p1"), pn("w2:p1"), pn("w3:p1")))
+	prev := tick(State{}, all, 1000, opt{divs: dv}).State
+	cold := Cache{LastAt: 0, Context: 100000}
+	f := cloneState(prev)
+	f.Agents.M["w1:p1"].Frozen = &Frozen{Since: 1000, Why: "limit", Cache: cold}
+	f.Escalated = map[string]int64{"frozen:w1:p1:1000": 1000, "speak_frozen:w1:p1:1000": 1000}
+	blocked := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", ""), ag("w2:p1", "blocked", "sid-2", "", ""), berthier), panes(pn("w1:p1"), pn("w2:p1"), pn("w3:p1")))
+	f.Agents.M["w2:p1"].Status, f.Agents.M["w2:p1"].StatusSince = "blocked", 1000
+	o := tick(f, blocked, 1200, opt{divs: dv})
+	check(t, "a Frozen Main Agent commands nothing: its Division's trouble goes to Berthier", []any{escKeys(o.Escalate), o.Escalate[0].To}, `[["blocked:w2:p1:1000"],null]`)
+
+	// Berthier Frozen: its escalations go to the user instead.
+	fb := cloneState(prev)
+	fb.Agents.M["w3:p1"].Frozen = &Frozen{Since: 1000, Why: "limit", Cache: cold}
+	fb.Agents.M["w2:p1"].Status, fb.Agents.M["w2:p1"].StatusSince = "blocked", 1000
+	o = tick(fb, blocked, 1200, opt{divs: dv})
+	check(t, "Berthier Frozen: the user hears", []any{escKeys(o.Escalate), escKeys(o.Notify)}, `[["blocked:w2:p1:1000"],["frozen:w3:p1:1000"]]`)
+	fb.Agents.M["w1:p1"].Frozen = &Frozen{Since: 1000, Why: "limit", Cache: cold}
+	o = tick(fb, blocked, 1200, opt{divs: dv})
+	keys := escKeys(o.Notify)
+	sort.Strings(keys)
+	check(t, "and of every Frozen Agent", []any{escKeys(o.Escalate), keys}, `[[],["blocked:w2:p1:1000","frozen:w1:p1:1000","frozen:w3:p1:1000"]]`)
+
+	// Several frozen at once share one head, so the shell sends one prompt.
+	two := cloneState(prev)
+	two.Agents.M["w1:p1"].Frozen = &Frozen{Since: 1000, Why: "limit", Cache: cold}
+	two.Agents.M["w2:p1"].Frozen = &Frozen{Since: 1000, Why: "limit", Cache: cold}
+	o = tick(two, all, 1200, opt{divs: dv})
+	check(t, "one Escalation listing them", []any{len(o.Escalate), o.Escalate[0].Head == o.Escalate[1].Head, o.Escalate[0].To, o.Escalate[1].To}, `[2,true,null,null]`)
+	o = tick(two, all, 1200, opt{divs: dv, thaw: []Thaw{{ID: "f", Pane: "w2:p1", How: "fresh"}}})
+	check(t, "a Division's Fresh Start names it for its Brief", o.Fresh[0].Division, `"dark-mode"`)
 }

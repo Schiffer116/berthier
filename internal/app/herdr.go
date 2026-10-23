@@ -34,12 +34,17 @@ func (e *Env) Snapshot() (core.Snapshot, error) {
 // dialog (folder trust) a detached child sends the Brief once the user
 // answers it. Returns ready, blocked or failed; why it failed goes to warn.
 func (e *Env) StartClaude(name, pane, brief, model string, warn func(string)) string {
+	if brief != "" {
+		brief = core.Tag("[berthier brief]", brief)
+	}
+	return e.startClaude(name, pane, brief, model, warn)
+}
+
+// startClaude is StartClaude with a first prompt already tagged.
+func (e *Env) startClaude(name, pane, brief, model string, warn func(string)) string {
 	args := []string{"agent", "start", name, "--kind", "claude", "--pane", pane, "--timeout", fmt.Sprint(e.StartTimeoutMS)}
 	if model != "" {
 		args = append(args, "--", "--model", model)
-	}
-	if brief != "" {
-		brief = core.Tag("[berthier brief]", brief)
 	}
 	status := "started"
 	_, startErr := e.H.Run(args...)

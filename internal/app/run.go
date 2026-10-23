@@ -46,6 +46,11 @@ notify <corps> "<text>"             (service, no pane needed) one-way message to
 prompt <pane> <text>|-              prompt the Agent in a pane and make sure Claude took it (not a bare herdr agent prompt);
                                     - reads the text from stdin
 last <pane>                         the Claude Agent's latest assistant message, from its transcript (no pane read)
+revive <pane>                       (the user's choice) resume a Frozen Agent's session anyway, rewriting its cache
+fresh <pane>                        (the user's choice) a Fresh Start for a Frozen Agent: a new session in its pane, same model,
+                                    rebuilt from its Corps's Notes, Board, last report and git (a Division: also its Brief)
+notes [<corps>] [--set -]           a Corps's Notes (default: the caller's); --set - replaces them from stdin, refused if
+                                    they changed since this Agent last read them (read again and merge)
 owners                              who owns what, to know whom to ask
 sample                              (status line) read session JSON on stdin, append to the quota ledger; silent, never fails
 budget [<corps> <pct>|off]          weekly quota used vs allowance per Corps; set or drop one Corps's budget (% of the week)
@@ -127,6 +132,9 @@ func init() {
 		"notify":             cmdNotify,
 		"prompt":             cmdPrompt,
 		"last":               cmdLast,
+		"revive":             cmdThaw("revive"),
+		"fresh":              cmdThaw("fresh"),
+		"notes":              cmdNotes,
 		"owners":             cmdOwners,
 		"counts":             cmdCounts,
 		"budget":             cmdBudget,

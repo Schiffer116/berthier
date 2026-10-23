@@ -18,6 +18,10 @@ type Env struct {
 	Root, Home                                   string
 	State, Log, Inbox, Reports, Demos, Divisions string
 	Ledger, Usage, Budgets, BoardsFile           string
+	Thaws, Briefs, NotesRead                     string
+	NotesStore                                   string
+	NotesMax                                     int
+	CacheWarm, FrozenMin                         int64
 	SkipliBin, SkipliEnv                         string
 	BoardPoll, BoardFailAfter                    int64
 	H                                            herdr.Client
@@ -85,6 +89,9 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Usage = filepath.Join(e.Home, "usage.json")
 	e.Budgets = filepath.Join(e.Home, "budgets.json")
 	e.BoardsFile = filepath.Join(e.Home, "boards.json")
+	e.Thaws = filepath.Join(e.Home, "thaw")
+	e.Briefs = filepath.Join(e.Home, "briefs")
+	e.NotesRead = filepath.Join(e.Home, "notes-read.json")
 	// Empty means the user's default Herdr session; tests point this at an
 	// isolated named session so they never touch live workspaces.
 	e.HerdrSession = getenv("BERTHIER_HERDR_SESSION")
@@ -133,6 +140,15 @@ func LoadEnv(getenv func(string) string) Env {
 	e.BoardPoll = i64("BERTHIER_BOARD_POLL", 60)
 	// A Board that cannot be read is escalated once it has failed this long (seconds); a missing Session at once.
 	e.BoardFailAfter = i64("BERTHIER_BOARD_FAIL_AFTER", 300)
+	// Where every Corps keeps its Notes (Army-wide; only skipli for now: on its Board), and their cap
+	// in bytes (Skipli takes a change of up to 128KiB; Notes are read by every new session).
+	e.NotesStore = str("BERTHIER_NOTES_STORE", "skipli")
+	e.NotesMax = int(i64("BERTHIER_NOTES_MAX", 32768))
+	// A Revive or usage-limit resume goes ahead by itself only if the session's last API call was
+	// under CACHE_WARM seconds ago (Claude Code's cache TTL is an hour) or its context is under
+	// FROZEN_MIN tokens; otherwise the Agent is Frozen until the user chooses.
+	e.CacheWarm = i64("BERTHIER_CACHE_WARM", 3300)
+	e.FrozenMin = i64("BERTHIER_FROZEN_MIN", 50000)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
 	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "sonnet")
@@ -146,7 +162,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Systemctl = str("BERTHIER_SYSTEMCTL", "systemctl")
 	e.ConsoleURL = str("BERTHIER_CONSOLE_URL", "http://127.0.0.1:8430/")
 	e.LandWait = time.Duration(num("BERTHIER_LAND_WAIT", 120) * float64(time.Second))
-	for _, d := range []string{e.Home, e.Inbox, e.Reports, e.Demos} {
+	for _, d := range []string{e.Home, e.Inbox, e.Reports, e.Demos, e.Thaws} {
 		os.MkdirAll(d, 0o755)
 	}
 	return e
@@ -171,5 +187,6 @@ func (e *Env) CoreConfig() (c core.Config) {
 		ReviveMax: e.ReviveMax, ReviveBackoff: e.ReviveBackoff, ReviveReset: e.ReviveReset, EscalationTTL: e.EscalationTTL,
 		SpeakAfter: e.SpeakAfter, AskStuck: e.AskStuck, PingpongMax: e.PingpongMax, LimitGrace: e.LimitGrace,
 		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn, DraftQuiet: e.DraftQuiet,
-		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle}
+		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle,
+		CacheWarm: e.CacheWarm, FrozenMin: e.FrozenMin}
 }

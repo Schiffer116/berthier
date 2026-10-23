@@ -37,6 +37,7 @@ func (e *Env) Tick() error {
 	prev := e.ReadState()
 	now := e.now()
 	inbox := e.ReadInbox()
+	thaws := e.ReadThaws()
 	// Fold new quota samples into the usage record the budgets are judged on.
 	usage, err := e.UpdateUsage()
 	if err != nil {
@@ -48,7 +49,7 @@ func (e *Env) Tick() error {
 	spend := e.spendBrief(usage, now)
 	decide := func(obs map[string]core.Obs) core.TickOut {
 		return core.Tick(core.TickIn{Prev: prev, Snap: snap, Now: now, Cfg: e.CoreConfig(), Divisions: divisions,
-			Inbox: inbox, Usage: usage, Budgets: budgets, Obs: obs, Spend: spend})
+			Inbox: inbox, Usage: usage, Budgets: budgets, Obs: obs, Spend: spend, Thaw: thaws})
 	}
 
 	// --- Observe what the decisions need: most ticks need nothing, else more
@@ -82,6 +83,14 @@ func (e *Env) Tick() error {
 		} else {
 			e.Event("revive_failed", fmt.Sprintf("revive failed: %s in %s (session %s)", r.Name, r.PaneID, r.SessionID), r.Ev)
 		}
+	}
+
+	// --- Fresh Start: a new session in a Frozen Agent's pane, rebuilt from what is written down.
+	for _, f := range out.Fresh {
+		e.freshStart(f)
+	}
+	for _, id := range out.Thawed {
+		os.Remove(filepath.Join(e.Thaws, id+".json"))
 	}
 
 	// --- Give agents back the names Herdr forgot (e.g. across a restart).
@@ -269,6 +278,15 @@ func (e *Env) look(l core.Look, now int64, o core.Obs) core.Obs {
 		case "interrupted":
 			b := e.transcriptInterrupted(sid)
 			o.Interrupted = &b
+		case "cache":
+			// Unknown (no transcript) is a zero Cache: small, so resumed as before.
+			c := core.Cache{}
+			if m := e.transcriptFiles(sid); len(m) > 0 {
+				if c, _ = core.CacheOf(TailLines(m[0], 200)); c.LastAt == 0 {
+					c, _ = core.CacheOf(TailLines(m[0], 5000))
+				}
+			}
+			o.Cache = &c
 		case "draft":
 			// Unreadable counts as empty: the prompt itself then fails or not, as before.
 			b, _ := e.H.HasDraft(l.PaneID)

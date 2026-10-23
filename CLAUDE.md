@@ -28,10 +28,14 @@ Keep this current: merge and prune, never a log.
 
 ## Notes
 
-`notes.md` is session continuity: open threads (Corps, pane, what resolves it),
-commitments to the user, recent decisions. Update as you go; prune resolved.
+Your Notes are session continuity: open threads (Corps, pane, what resolves
+it), commitments to the user, recent decisions. Read them with `berthier notes`;
+update as you go with `berthier notes --set -` (whole text on stdin; refused if
+they changed since you read them: read again, merge). Prune resolved.
 A failure a Division finds already on master: an open thread there, and a
 line in every new Brief until fixed, so no Division chases it twice.
+`notes.md` below is the old copy, kept until the user confirms the move: don't
+edit it.
 
 @notes.md
 
@@ -62,6 +66,9 @@ Check-in first, then:
 - `blocked`: tell the user which Agent and what it asks; never answer for them.
 - `working Nm`: progressing -> leave; stuck -> Nudge or tell the user.
 - `revive failed`: tell the user.
+- `Frozen Agents`: tell the user which, with your recommendation: Revive (its
+  cost is in the event) or Fresh Start; only they choose (Console buttons, or
+  `berthier revive|fresh <pane>` on their word). Its messages wait meanwhile.
 - `Weekly budget` (a Corps without a Main Agent): tell the user; `berthier budget` shows usage,
   `berthier profile --waste --corps <c>` where it went.
 - `Weekly Profile review`: spawn the optimizer Division it asks for; its proposal is an

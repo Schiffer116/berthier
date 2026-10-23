@@ -45,25 +45,33 @@ type ArmyIn struct {
 }
 
 type AgentView struct {
-	PaneID         string   `json:"pane_id"`
-	Name           *string  `json:"name"`
-	Kind           *string  `json:"kind"`
-	TabID          *string  `json:"tab_id"`
-	Status         *string  `json:"status"`
-	StatusSince    *int64   `json:"status_since"`
-	PrevStatus     *string  `json:"prev_status"`
-	SessionID      *string  `json:"session_id"`
-	Title          *string  `json:"title"`
-	Cwd            *string  `json:"cwd"`
-	ReviveAttempts int      `json:"revive_attempts"`
-	LastReviveAt   *int64   `json:"last_revive_at"`
-	Who            string   `json:"who"`
-	Cost           *float64 `json:"cost"`
-	DivisionModel  *string  `json:"division_model"`
-	NeedsYou       bool     `json:"needs_you"`
-	Report         *string  `json:"report"`
-	ReportAt       *int64   `json:"report_at"`
-	Demos          []Demo   `json:"demos"`
+	PaneID         string      `json:"pane_id"`
+	Name           *string     `json:"name"`
+	Kind           *string     `json:"kind"`
+	TabID          *string     `json:"tab_id"`
+	Status         *string     `json:"status"`
+	StatusSince    *int64      `json:"status_since"`
+	PrevStatus     *string     `json:"prev_status"`
+	SessionID      *string     `json:"session_id"`
+	Title          *string     `json:"title"`
+	Cwd            *string     `json:"cwd"`
+	ReviveAttempts int         `json:"revive_attempts"`
+	LastReviveAt   *int64      `json:"last_revive_at"`
+	Who            string      `json:"who"`
+	Cost           *float64    `json:"cost"`
+	DivisionModel  *string     `json:"division_model"`
+	NeedsYou       bool        `json:"needs_you"`
+	Report         *string     `json:"report"`
+	ReportAt       *int64      `json:"report_at"`
+	Demos          []Demo      `json:"demos"`
+	Frozen         *FrozenView `json:"frozen"`
+}
+
+// FrozenView is a Frozen Agent, for the user's choice: what a Revive would
+// cost (ReviveUSD nil: model unpriced).
+type FrozenView struct {
+	Frozen
+	ReviveUSD *float64 `json:"revive_usd"`
 }
 
 type DivisionView struct {
@@ -95,6 +103,7 @@ type Counts struct {
 	Idle    int `json:"idle"`
 	Unknown int `json:"unknown"`
 	Gone    int `json:"gone"`
+	Frozen  int `json:"frozen"` // also counted by status (gone, or idle on a usage limit)
 }
 
 type BudgetView struct {
@@ -145,6 +154,7 @@ var logTags = map[string]string{
 	"spoke": "speak", "speak_failed": "speak", "escalated": "escal", "notified": "escal", "unreachable": "escal",
 	"delivered": "ask", "delivery_failed": "ask",
 	"adopted": "army", "brief_sent": "army", "brief_failed": "army", "renamed": "army", "rename_failed": "army",
+	"frozen": "revive", "fresh_started": "revive", "fresh_failed": "revive", "thaw_ignored": "revive",
 	"limit_stop": "limit", "resumed": "limit", "resume_failed": "limit", "continued": "revive", "continue_failed": "revive", "budget_exhausted": "budget",
 }
 
@@ -168,7 +178,7 @@ func logEntry(m map[string]any) LogEntry {
 
 var escalationLabels = map[string]string{
 	"revive_failed": "revive failed", "division_stopped": "stopped", "long": "long run",
-	"ask_stuck": "ask stuck", "budget_warn": "budget",
+	"ask_stuck": "ask stuck", "budget_warn": "budget", "frozen": "frozen",
 }
 
 func truthy(v any) bool { return v != nil && v != false }
@@ -241,7 +251,13 @@ func Army(in ArmyIn) ArmyView {
 			line, v.ReportAt = &r.Line, r.At
 		}
 		v.Demos = append([]Demo{}, in.Demos[deref(a.SessionID)]...)
-		v.NeedsYou = (line != nil && needsRe.MatchString(*line)) || a.Status == "blocked"
+		if a.Frozen != nil {
+			v.Frozen = &FrozenView{Frozen: *a.Frozen}
+			if usd, ok := a.Frozen.ReviveUSD(); ok {
+				v.Frozen.ReviveUSD = &usd
+			}
+		}
+		v.NeedsYou = (line != nil && needsRe.MatchString(*line)) || a.Status == "blocked" || a.Frozen != nil
 		if line != nil {
 			v.Report = ptr(needsStrip.ReplaceAllString(*line, ""))
 		}
@@ -340,6 +356,9 @@ func Army(in ArmyIn) ArmyView {
 			counts.Unknown++
 		case "gone":
 			counts.Gone++
+		}
+		if st.Agents.M[k].Frozen != nil {
+			counts.Frozen++
 		}
 	}
 

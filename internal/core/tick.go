@@ -39,6 +39,10 @@ type Config struct {
 	// Agents off mid-turn; wait RestartWait for each to reappear (idle for
 	// RestartSettle), then prompt it once.
 	RestartGap, RestartWait, RestartSettle int64
+	// A Revive or usage-limit resume goes ahead by itself only if the last
+	// API call was less than CacheWarm ago or the context is under FrozenMin
+	// tokens; otherwise the Agent is Frozen.
+	CacheWarm, FrozenMin int64
 }
 
 // Snapshot is `herdr api snapshot`'s .result.snapshot.
@@ -98,8 +102,9 @@ type Obs struct {
 	NoTranscript *bool // its session has no saved transcript: nothing to resume
 	LimitSeen    bool  // limit_reset was read (LimitReset nil: no limit stop)
 	LimitReset   *int64
-	Interrupted  *bool // its transcript ends mid-turn
-	Draft        *bool // its input box holds text someone typed
+	Interrupted  *bool  // its transcript ends mid-turn
+	Draft        *bool  // its input box holds text someone typed
+	Cache        *Cache // its transcript's prompt cache (zero: unknown)
 }
 
 // TickIn is everything Tick decides from.
@@ -114,6 +119,7 @@ type TickIn struct {
 	Budgets   map[string]float64
 	Obs       map[string]Obs
 	Spend     SpendBrief
+	Thaw      []Thaw // the user's choices for Frozen Agents
 }
 
 // SpendBrief is what the Main Loop needs of the Profile: this quota week's
@@ -215,6 +221,8 @@ type TickOut struct {
 	Notify   []Escalation `json:"notify"`
 	Speak    []Speak      `json:"speak"`
 	Deliver  []Delivery   `json:"deliver"`
+	Fresh    []FreshStart `json:"fresh"`
+	Thawed   []string     `json:"thawed"` // Thaw requests decided: drop them
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -353,6 +361,10 @@ func Tick(in TickIn) TickOut {
 		if same {
 			v.StatusSince, v.PrevStatus = pv.StatusSince, pv.PrevStatus
 		}
+		// Frozen until the user chooses, or until the Agent works again (the user prompted it).
+		if pv.Frozen != nil && eqStr(sid, pv.SessionID) && (a.Status == "idle" || a.Status == "done") {
+			v.Frozen = pv.Frozen
+		}
 		if orI(pv.LastReviveAt, 0) > now-cfg.ReviveReset {
 			v.ReviveAttempts = pv.ReviveAttempts
 		}
@@ -385,7 +397,7 @@ func Tick(in TickIn) TickOut {
 		if prevAgents.M[k].Status != "gone" {
 			vanished = append(vanished, k)
 		}
-		if g.ReviveAttempts < cfg.ReviveMax && !over[corpsOfLabel(g)] && now-orI(g.LastReviveAt, 0) >= cfg.ReviveBackoff {
+		if g.Frozen == nil && g.ReviveAttempts < cfg.ReviveMax && !over[corpsOfLabel(g)] && now-orI(g.LastReviveAt, 0) >= cfg.ReviveBackoff {
 			due = append(due, k)
 		}
 	}
@@ -402,9 +414,20 @@ func Tick(in TickIn) TickOut {
 			unsaved = append(unsaved, k)
 		}
 	}
+	// A Revive resumes the session: by itself only while its cache is warm or
+	// its context small, else the Agent is Frozen for the user to decide.
+	type freeze struct {
+		pane, why string
+		cache     Cache
+	}
+	var freezing []freeze
 	for _, k := range due {
-		if o := obs(k); o.Exited != nil && !*o.Exited && o.AtShell != nil && !inStrs(exited, k) {
-			reviving = append(reviving, k)
+		if o := obs(k); o.Exited != nil && !*o.Exited && o.AtShell != nil && o.Cache != nil && !inStrs(exited, k) {
+			if o.Cache.Warm(now, cfg) {
+				reviving = append(reviving, k)
+			} else {
+				freezing = append(freezing, freeze{k, "crash", *o.Cache})
+			}
 		}
 	}
 	remaining := Agents{}
@@ -497,6 +520,47 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 
+	// --- Frozen Agents the user chose for: a crashed one is Revived, one
+	// stopped on its usage limit resumed (once its box holds no draft), or
+	// either gets a Fresh Start. A request for an Agent that is not Frozen is
+	// dropped.
+	var thawed, unfreeze []string
+	fresh := []FreshStart{}
+	var thawResume []Resume
+	thaws := append([]Thaw(nil), in.Thaw...)
+	sort.SliceStable(thaws, func(i, j int) bool { return thaws[i].At < thaws[j].At })
+	for _, t := range thaws {
+		a := agents.Get(t.Pane)
+		if a == nil || a.Frozen == nil || inStrs(unfreeze, t.Pane) {
+			thawed = append(thawed, t.ID)
+			continue
+		}
+		ev := with(about(t.Pane), "session", a.SessionID, "why", "user")
+		switch {
+		case t.How == "fresh":
+			division := ""
+			if label := strOr(a.WorkspaceLabel, ""); div.IsDivision(label) {
+				division = CorpsName(label)
+			}
+			fresh = append(fresh, FreshStart{t.Pane, nameOf(t.Pane, a), strOr(a.SessionID, ""), a.Frozen.Model, division, a.Status != "gone", ev})
+			if a.Status == "gone" {
+				// Its session is over: the next tick finds the new one in the pane (or nothing, if it failed to start).
+				agents.Delete(t.Pane)
+				thawed = append(thawed, t.ID)
+				continue
+			}
+		case a.Status == "gone":
+			revive = append(revive, Revive{t.Pane, nameOf(t.Pane, a), strOr(a.SessionID, ""), ev})
+			reviving = append(reviving, t.Pane)
+		case held(t.Pane):
+			continue // the request waits for the user's draft
+		default:
+			thawResume = append(thawResume, Resume{t.Pane, nameOf(t.Pane, a), orI(a.Limit.resetAt(), 0), ev})
+		}
+		thawed = append(thawed, t.ID)
+		unfreeze = append(unfreeze, t.Pane)
+	}
+
 	// --- Names Herdr lost: give each listed agent back its session's name,
 	// unless another agent took it meanwhile.
 	taken := map[string]bool{}
@@ -547,6 +611,7 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 	resume := []Resume{}
+	var cacheLook []string
 	for _, e := range idle {
 		v := e.a
 		for _, r := range limitRead {
@@ -555,11 +620,31 @@ func Tick(in TickIn) TickOut {
 				break
 			}
 		}
-		if v.Limit != nil && v.Limit.Episode == e.episode && v.Limit.ResetAt != nil && !v.Limit.Resumed &&
+		if v.Frozen == nil && v.Limit != nil && v.Limit.Episode == e.episode && v.Limit.ResetAt != nil && !v.Limit.Resumed &&
 			now >= *v.Limit.ResetAt+cfg.LimitGrace && now >= orI(v.LimitResumedAt, 0)+cfg.LimitRetry &&
-			!over[corpsOfLabel(v)] && !held(e.pane) {
-			resume = append(resume, Resume{e.pane, nameOf(e.pane, v), *v.Limit.ResetAt, about(e.pane)})
+			!over[corpsOfLabel(v)] {
+			// A resume, like a Revive, rewrites a cold cache: Frozen instead.
+			if c := obs(e.pane).Cache; c == nil {
+				cacheLook = append(cacheLook, e.pane)
+			} else if !c.Warm(now, cfg) {
+				freezing = append(freezing, freeze{e.pane, "limit", *c})
+			} else if !held(e.pane) {
+				resume = append(resume, Resume{e.pane, nameOf(e.pane, v), *v.Limit.ResetAt, about(e.pane)})
+			}
 		}
+	}
+
+	resume = append(resume, thawResume...)
+	// Frozen this tick (newly, or still): no prompt reaches them, nor does it
+	// command anything, until the user has chosen and it is back.
+	frozen := map[string]*Frozen{}
+	for _, k := range agents.Keys {
+		if f := agents.M[k].Frozen; f != nil {
+			frozen[k] = f
+		}
+	}
+	for _, f := range freezing {
+		frozen[f.pane] = &Frozen{Since: now, Why: f.why, Cache: f.cache}
 	}
 
 	// --- Restart: Herdr resumes every session but they come back idle, even
@@ -671,10 +756,15 @@ func Tick(in TickIn) TickOut {
 		if o := obs(k); o.Exited == nil {
 			want := []string{"exited", "no_transcript"}
 			if inStrs(due, k) {
-				want = append(want, "at_shell")
+				want = append(want, "at_shell", "cache")
 			}
 			look = append(look, Look{k, prevAgents.M[k].SessionID, want})
+		} else if inStrs(due, k) && o.Cache == nil {
+			look = append(look, Look{k, prevAgents.M[k].SessionID, []string{"cache"}})
 		}
+	}
+	for _, k := range cacheLook {
+		look = append(look, Look{k, live.M[k].SessionID, []string{"cache"}})
 	}
 	for _, e := range limitCheck {
 		if !obs(e.pane).LimitSeen {
@@ -709,7 +799,7 @@ func Tick(in TickIn) TickOut {
 		decided = append(decided, Event{"forgot", fmt.Sprintf("forgot %s in %s: %s (session %s)", f["name"], k, why, strOr(prevAgents.M[k].SessionID, "null")), f})
 	}
 	for _, k := range reviving {
-		if o := obs(k); !*o.AtShell {
+		if o := obs(k); o.AtShell != nil && !*o.AtShell {
 			decided = append(decided, Event{"revive_skipped", fmt.Sprintf("revive skipped: pane %s is not at a shell prompt", k), about(k)})
 		}
 	}
@@ -734,7 +824,7 @@ func Tick(in TickIn) TickOut {
 		var labels []string
 		for _, k := range agents.Keys {
 			a := agents.M[k]
-			if a.Status == "gone" || div.IsDivision(strOr(a.WorkspaceLabel, "")) {
+			if a.Status == "gone" || frozen[k] != nil || div.IsDivision(strOr(a.WorkspaceLabel, "")) {
 				continue
 			}
 			l := strOr(a.WorkspaceLabel, "")
@@ -795,8 +885,16 @@ func Tick(in TickIn) TickOut {
 	// at most one per Agent per tick, oldest first.
 	type addressable struct{ pane, status, corps, name string }
 	var addr []addressable
+	heldFor := map[string]bool{} // Corps names whose Agent is Frozen: their messages wait
 	for _, k := range agents.Keys {
 		a := agents.M[k]
+		if frozen[k] != nil {
+			heldFor[CorpsName(strOr(a.WorkspaceLabel, ""))] = true
+			if berthier != nil && k == *berthier {
+				heldFor["berthier"] = true
+			}
+			continue
+		}
 		if a.Status == "gone" {
 			continue
 		}
@@ -883,7 +981,7 @@ func Tick(in TickIn) TickOut {
 		})
 	}
 	for _, m := range in.Inbox {
-		if m.Kind == "notify" || m.Kind == "board" || now-m.At < cfg.AskStuck || delivered[m.ID] {
+		if m.Kind == "notify" || m.Kind == "board" || now-m.At < cfg.AskStuck || delivered[m.ID] || heldFor[CorpsName(m.To)] {
 			continue
 		}
 		reason := fmt.Sprintf("undelivered %dm", minutes(now-m.At))
@@ -944,6 +1042,31 @@ func Tick(in TickIn) TickOut {
 	}
 	cands = append(cands, warn...)
 
+	// --- Frozen: Berthier hears once per episode, and tells the user, who
+	// alone chooses. Several frozen at once (a usage limit reset) go as one prompt.
+	for _, pane := range agents.Keys {
+		f := frozen[pane]
+		if f == nil || inStrs(unfreeze, pane) {
+			continue
+		}
+		v := agents.M[pane]
+		what := "crashed"
+		if f.Why == "limit" {
+			what = "its usage limit reset"
+		}
+		cost := ""
+		if usd, ok := f.ReviveUSD(); ok {
+			cost = fmt.Sprintf(" ~$%.2f", usd)
+		}
+		reason := fmt.Sprintf("%s with a cold cache (%s tokens, last call %dm ago)", what, tokensK(f.Context), minutes(now-f.LastAt))
+		cands = append(cands, Escalation{
+			Key: fmt.Sprintf("frozen:%s:%d", pane, f.Since), PaneID: ptr(pane), Name: v.Name,
+			Head: "[berthier-loop] Frozen Agents: resuming rewrites their whole context, so their messages are held until the user chooses Revive or Fresh Start (Console, or berthier revive|fresh <pane>); tell the user, never choose for them:",
+			Text: fmt.Sprintf("%s: agent '%s' in %s (pane %s), Revive%s", reason, strOr(v.Name, "-"), strOr(v.WorkspaceLabel, v.WorkspaceID), pane, cost),
+			Ev:   with(about(pane), "why", "frozen", "reason", reason),
+		})
+	}
+
 	// --- Weekly optimizer: once a new quota week is an hour old, Berthier
 	// hears to have last week's Profile reviewed by an optimizer Division.
 	if ws := WeekStart(float64(now), in.Usage.ResetsAt); in.Usage.ResetsAt != nil && in.Spend.LastWeekUSD > 0 && float64(now) >= ws+3600 {
@@ -956,6 +1079,16 @@ func Tick(in TickIn) TickOut {
 		})
 	}
 	events := []Escalation{}
+	// Berthier's own trouble, and everything while Berthier is Frozen, goes to the user, not into a pane.
+	toUser := func(c Escalation) bool {
+		if berthier == nil {
+			return false
+		}
+		if c.PaneID != nil && *c.PaneID == *berthier {
+			return true
+		}
+		return frozen[*berthier] != nil && (c.To == nil || *c.To == *berthier)
+	}
 	for _, c := range cands {
 		if prevEsc[c.Key] != 0 {
 			continue
@@ -964,9 +1097,7 @@ func Tick(in TickIn) TickOut {
 		if c.To != nil && *c.To != "" {
 			dest, target = CorpsName(strOr(agents.M[*c.To].labelOrNil(), "")), c.To
 		}
-		// Berthier's own trouble goes to the user, not into a pane.
-		own := c.PaneID != nil && berthier != nil && *c.PaneID == *berthier
-		if !own && target != nil && held(*target) {
+		if !toUser(c) && target != nil && held(*target) {
 			continue // not marked escalated: the next tick's candidate tries again
 		}
 		c.Ev = with(c.Ev, "to", dest)
@@ -985,7 +1116,13 @@ func Tick(in TickIn) TickOut {
 			where += " in " + Spoken(r.Corps)
 		}
 		var why, text string
+		since := v.StatusSince
 		switch {
+		case frozen[pane] != nil:
+			if inStrs(unfreeze, pane) {
+				continue
+			}
+			why, text, since = "frozen", where+" is frozen: Revive or Fresh Start?", frozen[pane].Since
 		case v.Status == "blocked" && age >= cfg.SpeakAfter:
 			why, text = "blocked", where+" is waiting on you"
 		case v.Status == "gone" && v.ReviveAttempts >= cfg.ReviveMax:
@@ -993,7 +1130,7 @@ func Tick(in TickIn) TickOut {
 		default:
 			continue
 		}
-		speakAll = append(speakAll, Speak{fmt.Sprintf("speak_%s:%s:%d", why, pane, v.StatusSince), text, with(about(pane), "why", why, "to", "you")})
+		speakAll = append(speakAll, Speak{fmt.Sprintf("speak_%s:%s:%d", why, pane, since), text, with(about(pane), "why", why, "to", "you")})
 	}
 	for _, w := range warn {
 		corps := w.Ev["corps"].(string)
@@ -1015,7 +1152,7 @@ func Tick(in TickIn) TickOut {
 	// Berthier cannot escalate to itself: its own events go to the user instead.
 	escalate, notify := []Escalation{}, []Escalation{}
 	for _, e := range events {
-		if e.PaneID != nil && berthier != nil && *e.PaneID == *berthier {
+		if toUser(e) {
 			e.Ev = with(e.Ev, "to", "you")
 			notify = append(notify, e)
 		} else {
@@ -1126,18 +1263,38 @@ func Tick(in TickIn) TickOut {
 	}
 	for _, r := range resume {
 		a := agents.M[r.PaneID]
-		l := *a.Limit
-		l.Resumed = true
-		a.Limit = &l
+		if a.Limit != nil {
+			l := *a.Limit
+			l.Resumed = true
+			a.Limit = &l
+		}
 		a.LimitResumedAt = ptr(now)
+	}
+	for _, f := range freezing {
+		agents.M[f.pane].Frozen = frozen[f.pane]
+	}
+	for _, k := range unfreeze {
+		agents.M[k].Frozen = nil
+	}
+	for _, f := range freezing {
+		ev := with(about(f.pane), "why", f.why, "context", f.cache.Context, "session", agents.M[f.pane].SessionID)
+		decided = append(decided, Event{"frozen", fmt.Sprintf("froze %s in %s: due a %s with a cold cache (%s tokens, last call %dm ago); held for the user",
+			ev["name"], f.pane, map[string]string{"crash": "Revive", "limit": "usage-limit resume"}[f.why], tokensK(f.cache.Context), minutes(now-f.cache.LastAt)), ev})
 	}
 
 	return TickOut{
 		State: State{Version: 1, UpdatedAt: now, Berthier: berthier, Corps: corps, BerthierDivisions: berthierDivisions,
 			Order: order, Agents: agents, Escalated: escalated, Interrupted: kept, AskLog: askLog},
 		Look: look, Events: decided, Revive: revive, Rename: rename, Resume: resume, Proceed: proceed,
-		Escalate: escalate, Notify: notify, Speak: speak, Deliver: deliver,
+		Escalate: escalate, Notify: notify, Speak: speak, Deliver: deliver, Fresh: fresh, Thawed: thawed,
 	}
+}
+
+func (l *Limit) resetAt() *int64 {
+	if l == nil {
+		return nil
+	}
+	return l.ResetAt
 }
 
 func (a *Agent) labelOrNil() *string {

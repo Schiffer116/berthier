@@ -95,3 +95,11 @@ func TestBoardDelivery(t *testing.T) {
 		t.Errorf("origin of a board message: %s", OriginOf(b1.Text))
 	}
 }
+
+func TestNotesCardIsNotNews(t *testing.T) {
+	doc := BoardDoc{ID: "b", Name: "Skipli", Cards: []BoardCard{{ID: "n", Name: NotesCard, Description: "x", Tasks: []BoardTask{{ID: "nt", Name: "t"}}}, {ID: "c", Name: "work"}}}
+	news, keep := BoardNews(doc, "skipli", "", []string{})
+	if len(news) != 1 || news[0].Key != "c" || len(keep) != 3 {
+		t.Errorf("news %v keep %v", news, keep)
+	}
+}

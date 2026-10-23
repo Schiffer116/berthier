@@ -88,6 +88,55 @@ bin/berthier tick
 (($(logged '.kind == "forgot" and .pane == $p' "$bare"))) || fail "transcript-less session not forgotten"
 (($(logged '.kind == "revived" and .pane == $p' "$bare") == 0)) || fail "transcript-less session was Revived"
 
+step "a cold big Agent that crashes is Frozen: not Revived, its messages held; a Fresh Start delivers them after"
+# Its own directory, where Bash is allowed: a Fresh Start's first turn runs berthier notes and git.
+mkdir -p "$work/cold/.claude"
+echo '{"permissions": {"allow": ["Bash"]}}' >"$work/cold/.claude/settings.local.json"
+cold=$(h workspace create --cwd "$work/cold" --label cold --no-focus | jq -re '.result.root_pane.pane_id')
+h agent start cold --kind claude --pane "$cold" --timeout 60000 -- --model haiku >/dev/null 2>&1 || {
+  h agent send-keys cold down enter >/dev/null
+  h agent wait cold --until idle --timeout 60000 >/dev/null
+}
+for try in 1 2 3; do
+  h agent prompt cold "Reply with just: pong" --wait --timeout 90000 >/dev/null 2>&1 && break
+  ((try < 3)) || fail "cold agent never took its first prompt"
+  sleep 3
+done
+bin/berthier tick
+cold_sid=$(jq -r --arg p "$cold" '.agents[$p].session_id' "$BERTHIER_HOME/state.json")
+[[ $cold_sid =~ ^[0-9a-f-]{36}$ ]] || fail "no session id recorded for the cold agent (got $cold_sid)"
+kill -KILL "$(claude_pid "$cold")"
+sleep 3
+# Every cache counts as cold and every context as big: the haiku session plays a big one an hour idle.
+frozen() { BERTHIER_CACHE_WARM=0 BERTHIER_FROZEN_MIN=1 BERTHIER_SPEAK=/bin/true bin/berthier "$@"; }
+frozen tick
+(($(logged '.kind == "frozen" and .pane == $p and .why == "crash"' "$cold") == 1)) || fail "cold agent not Frozen: $(tail -3 "$BERTHIER_HOME/loop.log")"
+jq -e --arg p "$cold" '.agents[$p] | .status == "gone" and .frozen.why == "crash" and .frozen.context > 0' "$BERTHIER_HOME/state.json" >/dev/null \
+  || fail "Frozen not in the state: $(jq -c --arg p "$cold" '.agents[$p]' "$BERTHIER_HOME/state.json")"
+bin/berthier army | jq -e --arg p "$cold" '[.. | objects | select(.pane_id? == $p)][0] | .frozen.revive_usd > 0 and .needs_you' >/dev/null \
+  || fail "Console view lacks the Frozen Agent's choice"
+frozen notify cold "Reply with just: thawed" >/dev/null || fail "notify to a Frozen Agent refused"
+frozen tick
+frozen tick
+(($(logged '(.kind | startswith("revive")) and .pane == $p' "$cold"))) && fail "Frozen agent was Revived"
+(($(logged '.kind == "delivered" and .pane == $p' "$cold"))) && fail "message delivered to a Frozen agent"
+claude_pid "$cold" | grep -q . && fail "Frozen agent restarted"
+out=$(frozen fresh "$cold") || fail "fresh failed: $out"
+echo "$out"
+[[ $out == *"Fresh Start: cold in $cold"* ]] || fail "fresh misreported: $out"
+new_sid=$(h agent get "$cold" | jq -r '.result.agent.agent_session.value // empty')
+[[ -n $new_sid && $new_sid != "$cold_sid" ]] || fail "no new session in the pane (got '$new_sid', was $cold_sid)"
+h pane read "$cold" --source recent-unwrapped --lines 200 | grep -qF "[berthier fresh] You were restarted fresh: run berthier notes" || fail "fresh prompt not in the pane"
+for _ in $(seq 60); do
+  frozen tick
+  (($(logged '.kind == "delivered" and .pane == $p and .from == "service"' "$cold"))) && break
+  sleep 2
+done
+(($(logged '.kind == "delivered" and .pane == $p and .from == "service"' "$cold"))) || fail "held message not delivered after the Fresh Start: $(tail -5 "$BERTHIER_HOME/loop.log")"
+h agent wait cold --timeout 90000 >/dev/null
+h pane read "$cold" --source recent-unwrapped --lines 200 | grep -qF "[berthier notify] from service: Reply with just: thawed" || fail "held message not in the pane"
+h workspace close "$(h pane get "$cold" | jq -re '.result.pane.workspace_id')" >/dev/null
+
 step "the Stop hook makes an Agent report; an ask reaches an idle Agent"
 helper=$(h workspace create --cwd "$repo" --label helper --no-focus | jq -re '.result.root_pane.pane_id')
 hook=$(jq -cn --arg c "$PWD/bin/berthier hook-stop" '{hooks: {Stop: [{hooks: [{type: "command", command: $c}]}]}}')
@@ -134,10 +183,10 @@ step "a notify from a service (no pane, bare PATH) reaches the idle Main Agent, 
 env -i PATH="$PWD/bin:$HOME/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin" HOME="$HOME" BERTHIER_HOME="$BERTHIER_HOME" berthier notify demo $'Learner answered:\nline two. Reply with just: noted' >/dev/null
 for _ in $(seq 30); do # the Agent may still be answering the previous ask
   bin/berthier tick
-  (($(logged '.kind == "delivered" and .from == "service"'))) && break
+  (($(logged '.kind == "delivered" and .from == "service" and .to == "demo"'))) && break
   sleep 2
 done
-(($(logged '.kind == "delivered" and .pane == $p and .from == "service" and .to == "demo"' "$pane"))) || fail "notify not delivered: $(tail -3 "$BERTHIER_HOME/loop.log"; ls "$BERTHIER_HOME/inbox")"
+(($(logged '.kind == "delivered" and .pane == $p and .from == "service" and .to == "demo"' "$pane"))) || fail "notify not delivered: $(tail -3 "$BERTHIER_HOME/loop.log"; ls "$BERTHIER_HOME/inbox"; h agent get "$pane" | jq -c ".result.agent | {agent_status, name}"; h pane read "$pane" --source visible | tail -25)"
 h agent wait demo-main --timeout 90000 >/dev/null
 out=$(h pane read "$pane" --source recent-unwrapped --lines 80)
 grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail "notify not in demo-main's pane"
