@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -38,23 +37,6 @@ func TestUsageCommandsAreRegistered(t *testing.T) {
 	for c := range commands {
 		if c != "brief-after-dialog" && !strsHas(list, c) {
 			t.Errorf("command %q is not in the usage text", c)
-		}
-	}
-}
-
-func TestSystemdCommandsExist(t *testing.T) {
-	units, _ := filepath.Glob("../../systemd/berthier-*.service")
-	if len(units) == 0 {
-		t.Fatal("no units found")
-	}
-	exec := regexp.MustCompile(`(?m)^ExecStart=\S*/bin/berthier (\S+)`)
-	for _, u := range units {
-		b, _ := os.ReadFile(u)
-		m := exec.FindStringSubmatch(string(b))
-		if m == nil {
-			t.Errorf("%s: no ExecStart running bin/berthier", u)
-		} else if !registered(m[1]) {
-			t.Errorf("%s: ExecStart runs unknown command %q", u, m[1])
 		}
 	}
 }

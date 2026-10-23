@@ -8,6 +8,7 @@
 - Unit tests (pure, instant): `go test ./...` (`tests/fake-herdr` stands in for Herdr in the prompt and start tests).
 - E2E (real Herdr + Claude haiku, isolated `berthier-e2e-<pid>` session, so runs can overlap, ~1 min): `tests/e2e.sh` (builds the binary first).
 - Lint: `go vet ./...` and `gofmt -l .` (must print nothing).
+- Pre-commit gate (`.githooks/pre-commit`; install: `git config core.hooksPath .githooks`, which `berthier land` also sets): rejects binaries and files over 1MB, runs vet, gofmt and the unit tests. `TestSystemdUnitsStart` builds the binary and starts every unit's `ExecStart` against `tests/fake-herdr`.
 - Try against a scratch Herdr session: `BERTHIER_HERDR_SESSION=<name> BERTHIER_HOME=<tmpdir> bin/berthier <cmd>`
 - Loop service: `systemctl --user {status,restart} berthier-loop`; events in `state/loop.log`, read with `berthier log [-f]`.
 - Console: `systemctl --user {status,restart} berthier-dashboard`, http://127.0.0.1:8430.

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Berthier's pre-commit gate (installed by `git config core.hooksPath .githooks`,
+# which `berthier land` also sets): no binaries or big files, vet, gofmt, tests.
+# Checks the working tree, so stage everything you mean to commit.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+max=$((1024 * 1024))
+fail=0
+while IFS=$'\t' read -r added _ path; do
+  if [[ $added == - ]]; then
+    echo "pre-commit: $path is binary; build artifacts belong in bin/ (gitignored)"
+    fail=1
+  elif (($(git cat-file -s ":$path") > max)); then
+    echo "pre-commit: $path is over 1MB"
+    fail=1
+  fi
+done < <(git diff --cached --numstat --diff-filter=AM --no-renames)
+((fail)) && exit 1
+go vet ./... || exit 1
+unformatted=$(gofmt -l .)
+[[ -z $unformatted ]] || { echo "pre-commit: gofmt needed:"; echo "$unformatted"; exit 1; }
+out=$(go test ./... 2>&1) || { echo "$out"; exit 1; }

@@ -15,6 +15,7 @@ import (
 	"hash/fnv"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -360,6 +361,11 @@ func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) h
 func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, claudeDir string, every time.Duration) error {
 	a := NewArmy()
 	go Poll(context.Background(), a, source, every)
-	log.Printf("serving the Grand Army console on http://%s", addr)
-	return http.ListenAndServe(addr, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	// The bound address, so -addr 127.0.0.1:0 says which port it got.
+	log.Printf("serving the Grand Army console on http://%s", l.Addr())
+	return http.Serve(l, Handler(a, h, setBudget, NewTranscripts(claudeDir)))
 }
