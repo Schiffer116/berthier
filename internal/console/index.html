@@ -43,23 +43,15 @@ section { min-width: 0; border: 1px solid var(--line); background: var(--panel);
 .ph { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--head); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
 h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spacing: 0.1em; }
-/* The Grand Army list takes the room; the selected unit and its chat sit beside it.
-   Wide screens fill the viewport and scroll inside the panels; narrow ones stack. */
-.top { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 680px); }
+/* Messenger's composition in the Console's own design: the Grand Army tree on the left, the chat of the
+   selected Agent in the middle, its info beside it when asked for. Wide screens fill the viewport and scroll
+   inside the panels; phones show one of them at a time (data-screen). */
+.app { height: 100vh; height: 100dvh; }
+main { min-height: 0; }
+.top { flex: 1 1 0; min-height: 0; display: grid; gap: 12px; grid-template-columns: clamp(280px, 26vw, 360px) minmax(0, 1fr); }
+.top.info { grid-template-columns: clamp(280px, 24vw, 340px) minmax(0, 1fr) clamp(300px, 26vw, 380px); }
 .top > section { min-height: 0; max-height: 100%; }
-@media (min-width: 1100px) {
-  .app { height: 100vh; }
-  main { min-height: 0; }
-  .top { flex: 1 1 0; min-height: 420px; }
-}
-/* Stacked, the Grand Army list grows with its rows up to most of the screen. */
-@media (max-width: 1099px) {
-  .top { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 85vh; }
-  /* The conversation gets a whole screen (dvh follows the browser bars, the installed app and the on-screen keyboard). */
-  @supports (height: 100dvh) { .top { grid-template-rows: auto calc(100dvh - var(--sat) - var(--sab)); } }
-  .top > #army { min-height: 260px; max-height: 75vh; }
-  .top > #army .scroll { flex: 1 1 auto; }
-}
+#info[hidden] { display: none; }
 /* Logs open from the top bar in a drawer over the page, never moving it. */
 .logs { display: flex; gap: 6px; }
 .logbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
@@ -80,12 +72,13 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .x { min-width: 28px; min-height: 28px; background: transparent; color: var(--muted); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
 .x:hover { color: var(--bright); }
 /* Quota usage: the account's 5h and 7d windows, then every Corps's share of the week (a budget, where set, as its allowance). */
-#usage { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+#usage { border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 #usage[hidden] { display: none; }
 #usage summary { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 6px 12px; min-height: 32px; align-items: center; cursor: pointer; }
 #usage summary h2 { display: inline; }
-#usage .body { padding: 0 12px 8px; display: grid; gap: 8px; }
+#usage .body { padding: 0 12px 8px; display: grid; gap: 8px; max-height: 45vh; overflow: auto; }
 #usage .win, #usage .cs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 20px; }
+#usage-slot #usage { border-top: 0; border-bottom: 1px solid var(--line); }
 .bud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; }
 .bud .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bud .sub { grid-column: 1 / -1; color: var(--dim); }
@@ -110,7 +103,6 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .bud .undo button { min-height: 32px; padding: 0 8px; background: transparent; color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
 @media (pointer: coarse) { .bud .undo button { min-height: 44px; min-width: 44px; } }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
-#army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
 .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -120,22 +112,9 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); cursor: pointer; }
 .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 #show-loop { accent-color: var(--blue); }
-.table { min-width: 480px; }
-.grid { display: grid; grid-template-columns: minmax(72px, 120px) 56px 76px 36px minmax(0, 1fr); gap: 10px; }
-/* A narrow Grand Army panel drops the PANE and FOR columns instead of scrolling. */
-#army { container-type: inline-size; }
-@container (max-width: 559px) {
-  .table { min-width: 0; }
-  .grid { grid-template-columns: minmax(64px, 96px) 76px minmax(0, 1fr); }
-  .grid > :nth-child(2), .grid > :nth-child(4) { display: none; }
-}
+
 .thead { padding: 6px 12px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); }
-.agent { align-items: center; width: 100%; min-height: 36px; padding: 0 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; border: 0; border-bottom: 1px solid var(--rule); background: transparent; }
-.agent:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
-.agent[aria-pressed="true"] { background: var(--sel); }
-.agent:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.corps { font-weight: 700; }
 .muted { color: var(--muted); } .dim { color: var(--dim); }
 .empty { padding: 14px 12px; color: var(--dim); }
 #det { flex: none; } /* never scrolls: only the chat does, the message box stays below it */
@@ -153,6 +132,33 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .mate-l b { font-weight: 700; min-width: 0; }
 .mate-r { color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .mate-m { font-size: 11px; }
+/* The Grand Army tree: a Corps is a group header, its Divisions hang under it with connector lines. */
+.tr { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: stretch; border-bottom: 1px solid var(--rule); }
+.tr .ch { padding: 0; background: transparent; border: 0; color: var(--muted); font: inherit; cursor: pointer; min-height: 48px; }
+.tr .ch:hover { color: var(--fg); }
+.tr .ch:focus-visible, .tr .sel:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.tr .sel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline; min-height: 48px; padding: 4px 12px 4px 4px; text-align: left; font: inherit; color: var(--fg); background: transparent; border: 0; cursor: pointer; }
+.tr.dv { grid-template-columns: 28px 40px minmax(0, 1fr); background: color-mix(in srgb, var(--crust) 45%, var(--panel)); }
+.tr.dv .cn { color: var(--field); white-space: pre; align-self: center; padding-left: 4px; user-select: none; }
+.tr:has(.sel:hover) { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+.tr:has(.sel[aria-pressed="true"]) { background: var(--sel); }
+.tr .nm { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr .tm { text-align: right; font-size: 12px; }
+.tr .ls { grid-column: 1 / -1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr .ls.need { color: var(--bright); }
+.tr.dv .nm { font-weight: 400; }
+/* Chat header: who you talk to (corps / division), its state, and the buttons for demo and info. */
+#chead { flex-wrap: nowrap; min-height: 44px; }
+#chead .who { display: flex; align-items: baseline; gap: 6px 12px; min-width: 0; flex-wrap: wrap; }
+#chead .crumb { font-weight: 700; white-space: nowrap; }
+#chead .sl { color: var(--dim); margin: 0 6px; font-weight: 400; }
+#chead .acts { display: inline-flex; gap: 8px; flex: none; }
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px; background: transparent; color: var(--accent); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.btn:hover { color: var(--bright); }
+.btn[aria-pressed="true"] { background: var(--sel); color: var(--bright); border-color: var(--blue); }
+.btn:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.btn[hidden] { display: none; }
+#info #det { flex: 1 1 0; min-height: 0; overflow: auto; }
 /* Chat with the selected Agent: its transcript (or terminal), newest at the bottom. */
 #chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); background: var(--bg); }
 #chat[hidden] { display: none; }
@@ -344,19 +350,15 @@ svg.spark { display: block; width: 92px; height: 20px; }
             </label>
           </div>
         </div>
-        <details id="usage" aria-label="quota usage" open hidden></details>
-        <div class="scroll">
-          <div class="table">
-            <div class="grid thead" aria-hidden="true"><span>CORPS</span><span>PANE</span><span>STATUS</span><span>FOR</span><span>REPORT</span></div>
-            <div id="rows"></div>
-          </div>
-        </div>
+        <div class="scroll"><div id="rows" role="tree" aria-label="corps and divisions"></div></div>
+        <details id="usage" aria-label="quota usage" hidden></details>
       </section>
 
       <section id="detail" class="panel-col" aria-labelledby="det-h">
-        <div id="det" aria-live="polite"></div>
+        <div class="ph" id="chead"></div>
+        <div class="empty" id="chat-none">no agent selected</div>
         <div id="chat" aria-label="conversation" hidden></div>
-        <!-- Outside #det so re-renders keep what the user is typing. -->
+        <!-- Outside the info panel so re-renders keep what the user is typing. -->
         <form id="send" hidden>
           <div id="chat-state" role="status"></div>
           <label class="sr" for="msg">message <span id="send-to"></span></label>
@@ -368,6 +370,11 @@ svg.spark { display: block; width: 92px; height: 20px; }
             <span class="dim" id="send-status" role="status"></span>
           </div>
         </form>
+      </section>
+
+      <section id="info" class="panel-col" aria-labelledby="info-h" hidden>
+        <div class="ph"><h2 id="info-h">INFO</h2><button type="button" class="x" id="info-close" aria-label="close info">✕</button></div>
+        <div id="det" aria-live="polite"></div>
       </section>
     </div>
 
@@ -463,7 +470,8 @@ const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(
 let army = null, connected = false;
 const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
-const ui = { log: null, q: '', needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+const collapsed = () => { try { return new Set(JSON.parse(localStorage.getItem('collapsed') || '[]')); } catch { return new Set(); } };
+const ui = { log: null, q: '', collapsed: collapsed(), info: pref('info'), needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
 $('show-loop').checked = ui.showLoop;
 
@@ -536,8 +544,7 @@ function renderBudget() {
   const corps = (b?.corps || []).map(withPending), five = b?.five_hour;
   el.hidden = !(five || b?.week_pct != null || corps.length);
   if (el.hidden) return;
-  if (!el.dataset.seen) { el.dataset.seen = '1'; el.open = !matchMedia('(max-width: 699px)').matches; } // compact on phones
-  const pct = (n) => (Math.round(n * 10) / 10) + '%';
+    const pct = (n) => (Math.round(n * 10) / 10) + '%';
   const until = (t) => {
     if (t == null) return 'reset time unknown';
     const s = Math.max(0, Math.floor(t - now())), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
@@ -675,20 +682,50 @@ $('usage').addEventListener('keydown', (e) => {
   keyTimer = setTimeout(() => { delete ui.keyValue[corps]; commitBudget(corps, v); }, 450);
 });
 
-function renderRows(rows) {
-  const focused = document.activeElement?.dataset?.pane;
-  $('rows').innerHTML = rows.map((a) => {
-    const on = a.pane_id === ui.sel;
-    return `<button type="button" class="grid agent" data-pane="${esc(a.pane_id)}" aria-pressed="${on}"${on ? ` style="box-shadow: inset 2px 0 0 ${a.color}"` : ''}>
-      <span class="corps clip" title="${esc(a.parent ? `division of ${a.parent}` : a.who)}">${a.parent ? '<span class="dim" aria-hidden="true">└ </span>' : ''}${esc(a.who)}</span>
-      <span class="muted">${esc(a.pane_id)}</span>
-      <span style="color: ${a.color}">${a.state}</span>
-      ${ageSpan(a.from)}
-      ${a.report == null && !a.needs_you ? '<span class="clip dim">no report yet</span>'
-        : `<span class="clip" style="color: ${a.needs_you ? C.bright : C.muted}">${esc(a.report ?? 'on an approval or question dialog')}</span>`}
-    </button>`;
-  }).join('') || `<div class="empty">${army.corps.length || army.berthier ? 'no agents match' : 'no agents'}</div>`;
-  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+// The Grand Army as a tree: each Corps (or Berthier) a group header with its Divisions hanging under it.
+// A header selects the unit's first Agent. A filter shows only what matches and ignores collapsing.
+function renderRows(rows, all) {
+  const focused = document.activeElement?.dataset?.pane || document.activeElement?.dataset?.toggle;
+  const keep = new Set(rows.map((a) => a.pane_id)), filtering = !!ui.q.trim() || ui.needsOnly;
+  const unitAgents = (u) => all.filter((a) => a.unit === u);
+  const selUnit = all.find((a) => a.pane_id === ui.sel)?.unit;
+  const line = (a) => a.report == null && !a.needs_you ? '<span class="ls dim">no report yet</span>'
+    : `<span class="ls${a.needs_you ? ' need' : ''}">${esc(a.report ?? 'on an approval or question dialog')}</span>`;
+  const head = (u, first, n, open, shown) => {
+    const mine = unitAgents(u), need = mine.some((a) => a.needs_you), a = first;
+    const label = n ? `${n} division${n === 1 ? '' : 's'}` : 'no divisions';
+    return `<div class="tr" role="treeitem" aria-expanded="${n ? open : 'false'}">
+      ${n ? `<button type="button" class="ch" data-toggle="${esc(u.name)}" aria-label="${open ? 'collapse' : 'expand'} ${esc(u.name)}">${open ? '▾' : '▸'}</button>` : '<span></span>'}
+      <button type="button" class="sel" data-pane="${esc(a.pane_id)}" aria-pressed="${u === selUnit}">
+        <span class="nm" title="${esc(`${u.name} · ${mine.length} agent${mine.length === 1 ? '' : 's'}`)}"><span style="color: ${need ? C.accent : a.color}" aria-hidden="true">${need ? '●' : a.glyph}</span> ${esc(u.name)} <span class="dim" style="font-weight: 400">· ${label}</span></span>
+        <span class="tm">${ageSpan(a.from)}</span>
+        ${line(a)}
+      </button></div>`;
+  };
+  let html = '';
+  for (const u of army.units) {
+    const mine = unitAgents(u);
+    if (!mine.length) continue;
+    const divs = (u.divisions || []).map((d) => ({ d, a: all.find((x) => x.unit === d) })).filter((x) => x.a);
+    const shownDivs = divs.filter((x) => keep.has(x.a.pane_id));
+    if (!mine.some((a) => keep.has(a.pane_id)) && !shownDivs.length) continue;
+    const open = filtering || !ui.collapsed.has(u.name);
+    html += head(u, mine[0], divs.length, open);
+    if (open) {
+      const kids = filtering ? shownDivs : divs;
+      kids.forEach(({ d, a }, i) => {
+        const need = a.needs_you, last = i === kids.length - 1;
+        html += `<div class="tr dv" role="treeitem"><span></span><span class="cn" aria-hidden="true">${last ? '└─' : '├─'}</span>
+          <button type="button" class="sel" data-pane="${esc(a.pane_id)}" aria-pressed="${d === selUnit}" title="division of ${esc(u.name)}">
+            <span class="nm"><span style="color: ${need ? C.accent : a.color}" aria-hidden="true">${need ? '●' : a.glyph}</span> ${esc(d.name)}</span>
+            <span class="tm">${ageSpan(a.from)}</span>
+            ${line(a)}
+          </button></div>`;
+      });
+    }
+  }
+  $('rows').innerHTML = html || `<div class="empty">${army.corps.length || army.berthier ? 'no agents match' : 'no agents'}</div>`;
+  if (focused) $('rows').querySelector(`[data-pane="${CSS.escape(focused)}"], [data-toggle="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
 }
 
 // A command the Agent wants the user to run: `! cmd` or the first `backticked` span of a needs-you report.
@@ -717,11 +754,35 @@ function renderInfo() {
   el.innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k.replace('*', '')}</dt><dd${k.endsWith('*') ? ' class="span2"' : ''}>${v}</dd>`).join('');
 }
 
+// Who the chat is with: corps / division, its state, and the buttons for info.
+function renderChatHead(a, all) {
+  const el = $('chead');
+  if (!a) { el.innerHTML = '<h2 id="chat-h">CHAT</h2>'; return; }
+  const corps = a.role === 'division' ? all.find((x) => x.role === 'corps' && x.unit.name === a.parent) : null;
+  const crumb = a.role === 'division'
+    ? `${corps ? `<button type="button" class="link" data-pane="${esc(corps.pane_id)}">${esc(a.parent)}</button>` : esc(a.parent)}<span class="sl" aria-hidden="true">/</span>${esc(a.unit.name)}`
+    : esc(a.unit.name);
+  const role = a.role === 'division' ? '' : a.unit.name === 'berthier' ? 'chief of staff' : 'main agent';
+  el.innerHTML = `<span class="who"><span style="color: ${a.needs_you ? C.accent : a.color}" aria-hidden="true">${a.needs_you ? '●' : a.glyph}</span>
+      <nav class="crumb" aria-label="corps and division">${crumb}</nav>${role ? `<span class="dim">${role}</span>` : ''}
+      <span style="color: ${a.needs_you ? C.accent : a.color}">${a.state}</span> ${ageSpan(a.from)}</span>
+    <span class="acts"><button type="button" class="btn" id="info-btn" aria-pressed="${ui.info}" aria-controls="info">info</button></span>`;
+}
+$('detail').addEventListener('click', (e) => {
+  if (e.target.closest('#info-btn')) setInfo(!ui.info);
+  else if (e.target.closest('#chead [data-pane]')) select(e);
+});
+$('info-close').addEventListener('click', () => setInfo(false));
+function setInfo(on) { ui.info = on; pref('info', on); render(); }
+
 // The selected row's unit: a Corps, a Division, or Berthier, with its Agents.
 function renderDetail(a, all) {
   renderSend(a);
+  renderChatHead(a, all);
+  $('info').hidden = !ui.info || !a;
+  $('top').classList.toggle('info', ui.info && !!a);
   if (!a) {
-    $('det').innerHTML = `<div class="ph"><h2 id="det-h">SELECTED</h2></div><div class="body"><span class="dim">nothing selected</span></div>`;
+    $('det').innerHTML = '<div class="body"><span class="dim">nothing selected</span></div>';
     return;
   }
   const u = a.unit, mates = all.filter((x) => x.unit === u);
@@ -759,11 +820,8 @@ function renderDetail(a, all) {
   selAgent = a;
   const focused = $('det').contains(document.activeElement) ? document.activeElement.dataset?.pane : null;
   $('det').innerHTML = `
-    <div class="ph">
-      <h2 id="det-h">${kind} <span>${esc(u.name)}</span></h2>
-      <span class="dim">${mates.length} agent${mates.length === 1 ? '' : 's'}</span>
-    </div>
     <div class="body">
+      <h2 id="det-h">${kind} <span>${esc(u.name)}</span> <small>· ${mates.length} agent${mates.length === 1 ? '' : 's'}</small></h2>
       ${a.needs_you ? `<div class="needs">
         <div>needs you · waiting <span data-ago="${a.from ?? ''}">${ago(a.from)}</span></div>
         <div>${esc(a.report ?? 'on an approval or question dialog')}</div>
@@ -781,6 +839,7 @@ function renderDetail(a, all) {
 let sendPane = null;
 function renderSend(a) {
   $('send').hidden = $('chat').hidden = !a;
+  $('chat-none').hidden = !!a;
   if (!a || a.pane_id === sendPane) return;
   if (sendPane != null) drafts[sendPane] = $('msg').value;
   sendPane = a.pane_id;
@@ -1012,7 +1071,7 @@ function render() {
   if (!all.some((a) => a.pane_id === ui.sel)) ui.sel = (rows[0] || all[0])?.pane_id ?? null;
   renderHeader(all);
   renderBudget();
-  renderRows(rows);
+  renderRows(rows, all);
   renderDetail(all.find((a) => a.pane_id === ui.sel), all);
   renderEscalations();
   renderAsks();
@@ -1026,10 +1085,14 @@ const select = (e) => {
   ui.sel = b.dataset.pane;
   history.replaceState(null, '', '#' + ui.sel);
   render();
-  // Stacked, the conversation is below the list: bring it up.
-  if (b.closest('#rows') && matchMedia('(max-width: 1099px)').matches) $('detail').scrollIntoView({ block: 'start' });
 };
-$('rows').addEventListener('click', select);
+$('rows').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle]');
+  if (!t) return select(e);
+  ui.collapsed.has(t.dataset.toggle) ? ui.collapsed.delete(t.dataset.toggle) : ui.collapsed.add(t.dataset.toggle);
+  try { localStorage.setItem('collapsed', JSON.stringify([...ui.collapsed])); } catch {}
+  render();
+});
 $('det').addEventListener('click', select);
 // One log open at a time in the drawer, under the top bar.
 function openLog(id) {
@@ -1189,7 +1252,7 @@ function showView(profile) {
   $('profile').hidden = !profile;
   // The quota panel goes with whichever view is open.
   if (profile) $('usage-slot').append($('usage'));
-  else document.querySelector('#army .ph').after($('usage'));
+  else $('army').append($('usage'));
   history.replaceState(null, '', profile ? '#profile' : ui.sel ? '#' + ui.sel : location.pathname);
   clearInterval(prof.timer);
   if (profile) { loadProfile(); prof.timer = setInterval(loadProfile, 30000); }
