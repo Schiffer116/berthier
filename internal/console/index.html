@@ -93,22 +93,22 @@ h2 small { font-size: inherit; color: var(--dim); font-weight: 400; letter-spaci
 .bud .fill { position: absolute; inset: 0 auto 0 0; }
 .bud .warn { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
 /* The bar is the budget control: a 44px hit area around the 6px bar, the budget a thin accent handle on it. */
-.bud .hit { grid-column: 1 / -1; position: relative; height: 44px; margin: -14px 0 -12px; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.bud .hit { grid-column: 1 / -1; position: relative; height: 44px; margin: -14px 0 0; touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .bud .hit .track { position: absolute; left: 0; right: 0; top: 19px; margin: 0; }
 .bud .mk { position: absolute; top: 9px; width: 18px; height: 26px; margin-left: -9px; cursor: ew-resize; outline: none; }
 .bud .mk::before { content: ""; position: absolute; left: 7px; top: 0; bottom: 0; width: 3px; background: var(--accent); }
-.bud .mk.unset { margin-left: 0; opacity: 0; }
-.bud .mk.unset:focus-visible { opacity: 1; }
+.bud .mk.unset::before { background: var(--muted); }
+.bud .mk.unset::after { content: "∞"; position: absolute; left: 8.5px; transform: translateX(-50%); top: 18px; color: var(--muted); font-size: 15px; line-height: 1; }
+.bud .inf { position: absolute; right: -3px; top: 27px; color: var(--dim); font-size: 15px; line-height: 1; pointer-events: none; }
+.bud .inf::before { content: ""; position: absolute; left: 3px; top: -8px; height: 6px; border-left: 1px dotted var(--dim); }
 .bud .mk:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent); }
-.bud .hit:hover .mk.unset { opacity: 0.35; }
 .bud .tip { position: absolute; bottom: 34px; transform: translateX(-50%); padding: 1px 6px; background: var(--bg); border: 1px solid var(--accent); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none; display: none; z-index: 2; }
 .bud .hit.live .tip { display: block; }
-.bud .hit.clearing .tip { border-color: var(--red); color: var(--red); }
+.bud .hit.clearing .tip { border-color: var(--muted); color: var(--muted); }
 .bud .err, .bud .undo { grid-column: 1 / -1; color: var(--red); }
 .bud .undo { color: var(--dim); }
 .bud .undo button { min-height: 32px; padding: 0 8px; background: transparent; color: var(--fg); border: 1px solid var(--field); border-radius: 0; font: inherit; cursor: pointer; }
 @media (pointer: coarse) { .bud .undo button { min-height: 44px; min-width: 44px; } }
-#usage .scale { color: var(--dim); font-size: 11px; }
 #army .scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 #army .thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
 #army .ph { gap: 8px 16px; }
@@ -449,40 +449,38 @@ function renderBudget() {
       ${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
   const level = (p) => p >= 90 ? C.red : p >= 70 ? C.accent : C.green;
   const win = (name, p, t) => p == null ? '' : bar(name, pct(p), p / 100, level(p), until(t), `${name} account quota`);
-  // Corps bars share one zoomed scale, 0..scale % of the week, so a 5% budget is not crammed into the
-  // left of a 0-100 bar: at least 25, else twice the largest use or budget (nothing sits past the middle),
-  // rounded up to 5, at most 100. Kept while a drag runs so the handle never moves under the pointer.
-  const big = Math.max(0, ...corps.map((c) => Math.max(c.used, c.allowance ?? 0)));
-  const scale = ui.budgetScale ?? Math.min(100, Math.max(25, Math.ceil(big * 2 / 5) * 5));
+  // Each Corps bar spans 0-100% of the week over its left 92%; the last 8% is the unlimited (∞) zone.
+  const INF = 92;
   const corpsRow = (c) => {
     const has = c.allowance != null, v = has ? Math.round(c.allowance) : 0;
     const color = !has ? C.blue : c.ratio >= 1 ? C.red : c.ratio >= b.warn / 100 ? C.accent : C.green;
     const note = ui.undo?.[c.name] && !has
-      ? `<span class="undo">budget cleared · <button type="button" data-undo="${esc(c.name)}">undo (${ui.undo[c.name].pct}%)</button></span>`
+      ? `<span class="undo">back to unlimited · <button type="button" data-undo="${esc(c.name)}">undo (${ui.undo[c.name].pct}%)</button></span>`
       : c.ratio >= 1 ? '<span class="sub">budget spent · Revives, resumes and asks held</span>' : '';
-    const track = `<span class="hit" data-budget="${esc(c.name)}" data-was="${has ? 1 : 0}"><span class="track" role="meter" aria-label="${esc(c.name)} share of the week" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.used)}"><span class="fill" style="width: ${Math.min(100, c.used / scale * 100)}%; background: ${color}"></span></span>
-      <span class="mk${has ? '' : ' unset'}" tabindex="0" role="slider" aria-label="${esc(c.name)} weekly budget" aria-valuemin="1" aria-valuemax="100" ${has ? `aria-valuenow="${v}"` : ''} aria-valuetext="${has ? v + '% of the week' : 'no budget'}" style="left: ${has ? Math.min(100, c.allowance / scale * 100) : 0}%"></span>
+    const track = `<span class="hit" data-budget="${esc(c.name)}" data-was="${has ? 1 : 0}"><span class="track" role="meter" aria-label="${esc(c.name)} share of the week" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(c.used)}"><span class="fill" style="width: ${Math.min(INF, c.used * INF / 100)}%; background: ${color}"></span></span>
+      ${has ? '<span class="inf">∞</span>' : ''}<span class="mk${has ? '' : ' unset'}" tabindex="0" role="slider" aria-label="${esc(c.name)} weekly budget" aria-valuemin="1" aria-valuemax="100" ${has ? `aria-valuenow="${v}"` : ''} aria-valuetext="${has ? v + '% of the week' : 'unlimited'}" style="left: ${has ? Math.min(INF, c.allowance * INF / 100) : 100}%"></span>
       <span class="tip"></span></span>`;
     return bar(c.name, has ? `${pct(c.used)} / ${pct(c.allowance)}` : pct(c.used), 0, color, null, '', null, track).replace(/<\/div>$/, note + '</div>');
   };
   const rows = corps.map(corpsRow).join('');
   el.innerHTML = `<summary><h2>QUOTA</h2>${five ? `<span>5h ${pct(five.pct)}</span>` : ''}${b.week_pct != null ? `<span>7d ${pct(b.week_pct)}</span>` : ''}</summary>
     <div class="body"><div class="win">${win('5h', five?.pct, five?.resets_at)}${win('7d', b.week_pct, b.resets_at)}</div>
-    ${rows ? `<div class="cs">${rows}</div><div class="scale">corps bars: 0–${scale}% of the week · drag the handle or tap a bar to set a budget · drag it off the right end to clear</div>` : ''}</div>`;
+    ${rows ? `<div class="cs">${rows}</div>` : ''}</div>`;
   if (focus) el.querySelector(`[data-budget="${CSS.escape(focus)}"] .mk`)?.focus();
 }
 
-// Budget bars: the usage bar is the control. Pointer down anywhere on a Corps's bar sets the budget there and
-// a drag adjusts it; release commits (the same write as `berthier budget <corps> <pct>|off`). Releasing in the
-// last 3% of the bar clears it (shown red as "off" while hovering there), and so does double-click or a long
-// press on the handle; a clear can be undone for a few seconds. Arrows +/-1, shift +/-5, Delete clears.
+// Budget bars: the usage bar is the control. No budget means unlimited: the handle is parked at the right
+// end on a short ∞ zone past the 0-100% range. Pointer down anywhere on a Corps's bar sets the budget there
+// and a drag adjusts it; release commits (the same write as `berthier budget <corps> <pct>|off`). Releasing
+// in the ∞ zone (the last 6%) is unlimited again, as is double-click or a long press on the handle, with
+// an undo for a few seconds. Arrows +/-1, shift +/-5, Delete or End: unlimited.
 async function setBudget(corps, pct) {
   try {
     const res = await fetch('api/budget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ corps, pct }) });
     if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
     return true;
   } catch (err) {
-    ui.budgetDrag = false; ui.budgetScale = null;
+    ui.budgetDrag = false;
     renderBudget();
     const row = [...$('usage').querySelectorAll('.hit')].find((r) => r.dataset.budget === corps)?.closest('.bud');
     row?.insertAdjacentHTML('beforeend', `<span class="err">not saved: ${esc(err.message)}</span>`);
@@ -492,9 +490,9 @@ async function setBudget(corps, pct) {
 const budgetOf = (corps) => army.budget?.corps?.find((c) => c.name === corps)?.allowance;
 async function commitBudget(corps, pct) { // pct null clears
   const prev = budgetOf(corps);
-  if (pct == null && prev == null) return;
+  if (pct == null && prev == null) { ui.budgetDrag = false; renderBudget(); return; }
   const ok = await setBudget(corps, pct);
-  ui.budgetDrag = false; ui.budgetScale = null;
+  ui.budgetDrag = false;
   if (ok && pct == null) {
     (ui.undo ||= {})[corps] = { pct: Math.round(prev) };
     setTimeout(() => { delete ui.undo[corps]; renderBudget(); }, 8000);
@@ -504,22 +502,21 @@ async function commitBudget(corps, pct) { // pct null clears
 const drag = { hit: null, long: null, value: null, moved: false };
 function budgetAt(hit, x) { // pointer x -> pct, or null in the clearing zone
   const r = hit.getBoundingClientRect(), f = Math.min(1, Math.max(0, (x - r.left) / r.width));
-  return f >= 0.97 ? null : Math.max(1, Math.round(f * ui.budgetScale));
+  return f >= 0.94 ? null : Math.max(1, Math.min(100, Math.round(f / 0.92 * 100)));
 }
 function showBudget(hit, v) {
   const mk = hit.querySelector('.mk'), tip = hit.querySelector('.tip');
-  mk.classList.remove('unset');
-  mk.style.left = (v == null ? 100 : Math.min(100, v / ui.budgetScale * 100)) + "%";
+  mk.classList.toggle('unset', v == null);
+  mk.style.left = (v == null ? 100 : Math.min(92, v * 0.92)) + '%';
   if (v != null) { mk.setAttribute('aria-valuenow', v); mk.setAttribute('aria-valuetext', v + '% of the week'); }
-  tip.textContent = v == null ? 'off' : v + '%';
-  tip.style.left = (v == null ? 100 : Math.min(96, v / ui.budgetScale * 100)) + '%';
+  else { mk.removeAttribute('aria-valuenow'); mk.setAttribute('aria-valuetext', 'unlimited'); }
+  tip.textContent = v == null ? 'unlimited ∞' : v + '%';
+  tip.style.left = (v == null ? 90 : Math.min(88, v * 0.92)) + '%';
   hit.classList.add('live'); hit.classList.toggle('clearing', v == null);
 }
 $('usage').addEventListener('pointerdown', (e) => {
   const hit = e.target.closest('.hit');
   if (!hit || e.button) return;
-  const scale = $('usage').querySelector('.scale')?.textContent.match(/0–(\d+)%/);
-  ui.budgetScale = scale ? +scale[1] : 100;
   ui.budgetDrag = true;
   Object.assign(drag, { hit, moved: false, value: undefined, start: [e.clientX, e.clientY] });
   hit.setPointerCapture(e.pointerId);
@@ -538,7 +535,7 @@ const dragEnd = (e) => {
   const { hit, value, moved } = drag;
   if (!hit) return;
   drag.hit = null;
-  if (e.type === 'pointercancel' || !moved) { ui.budgetDrag = false; ui.budgetScale = null; renderBudget(); return; }
+  if (e.type === 'pointercancel' || !moved) { ui.budgetDrag = false; renderBudget(); return; }
   commitBudget(hit.dataset.budget, value);
 };
 $('usage').addEventListener('pointerup', dragEnd);
@@ -557,12 +554,13 @@ $('usage').addEventListener('keydown', (e) => {
   if (!mk) return;
   const hit = mk.closest('.hit'), corps = hit.dataset.budget;
   const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
-  let v = ui.keyValue?.[corps] ?? budgetOf(corps);
-  if (e.key === 'Delete' || e.key === 'Backspace') v = null;
-  else if (step) v = Math.min(100, Math.max(1, Math.round(v ?? 0) + step * (e.shiftKey ? 5 : 1)));
+  let v = ui.keyValue && corps in ui.keyValue ? ui.keyValue[corps] : budgetOf(corps) ?? null;
+  if (e.key === 'End' || e.key === 'Delete' || e.key === 'Backspace') v = null; // unlimited
+  else if (step && v == null) { if (step < 0) v = 100; } // left from unlimited: 100%
+  else if (step) v = Math.min(100, Math.max(1, Math.round(v) + step * (e.shiftKey ? 5 : 1)));
   else return;
   e.preventDefault();
-  ui.budgetDrag = true; ui.budgetScale ??= +($('usage').querySelector('.scale')?.textContent.match(/0–(\d+)%/)?.[1] ?? 100);
+  ui.budgetDrag = true;
   (ui.keyValue ||= {})[corps] = v;
   showBudget(hit, v);
   clearTimeout(keyTimer);
