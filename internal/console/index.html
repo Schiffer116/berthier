@@ -494,7 +494,7 @@ let army = null, connected = false;
 const drafts = {}; // unsent message per pane
 // The selected Agent lives in the URL hash (#wJ:p2), so a link opens it.
 const collapsed = () => { try { return new Set(JSON.parse(localStorage.getItem('collapsed') || '[]')); } catch { return new Set(); } };
-const ui = { screen: location.hash.length > 1 ? 'chat' : 'list', log: null, q: '', collapsed: collapsed(), info: pref('info'), needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
+const ui = { screen: location.hash.length > 1 ? 'chat' : 'list', log: null, q: '', collapsed: collapsed(), info: (() => { try { const v = localStorage.getItem('info'); return v == null ? null : v === '1'; } catch { return null; } })(), needsOnly: pref('needsOnly'), showLoop: pref('showLoop'), sel: decodeURIComponent(location.hash.slice(1)) || null };
 $('needs-only').checked = ui.needsOnly;
 $('show-loop').checked = ui.showLoop;
 
@@ -804,10 +804,10 @@ function renderChatHead(a, all) {
     <span class="who"><span style="color: ${a.needs_you ? C.accent : a.color}" aria-hidden="true">${a.needs_you ? '●' : a.glyph}</span>
       <nav class="crumb" aria-label="corps and division">${crumb}</nav>${role ? `<span class="dim">${role}</span>` : ''}
       <span style="color: ${a.needs_you ? C.accent : a.color}">${a.state}</span> ${ageSpan(a.from)}</span>
-    <span class="acts">${demo ? `<a class="btn" href="${esc(demo.url)}" target="_blank" rel="noopener noreferrer" title="${esc(demo.label || demo.url)}">demo ↗</a>` : ''}<button type="button" class="btn" id="info-btn" aria-pressed="${ui.info}" aria-controls="info">info</button></span>`;
+    <span class="acts">${demo ? `<a class="btn" href="${esc(demo.url)}" target="_blank" rel="noopener noreferrer" title="${esc(demo.label || demo.url)}">demo ↗</a>` : ''}<button type="button" class="btn" id="info-btn" aria-pressed="${infoOn()}" aria-controls="info">info</button></span>`;
 }
 $('detail').addEventListener('click', (e) => {
-  if (e.target.closest('#info-btn')) setInfo(phone() ? ui.screen !== 'info' : !ui.info);
+  if (e.target.closest('#info-btn')) setInfo(phone() ? ui.screen !== 'info' : !infoOn());
   else if (e.target.closest('#back-btn')) setScreen('list');
   else if (e.target.closest('#chead [data-pane]')) select(e);
 });
@@ -815,9 +815,16 @@ $('info-close').addEventListener('click', () => setInfo(false));
 // Desktop: the info column opens beside the chat. Phone: info is a screen of its own, back goes to the chat.
 function setInfo(on) {
   if (phone()) return setScreen(on ? 'info' : 'chat');
-  ui.info = on; pref('info', on); render();
+  ui.info = on; // an explicit choice, kept across reloads: it beats the automatic one
+  try { localStorage.setItem('info', on ? '1' : '0'); } catch {}
+  render();
 }
 const phone = () => matchMedia('(max-width: 899px)').matches;
+// Wide enough that the chat has the width it needs (about 900px with just the tree, so 1320px and up):
+// info opens by itself as the third column, Messenger-style, unless the viewer chose either way.
+const WIDE = matchMedia('(min-width: 1320px)');
+const infoOn = () => ui.info ?? WIDE.matches;
+WIDE.addEventListener('change', () => render());
 function setScreen(name) {
   if (ui.screen === name) return;
   ui.screen = name;
@@ -832,8 +839,8 @@ matchMedia('(max-width: 899px)').addEventListener('change', () => render());
 function renderDetail(a, all) {
   renderSend(a);
   renderChatHead(a, all);
-  $('info').hidden = !a || (!phone() && !ui.info);
-  $('top').classList.toggle('info', ui.info && !!a);
+  $('info').hidden = !a || (!phone() && !infoOn());
+  $('top').classList.toggle('info', infoOn() && !!a);
   $('top').dataset.screen = ui.screen;
   if (!a) {
     $('det').innerHTML = '<div class="body"><span class="dim">nothing selected</span></div>';
