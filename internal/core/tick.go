@@ -163,6 +163,9 @@ type Escalation struct {
 	Ev     Fields  `json:"ev"`
 }
 
+// restartTries is how many ticks a restart's continue nudge is attempted.
+const restartTries = 5
+
 // Proceed prompts an Agent a restart cut off mid-turn to continue.
 type Proceed struct {
 	PaneID string `json:"pane_id"`
@@ -545,7 +548,7 @@ func Tick(in TickIn) TickOut {
 		for _, k := range prevAgents.Keys {
 			a := prevAgents.M[k]
 			if a.Status == "working" && strOr(a.Kind, "") == "claude" && a.SessionID != nil {
-				waiting[*a.SessionID] = Interrupt{a.Name, now}
+				waiting[*a.SessionID] = Interrupt{Name: a.Name, Since: now}
 			}
 		}
 	}
@@ -595,16 +598,13 @@ func Tick(in TickIn) TickOut {
 		}
 		return false
 	}
-	kept := map[string]Interrupt{}
-	for sid, w := range waiting {
-		b, ok := bySession[sid]
-		if !ok || b.status == "unknown" ||
-			((b.status == "idle" || b.status == "done") &&
-				(obs(b.pane).Interrupted == nil || (inBacks(cutAgents, b.pane) && !inBacks(goAgents, b.pane)))) {
-			kept[sid] = w
-		}
-	}
+	// A nudge may not take (Herdr can still list the pane without its agent):
+	// the session stays remembered with its tries so far. A taken one shows as
+	// a working Agent or a finished turn on a later tick and is forgotten then;
+	// after restartTries nudges a still-untaken one is given up on.
 	proceed := []Proceed{}
+	retry := map[string]int{}
+	var gaveUp []Event
 	for _, b := range goAgents {
 		name := FallbackName(b.pane)
 		if v := live.M[b.pane].Name; v != nil {
@@ -612,7 +612,25 @@ func Tick(in TickIn) TickOut {
 		} else if b.name != nil {
 			name = *b.name
 		}
-		proceed = append(proceed, Proceed{b.pane, name, with(about(b.pane), "session", b.sid)})
+		ev := with(about(b.pane), "session", b.sid)
+		if tries := waiting[b.sid].Tries; tries >= restartTries {
+			gaveUp = append(gaveUp, Event{"continue_failed", fmt.Sprintf("continue failed: %s in %s (restart): %d nudges did not take", name, b.pane, tries), ev})
+			continue
+		} else {
+			retry[b.sid] = tries + 1
+		}
+		proceed = append(proceed, Proceed{b.pane, name, ev})
+	}
+	kept := map[string]Interrupt{}
+	for sid, w := range waiting {
+		b, ok := bySession[sid]
+		if n, again := retry[sid]; again {
+			kept[sid] = Interrupt{w.Name, w.Since, n}
+		} else if !ok || b.status == "unknown" ||
+			((b.status == "idle" || b.status == "done") &&
+				(obs(b.pane).Interrupted == nil || (inBacks(cutAgents, b.pane) && !inBacks(goAgents, b.pane)))) {
+			kept[sid] = w
+		}
 	}
 
 	// --- Panes to read before the decisions above can be made.
@@ -649,7 +667,7 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 
-	decided := []Event{}
+	decided := append([]Event{}, gaveUp...)
 	for _, k := range exited {
 		f := with(about(k), "session", prevAgents.M[k].SessionID)
 		decided = append(decided, Event{"forgot", fmt.Sprintf("forgot %s in %s: user exited it (session %s)", f["name"], k, strOr(prevAgents.M[k].SessionID, "null")), f})

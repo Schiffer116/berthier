@@ -621,9 +621,26 @@ func TestRestartResume(t *testing.T) {
 	p3 := o3.State
 	obsInt := func(v bool) map[string]Obs { return map[string]Obs{"w1:p1": {Interrupted: &v}} }
 	o4 := tick(p3, si, 1140, opt{gap: 45, obs: obsInt(true)})
-	check(t, "interrupted: prompted once", []any{o4.Proceed, o4.State.Interrupted}, `[[{"pane_id":"w1:p1","name":"principal","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}],{}]`)
-	o5 := tick(o4.State, si, 1150, g)
-	check(t, "not prompted again", []any{o5.Proceed, reads(o5)}, `[[],[]]`)
+	check(t, "interrupted: prompted once", []any{o4.Proceed, o4.State.Interrupted}, `[[{"pane_id":"w1:p1","name":"principal","ev":{"pane":"w1:p1","corps":"skipli","name":"a-w1-p1","session":"sid-1"}}],{"sid-1":{"name":"principal","since":1100,"tries":1}}]`)
+	// The nudge took: the Agent is working, or finished its turn; either way forgotten.
+	ow := tick(o4.State, snap(W, panes(ag("w1:p1", "working", "sid-1", "", "")), panes(pn("w1:p1"))), 1150, g)
+	check(t, "nudge took (working): forgotten", []any{ow.Proceed, ow.State.Interrupted}, `[[],{}]`)
+	od := tick(o4.State, si, 1150, opt{gap: 45, obs: obsInt(false)})
+	check(t, "nudge took (turn finished): forgotten", []any{od.Proceed, od.State.Interrupted}, `[[],{}]`)
+	// The nudge did not take (Herdr listed the pane without its agent): retried
+	// on later ticks, then given up on once, in the log.
+	st, nudges, gave := o4.State, 1, 0
+	for n := 1; n < 8; n++ {
+		ox := tick(st, si, 1140+int64(10*n), opt{gap: 45, obs: obsInt(true)})
+		nudges += len(ox.Proceed)
+		for _, ev := range ox.Events {
+			if ev.Kind == "continue_failed" {
+				gave++
+			}
+		}
+		st = ox.State
+	}
+	check(t, "failed nudge: 5 tries, one give-up, forgotten", []any{nudges, gave, st.Interrupted}, `[5,1,{}]`)
 	o4 = tick(p3, si, 1140, opt{gap: 45, obs: obsInt(false)})
 	check(t, "finished turn: forgotten", []any{o4.Proceed, o4.State.Interrupted}, `[[],{}]`)
 	o4 = tick(o2.State, snap(W, panes(ag("w1:p1", "working", "sid-1", "", "")), panes(pn("w1:p1"))), 1120, g)
