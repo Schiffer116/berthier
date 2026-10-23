@@ -70,6 +70,30 @@ _Avoid_: ping, poke
 The share of the account's weekly (seven-day) quota a Corps may use, set with `berthier budget`. Soft: at 80% the Corps's Main Agent and the user are told once per week; at 100% the Main Loop holds that Corps's and its Divisions' Revives, usage-limit resumes and ask delivery, and nothing else. Usage is attributed from Claude Code's status line samples; a Division counts toward its Corps, unmapped sessions toward "other".
 _Avoid_: quota (that is the account's), limit (that is Claude's usage limit)
 
+**Spend**:
+What an Agent's turns consumed: tokens by kind (input, cache read, cache write, output) and model, priced into API-equivalent dollars; the account's quota share is derived from it.
+_Avoid_: cost (ambiguous with Claude Code's session cost), usage (that is the quota's)
+
+**Profile**:
+Spend broken down Corps → Division → session → turn, by model, token kind, cache hit rate and what started each turn; one view read by the user and by optimizing Agents.
+_Avoid_: report (that is an Agent's status line), stats
+
+**Waste signal**:
+A pattern in the Profile that spent tokens without delivering: context bloat, cache misses, oversized tool results, repeated reads, a stronger model than the work needed.
+_Avoid_: inefficiency, smell
+
+**Delivered unit**:
+A commit landed on a Corps's main branch, or a finished Division; Spend per delivered unit is the headline efficiency figure.
+_Avoid_: output, result
+
+**Turn origin**:
+What started a turn: the user, or Berthier (loop event, Ask, notify, Brief, restart continue, usage-limit resume).
+_Avoid_: trigger, source
+
+**Command overhead**:
+Berthier's own Spend running the Army, shown apart from the Corps it works in.
+_Avoid_: Berthier usage, admin cost
+
 ### Coordination
 
 **Owner**:
