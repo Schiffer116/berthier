@@ -17,7 +17,9 @@ import (
 type Env struct {
 	Root, Home                                   string
 	State, Log, Inbox, Reports, Demos, Divisions string
-	Ledger, Usage, Budgets                       string
+	Ledger, Usage, Budgets, BoardsFile           string
+	SkipliBin, SkipliEnv                         string
+	BoardPoll                                    int64
 	H                                            herdr.Client
 	HerdrSession                                 string
 	Interval                                     string // raw, as the loop prints it
@@ -81,6 +83,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Ledger = filepath.Join(e.Home, "ledger.jsonl")
 	e.Usage = filepath.Join(e.Home, "usage.json")
 	e.Budgets = filepath.Join(e.Home, "budgets.json")
+	e.BoardsFile = filepath.Join(e.Home, "boards.json")
 	// Empty means the user's default Herdr session; tests point this at an
 	// isolated named session so they never touch live workspaces.
 	e.HerdrSession = getenv("BERTHIER_HERDR_SESSION")
@@ -120,6 +123,10 @@ func LoadEnv(getenv func(string) string) Env {
 	e.ProfileProjects = str("BERTHIER_PROFILE_PROJECTS", "*")
 	// Share of its budget at which a Corps's Main Agent is told and the user hears (percent).
 	e.BudgetWarn = num("BERTHIER_BUDGET_WARN", 80)
+	// Boards: skipli-cli, on one Skipli Environment (dev for now), polled this often (seconds).
+	e.SkipliBin = str("BERTHIER_SKIPLI_BIN", "skipli-cli")
+	e.SkipliEnv = str("BERTHIER_SKIPLI_ENV", "dev")
+	e.BoardPoll = i64("BERTHIER_BOARD_POLL", 60)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
 	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "sonnet")

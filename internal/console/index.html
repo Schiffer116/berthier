@@ -327,7 +327,7 @@ svg.spark { display: block; width: 92px; height: 20px; }
 .ctx span.big { background: var(--peach); }
 .ctx em { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--dim); }
 .o-user { color: var(--fg); } .o-ask { color: var(--blue); } .o-loop { color: var(--green); } .o-task { color: var(--teal); }
-.o-subagent { color: var(--mauve); } .o-notify { color: var(--sky); } .o-brief { color: var(--accent); } .o-continue, .o-resume { color: var(--yellow); }
+.o-subagent { color: var(--mauve); } .o-notify, .o-board { color: var(--sky); } .o-brief { color: var(--accent); } .o-continue, .o-resume { color: var(--yellow); }
 @media (max-width: 699px) {
   .prow { grid-template-columns: minmax(110px, 1fr) 64px 56px 62px; min-width: 0; }
   .prow > :nth-child(3), .prow > :nth-child(4), .prow > :nth-child(6), .prow > :nth-child(8) { display: none; }
@@ -1305,8 +1305,8 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // when the view opens and every 30s while it is open. The view keeps what the
 // viewer opened and picked across refreshes.
 const prof = { on: false, week: 0, data: null, open: new Set(), openDiv: new Set(), session: null, turns: null, hl: null, timer: null };
-const PO = ['user', 'ask', 'loop', 'notify', 'brief', 'continue', 'resume', 'task', 'subagent'];
-const PC = { user: 'var(--fg)', ask: 'var(--blue)', loop: 'var(--green)', notify: 'var(--sky)', brief: 'var(--accent)', continue: 'var(--yellow)', resume: 'var(--yellow)', task: 'var(--teal)', subagent: 'var(--mauve)' };
+const PO = ['user', 'ask', 'loop', 'notify', 'board', 'brief', 'continue', 'resume', 'task', 'subagent'];
+const PC = { user: 'var(--fg)', ask: 'var(--blue)', loop: 'var(--green)', notify: 'var(--sky)', board: 'var(--sky)', brief: 'var(--accent)', continue: 'var(--yellow)', resume: 'var(--yellow)', task: 'var(--teal)', subagent: 'var(--mauve)' };
 const KIND = { bloat: 'context bloat', cache_miss: 'cache miss', big_result: 'big result', reread: 're-read', model: 'model' };
 const dollars = (v) => v == null ? '–' : '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 const pct1 = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';

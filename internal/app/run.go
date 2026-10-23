@@ -30,6 +30,8 @@ const usageText = `usage: berthier <command> [args]
 
 corps-new <name> <dir> [brief]      create a Corps workspace with a Main Agent
 adopt <workspace> <corps>           make an existing workspace a Division of a Corps
+board <corps> [--adopt <board-id>]  give a Corps its Board: an existing Skipli board, else a card on the Grand Army Board;
+                                    the Main Loop hands its Main Agent new tasks added there (corps-new does this itself)
 division-new <name> [--model <m>] <brief>
                                     (Main Agent) spawn a Division: a worktree workspace with its own Agent
                                     on --model (default $BERTHIER_DIVISION_MODEL, sonnet)
@@ -113,6 +115,7 @@ func init() {
 	commands = map[string]command{
 		"corps-new":          cmdCorpsNew,
 		"adopt":              cmdAdopt,
+		"board":              cmdBoard,
 		"army":               cmdArmy,
 		"dashboard":          cmdDashboard,
 		"division-new":       cmdDivisionNew,

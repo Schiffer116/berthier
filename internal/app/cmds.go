@@ -750,6 +750,45 @@ func cmdCorpsNew(e *Env, args []string, io IO) error {
 	default:
 		return die("corps '%s' created (pane %s) but its Main Agent did not start", name, pane)
 	}
+	if msg, err := e.EnsureBoard(name, ""); err != nil {
+		fmt.Fprintf(io.Err, "no Board for '%s' (run `berthier board %s` later): %v\n", name, name, err)
+	} else {
+		fmt.Fprintln(io.Out, msg)
+	}
+	return nil
+}
+
+// cmdBoard gives a Corps its Board: an existing one with --adopt <board-id>,
+// else a card on the Grand Army Board. The Main Loop then hands the Corps's
+// Main Agent new work added there.
+func cmdBoard(e *Env, args []string, io IO) error {
+	usage := "usage: berthier board <corps> [--adopt <board-id>]"
+	var corps, adopt string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--adopt" && i+1 < len(args):
+			i++
+			adopt = args[i]
+		case corps == "" && !strings.HasPrefix(args[i], "--"):
+			corps = args[i]
+		default:
+			return die("%s", usage)
+		}
+	}
+	if corps == "" {
+		return die("%s", usage)
+	}
+	if corps == "berthier" || e.ReadDivisions().IsDivision(corps) {
+		return die("'%s' is not a Corps with a Main Agent", corps)
+	}
+	if ok, _ := e.hasWorkspace(corps); !ok {
+		return die("no Corps '%s'", corps)
+	}
+	msg, err := e.EnsureBoard(corps, adopt)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(io.Out, msg)
 	return nil
 }
 

@@ -119,6 +119,7 @@ var originTags = []struct{ prefix, origin string }{
 	{"[berthier-loop]", "loop"},
 	{"[berthier ask]", "ask"},
 	{"[berthier notify]", "notify"},
+	{"[board]", "board"},
 	{"[berthier brief]", "brief"},
 	{"[berthier continue]", "continue"},
 	{"[berthier resume]", "resume"},

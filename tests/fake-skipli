@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# A skipli-cli with boards kept as plain files next to this script, for the
+# Boards tests. The tests edit the files to play the user adding work:
+#   boards  lines  <board>|<name>
+#   cards   lines  <board>|<card>|<name>
+#   tasks   lines  <card>|<task>|<name>|<status>
+#   expired  exists: every command says to log in. `calls` logs each command.
+d=$(dirname "$0")
+printf '%s\n' "$*" >>"$d/calls"
+[[ $1 == --env ]] && shift 2
+if [[ -e $d/expired ]]; then echo 'skipli-cli: not signed in: run `skipli-cli login <email>`' >&2; exit 1; fi
+touch "$d/boards" "$d/cards" "$d/tasks"
+case $1 in
+  boards)
+    printf '{"boards":['
+    sep=
+    while IFS='|' read -r id name; do printf '%s{"id":"%s","name":"%s"}' "$sep" "$id" "$name"; sep=,; done <"$d/boards"
+    printf ']}\n' ;;
+  board)
+    line=$(grep "^$2|" "$d/boards") || { echo "skipli-cli: no board with id \"$2\"" >&2; exit 1; }
+    name=${line#*|}
+    printf '{"id":"%s","name":"%s","cards":[' "$2" "$name"
+    sep=
+    while IFS='|' read -r b c cname; do
+      [[ $b == "$2" ]] || continue
+      printf '%s{"id":"%s","name":"%s","tasks":[' "$sep" "$c" "$cname"; sep=,
+      tsep=
+      while IFS='|' read -r tc t tname st; do
+        [[ $tc == "$c" ]] || continue
+        printf '%s{"id":"%s","name":"%s","status":"%s"}' "$tsep" "$t" "$tname" "$st"; tsep=,
+      done <"$d/tasks"
+      printf ']}'
+    done <"$d/cards"
+    printf ']}\n' ;;
+  new-board) echo "ga-$(($(wc -l <"$d/boards") + 1))|$2" >>"$d/boards" ;;
+  add-card) echo "$2|c-$(($(wc -l <"$d/cards") + 1))|$3" >>"$d/cards" ;;
+  *) echo "skipli-cli: fake has no $1" >&2; exit 2 ;;
+esac

@@ -83,7 +83,7 @@ func (a SnapAgent) session() *string {
 // Ask is a pending `berthier ask` (a file of state/inbox).
 type Ask struct {
 	ID   string `json:"id"`
-	Kind string `json:"kind,omitempty"` // "notify": one-way, from a service
+	Kind string `json:"kind,omitempty"` // "notify": one-way, from a service; "board": one-way, a new card or task on a Board
 	From string `json:"from"`
 	To   string `json:"to"`
 	Text string `json:"text"`
@@ -803,7 +803,10 @@ func Tick(in TickIn) TickOut {
 				if m.Kind == "notify" {
 					text = fmt.Sprintf("[berthier notify] from %s: %s", m.From, m.Text)
 				}
-				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify",
+				if m.Kind == "board" {
+					text = m.Text
+				}
+				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify" || m.Kind == "board",
 					Fields{"pane": o.pane, "from": m.From, "to": to, "ask": m.ID}})
 				break
 			}
@@ -858,7 +861,7 @@ func Tick(in TickIn) TickOut {
 		})
 	}
 	for _, m := range in.Inbox {
-		if m.Kind == "notify" || now-m.At < cfg.AskStuck || delivered[m.ID] {
+		if m.Kind == "notify" || m.Kind == "board" || now-m.At < cfg.AskStuck || delivered[m.ID] {
 			continue
 		}
 		reason := fmt.Sprintf("undelivered %dm", minutes(now-m.At))

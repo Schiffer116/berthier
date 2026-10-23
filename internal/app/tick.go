@@ -145,6 +145,9 @@ func (e *Env) Tick() error {
 		}
 	}
 
+	// --- Boards: new work for the Main Agents (after the rest, so a slow skipli never delays a Revive).
+	e.pollBoards(out)
+
 	return writeJSONAtomic(e.State, out.State, true)
 }
 

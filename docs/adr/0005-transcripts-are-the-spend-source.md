@@ -10,7 +10,7 @@ So:
 - **The Profile is an incremental index** in `state/profile/`: `Env.UpdateProfile`, run by every tick (and by `profile` and `budget`), reads only the transcript bytes past each file's cursor and folds them (`core.FoldTranscript`, pure) into rows of `turns.jsonl`, one per turn and model and pass (rows with the same key merge on read). It keeps the current and previous four quota weeks of turns; older weeks are compacted into per-session totals (`archive.json`).
 - **The ledger stays for the account's quota only:** `week_pct`, `resets_at` and the five-hour window, which transcripts do not have. Each rise in `week_pct` is now split across the Spend of turns since the previous rise, by Corps (`core.Usage.Fold`), so budgets keep their meaning (% of the week) with a better attribution. A rise no Spend explains (claude.ai, another machine) goes to `other`.
 - **Command overhead is its own line:** Berthier's sessions (cwd in Berthier's repo, not a Division) count as `berthier`, not as the Corps whose workspace Berthier lives in.
-- **Turn origin** is read from the prompt that started a turn: every prompt Berthier sends carries a tag (`[berthier-loop]`, `[berthier ask]`, `[berthier notify]`, `[berthier brief]`, `[berthier continue]`, `[berthier resume]`); untagged is the user.
+- **Turn origin** is read from the prompt that started a turn: every prompt Berthier sends carries a tag (`[berthier-loop]`, `[berthier ask]`, `[berthier notify]`, `[board]`, `[berthier brief]`, `[berthier continue]`, `[berthier resume]`); untagged is the user.
 
 Consequences:
 
