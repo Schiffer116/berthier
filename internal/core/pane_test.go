@@ -107,6 +107,32 @@ func TestInputHolds(t *testing.T) {
 	}
 }
 
+func TestInputDraft(t *testing.T) {
+	// `pane read --source visible --format ansi` of Claude Code 2.x, 2026-10-23.
+	rule := "\x1b[0m\x1b[38;2;136;136;136m" + strings.Repeat("─", 50) + "\x1b[0m\r"
+	status := "\n  \x1b[0m\x1b[38;2;153;153;153mHaiku 5.5 | 5h: 22% | 7d: 34%\x1b[0m\r\n  \x1b[0m\x1b[38;2;255;193;7m⏵⏵ auto mode on\x1b[0m"
+	box := func(l ...string) string {
+		return "● pong\r\n\r\n" + rule + "\n" + strings.Join(l, "\r\n") + "\r\n" + rule + status
+	}
+	for _, c := range []struct {
+		name, screen string
+		want         bool
+	}{
+		{"typed draft", box("❯ hello I am dictating a long thought"), true},
+		{"wrapped draft", box("❯ hello I am", "  dictating"), true},
+		{"pasted image", box("❯ [Image #1] "), true},
+		{"draft with a dim completion", box("❯ /com\x1b[2mmit\x1b[0m"), true},
+		{"suggested prompt", box("❯ \x1b[0m\x1b[2mpush it\x1b[0m"), false},
+		{"suggestion reset by 22", box("❯ \x1b[2mpush it\x1b[22m "), false},
+		{"empty box", box("❯ "), false},
+		{"no box", "● working\r\n", false},
+	} {
+		if got := InputDraft(c.screen); got != c.want {
+			t.Errorf("%s: got %v", c.name, got)
+		}
+	}
+}
+
 func TestSlugAndNames(t *testing.T) {
 	for in, want := range map[string]string{"Dark Mode": "dark-mode", "demo-dark-mode": "demo-dark-mode", "9 Lives!": "lives", ".dot files": "dot-files",
 		"abcdefghijklmnopqrstuvwxyzabcdefghij": "abcdefghijklmnopqrstuvwxyzabcdef"} {

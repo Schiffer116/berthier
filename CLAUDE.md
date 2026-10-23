@@ -43,13 +43,14 @@ line in every new Brief until fixed, so no Division chases it twice.
   transcript). For the live screen (a dialog, a blocked question):
   `herdr agent read <pane> --source visible` (more lines than the screen make
   Herdr scroll the user's view). Text after an idle `❯` is Claude Code's
-  suggested prompt, not a user draft.
+  suggested prompt if dim (`--format ansi`), else the user's draft.
 - Review a finished Division of yours: `berthier last <pane>`, its diff, then
   `berthier land <division>` (merge, checks, rebuild, restart what changed;
   conflict or failed check leaves master as it was). `division-done` only
   after the user reviewed.
 - Nudge: `berthier prompt <pane> "<text>"` (`-` reads stdin; confirms Claude
-  took it; a bare `herdr agent prompt` can leave a draft).
+  took it; a bare `herdr agent prompt` can leave a draft). Refused while the
+  user has a draft in that box: they are typing there, retry later.
 - Speak when you end a turn needing the user:
   `~/.claude/skills/notify-user/speak.sh "<corps>: <what>"` (loop already speaks
   blocked Agents and failed Revives).

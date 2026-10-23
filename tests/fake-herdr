@@ -6,6 +6,7 @@
 #   takes  submits at once         draft  holds it until Enter (image paths)
 #   lost   drops the first paste   busy   working: queues it, no state change
 #   never  holds it whatever       error  Herdr refuses it
+#   typing   the user's draft sits in the box
 #   nostart  Herdr refuses to start Claude
 #   dialog   Claude starts behind a dialog the user answers; then takes
 d=$(dirname "$0")
@@ -34,6 +35,8 @@ case "$1 $2" in
   "api snapshot") echo '{"result":{"snapshot":{"workspaces":[],"agents":[],"panes":[]}}}' ;;
   "agent wait") touch "$d/answered" ;;
   "agent send-keys") [[ $mode == draft ]] && { rm -f "$d/box"; bump; } ;;
-  "pane read") printf '%s\n' "────────────" "❯ $(cat "$d/box" 2>/dev/null)" "────────────" "  5h: 1%" ;;
+  "pane read")
+    [[ $mode == typing ]] && echo 'half a thought' >"$d/box"
+    printf '%s\n' "────────────" "❯ $(cat "$d/box" 2>/dev/null)" "────────────" "  5h: 1%" ;;
 esac
 exit 0

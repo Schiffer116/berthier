@@ -144,6 +144,37 @@ grep -q '\[berthier notify\] from service: Learner answered:' <<<"$out" || fail 
 grep '\[berthier notify\]' <<<"$out" | grep -q 'Reply or report back' && fail "notify told the Agent to ask back"
 grep -qsF '"from":"service"' "$BERTHIER_HOME"/inbox/*.json && fail "delivered notify left in the inbox"
 
+step "the user's draft holds the loop's prompts until the box has been empty for BERTHIER_DRAFT_QUIET"
+# The user dictating into an idle Agent's box: an ask typed in would mix in and submit the draft.
+h agent wait demo-main --timeout 90000 >/dev/null
+h pane send-text "$pane" "half a dictated thought" >/dev/null
+sleep 1
+# Claude puts a no-break space after ❯.
+box() { h pane read "$pane" --source visible | grep -c '^❯.\{1,3\}half a dictated thought *$'; }
+mark=$(wc -l <"$BERTHIER_HOME/loop.log")
+HERDR_PANE_ID=$helper bin/berthier ask demo "Reply with just: later" >/dev/null
+BERTHIER_DRAFT_QUIET=4 bin/berthier tick
+BERTHIER_DRAFT_QUIET=4 bin/berthier tick
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "draft_held" and .pane == $p' "$pane" "$work/since") == 1)) || fail "draft hold not logged once: $(cat "$work/since")"
+(($(logged '.kind == "delivered" and .to == "demo"' "" "$work/since"))) && fail "ask typed into the user's draft"
+(($(box) == 1)) || fail "draft disturbed: $(h pane read "$pane" --source visible)"
+out=$(bin/berthier prompt "$pane" "go on" 2>&1) && fail "manual prompt typed into the draft"
+[[ $out == *"input box holds the user's draft"* ]] || fail "manual prompt refused unclearly: $out"
+(($(box) == 1)) || fail "draft disturbed by the manual prompt"
+h pane send-keys "$pane" ctrl+u >/dev/null # the user clears the box
+sleep 1
+BERTHIER_DRAFT_QUIET=4 bin/berthier tick
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "delivered" and .to == "demo"' "" "$work/since"))) && fail "ask delivered within the quiet period"
+sleep 4
+BERTHIER_DRAFT_QUIET=4 bin/berthier tick
+tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
+(($(logged '.kind == "delivered" and .pane == $p and .from == "helper"' "$pane" "$work/since"))) || fail "held ask not delivered: $(cat "$work/since")"
+h agent wait demo-main --timeout 90000 >/dev/null
+h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '^❯.\{1,3\}\[berthier ask\] from helper: Reply with just: later' \
+  || fail "held ask not sent clean: $(h pane read "$pane" --source recent-unwrapped --lines 60)"
+
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
 bin/berthier tick
@@ -215,10 +246,11 @@ bin/berthier tick
 h agent prompt limited "Print the numbers 1 to 80, one per line, nothing else." --wait --timeout 90000 >/dev/null
 h workspace focus "$(h pane get "$limited" | jq -re '.result.pane.workspace_id')" >/dev/null
 # The tick reads the newly idle pane for a limit stop; the user's view must not move.
-# Only above Claude's input box: its status rows gain and lose notices (usage, effort) by themselves.
+# Only above Claude's input box: its status rows gain and lose notices (usage, effort) by themselves,
+# as does the right-aligned notice just above the box (e.g. "◐ medium · /effort"), so that line is blanked.
 screen() {
   tmux capture-pane -p -t "$session" | sed 's/^[^│]*│//' \
-    | awk '{l[NR] = $0} /^─/ {b[++n] = NR} END {for (i = 1; i < (n >= 2 ? b[n - 1] : NR + 1); i++) print l[i]}'
+    | awk '{l[NR] = $0} /^─/ {b[++n] = NR} END {for (i = 1; i < (n >= 2 ? b[n - 1] : NR + 1); i++) print (l[i] ~ /^                    +[^ ]/ ? "" : l[i])}'
 }
 # Claude shows its suggested prompt a few seconds after going idle: start from a settled screen.
 still=$(screen | md5sum) steady=0

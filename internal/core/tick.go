@@ -34,6 +34,7 @@ type Config struct {
 	LimitGrace     int64
 	LimitRetry     int64
 	BudgetWarn     float64 // percent of an allowance
+	DraftQuiet     int64   // prompts to a pane wait this long after its input box last held the user's draft
 	// Restart resume: a gap this long since the last state write may have cut
 	// Agents off mid-turn; wait RestartWait for each to reappear (idle for
 	// RestartSettle), then prompt it once.
@@ -98,6 +99,7 @@ type Obs struct {
 	LimitSeen    bool  // limit_reset was read (LimitReset nil: no limit stop)
 	LimitReset   *int64
 	Interrupted  *bool // its transcript ends mid-turn
+	Draft        *bool // its input box holds text someone typed
 }
 
 // TickIn is everything Tick decides from.
@@ -343,6 +345,7 @@ func Tick(in TickIn) TickOut {
 			Limit:          pv.Limit,
 			LimitResumedAt: pv.LimitResumedAt,
 			LastReviveAt:   pv.LastReviveAt,
+			DraftAt:        pv.DraftAt,
 		}
 		if w, ok := ws[a.WorkspaceID]; ok {
 			v.WorkspaceLabel = ptr(w.Label)
@@ -469,6 +472,21 @@ func Tick(in TickIn) TickOut {
 		return FallbackName(k)
 	}
 
+	// --- Drafts: never type into an input box holding the user's text (they
+	// may be dictating). Every prompt to a pane waits for a read of its box,
+	// and is held while it holds a draft and for draft_quiet after the box was
+	// last seen holding one, so a pause in dictation is not taken for done.
+	draftLook := map[string]bool{}
+	held := func(p string) bool {
+		o := obs(p)
+		if o.Draft == nil {
+			draftLook[p] = true
+			return true
+		}
+		a := live.Get(p)
+		return *o.Draft || (a != nil && a.DraftAt != nil && now-*a.DraftAt < cfg.DraftQuiet)
+	}
+
 	// --- Revive: resume the gone session in the pane it died in, if the pane is
 	// back at its shell. Every try counts towards revive_max.
 	revive := []Revive{}
@@ -539,7 +557,7 @@ func Tick(in TickIn) TickOut {
 		}
 		if v.Limit != nil && v.Limit.Episode == e.episode && v.Limit.ResetAt != nil && !v.Limit.Resumed &&
 			now >= *v.Limit.ResetAt+cfg.LimitGrace && now >= orI(v.LimitResumedAt, 0)+cfg.LimitRetry &&
-			!over[corpsOfLabel(v)] {
+			!over[corpsOfLabel(v)] && !held(e.pane) {
 			resume = append(resume, Resume{e.pane, nameOf(e.pane, v), *v.Limit.ResetAt, about(e.pane)})
 		}
 	}
@@ -599,7 +617,7 @@ func Tick(in TickIn) TickOut {
 	for _, b := range backs {
 		if o := obs(b.pane); o.Interrupted != nil && *o.Interrupted {
 			cutAgents = append(cutAgents, b)
-			if !over[div.Owner(b.label)] { // a Corps at its budget keeps its Agents waiting
+			if !over[div.Owner(b.label)] && !held(b.pane) { // a Corps at its budget, or a draft, keeps its Agents waiting
 				goAgents = append(goAgents, b)
 			}
 		}
@@ -800,7 +818,7 @@ func Tick(in TickIn) TickOut {
 	for _, m := range inbox {
 		to := CorpsName(m.To)
 		for _, o := range addr {
-			if o.name == to && (o.status == "idle" || o.status == "done") && !over[o.corps] && !used[o.pane] {
+			if o.name == to && (o.status == "idle" || o.status == "done") && !over[o.corps] && !used[o.pane] && !held(o.pane) {
 				used[o.pane] = true
 				delivered[m.ID] = true
 				text := fmt.Sprintf("[berthier ask] from %s: %s (Reply or report back with: berthier ask %s \"...\")", m.From, m.Text, m.From)
@@ -942,9 +960,14 @@ func Tick(in TickIn) TickOut {
 		if prevEsc[c.Key] != 0 {
 			continue
 		}
-		dest := "berthier"
+		dest, target := "berthier", berthier
 		if c.To != nil && *c.To != "" {
-			dest = CorpsName(strOr(agents.M[*c.To].labelOrNil(), ""))
+			dest, target = CorpsName(strOr(agents.M[*c.To].labelOrNil(), "")), c.To
+		}
+		// Berthier's own trouble goes to the user, not into a pane.
+		own := c.PaneID != nil && berthier != nil && *c.PaneID == *berthier
+		if !own && target != nil && held(*target) {
+			continue // not marked escalated: the next tick's candidate tries again
 		}
 		c.Ev = with(c.Ev, "to", dest)
 		events = append(events, c)
@@ -1077,6 +1100,23 @@ func Tick(in TickIn) TickOut {
 	}
 
 	// --- The Grand Army State: what was decided above, recorded.
+	for _, k := range agents.Keys {
+		if o := obs(k); o.Draft != nil && *o.Draft {
+			if a := agents.M[k]; a.DraftAt == nil || now-*a.DraftAt > cfg.DraftQuiet {
+				f := about(k)
+				decided = append(decided, Event{"draft_held", fmt.Sprintf("holding prompts to %s in %s: its input box holds the user's draft", f["name"], k), f})
+			}
+			agents.M[k].DraftAt = ptr(now)
+		}
+	}
+	drafts := make([]string, 0, len(draftLook))
+	for p := range draftLook {
+		drafts = append(drafts, p)
+	}
+	sort.Strings(drafts)
+	for _, p := range drafts {
+		look = append(look, Look{p, nil, []string{"draft"}})
+	}
 	for _, e := range limitRead {
 		agents.M[e.pane].Limit = e.a.Limit
 	}

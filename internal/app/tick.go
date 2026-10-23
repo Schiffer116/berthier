@@ -51,12 +51,13 @@ func (e *Env) Tick() error {
 			Inbox: inbox, Usage: usage, Budgets: budgets, Obs: obs, Spend: spend})
 	}
 
-	// --- Observe what the decisions need: most ticks need nothing, else one more run.
+	// --- Observe what the decisions need: most ticks need nothing, else more
+	// runs (a read can lead to a prompt, whose input box is read in turn).
 	out := decide(nil)
-	if len(out.Look) > 0 {
-		obs := map[string]core.Obs{}
+	obs := map[string]core.Obs{}
+	for pass := 0; len(out.Look) > 0 && pass < 3; pass++ {
 		for _, l := range out.Look {
-			obs[l.PaneID] = e.look(l, now)
+			obs[l.PaneID] = e.look(l, now, obs[l.PaneID])
 		}
 		out = decide(obs)
 	}
@@ -244,12 +245,11 @@ func orStr(s, d string) string {
 	return s
 }
 
-// look reads a pane for what a decision waits on. A pane that cannot be read
-// for a limit stop is left unobserved: read next tick. Reads stay on screen
-// (visible): more lines than that make Herdr scroll an idle Claude up and
-// back to collect its history, and the user sees it jump.
-func (e *Env) look(l core.Look, now int64) core.Obs {
-	var o core.Obs
+// look adds to o what a decision waits on from a pane. A pane that cannot be
+// read for a limit stop is left unobserved: read next tick. Reads stay on
+// screen (visible): more lines than that make Herdr scroll an idle Claude up
+// and back to collect its history, and the user sees it jump.
+func (e *Env) look(l core.Look, now int64, o core.Obs) core.Obs {
 	sid := "-"
 	if l.SessionID != nil {
 		sid = *l.SessionID
@@ -269,6 +269,10 @@ func (e *Env) look(l core.Look, now int64) core.Obs {
 		case "interrupted":
 			b := e.transcriptInterrupted(sid)
 			o.Interrupted = &b
+		case "draft":
+			// Unreadable counts as empty: the prompt itself then fails or not, as before.
+			b, _ := e.H.HasDraft(l.PaneID)
+			o.Draft = &b
 		case "limit_reset":
 			out, err := e.H.Run("pane", "read", l.PaneID, "--source", "visible")
 			if err != nil {

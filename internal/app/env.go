@@ -30,6 +30,7 @@ type Env struct {
 	SpeakAfter, AskStuck                         int64
 	PingpongMax                                  int
 	LimitGrace, LimitRetry                       int64
+	DraftQuiet                                   int64
 	LimitPrompt                                  string
 	RestartGap, RestartWait, RestartSettle       int64
 	RestartPrompt                                string
@@ -106,6 +107,9 @@ func LoadEnv(getenv func(string) string) Env {
 	e.LimitGrace = i64("BERTHIER_LIMIT_GRACE", 60)
 	e.LimitRetry = i64("BERTHIER_LIMIT_RETRY", 1800)
 	e.LimitPrompt = str("BERTHIER_LIMIT_PROMPT", "The usage limit has reset. Continue exactly where you left off.")
+	// Prompts to a pane wait this long after its input box last held the
+	// user's draft: a pause in dictation is not the end of it.
+	e.DraftQuiet = i64("BERTHIER_DRAFT_QUIET", 20)
 	// Restart: a gap this long since the last state write (loop down, Herdr
 	// unreachable) may have cut Agents off mid-turn; wait this long for each to
 	// reappear, then prompt it once.
@@ -166,6 +170,6 @@ func (e *Env) CoreConfig() (c core.Config) {
 	return core.Config{BerthierRoot: e.Root, BlockedAfter: e.BlockedAfter, LongAfter: e.LongAfter, DivisionSettle: e.DivisionSettle,
 		ReviveMax: e.ReviveMax, ReviveBackoff: e.ReviveBackoff, ReviveReset: e.ReviveReset, EscalationTTL: e.EscalationTTL,
 		SpeakAfter: e.SpeakAfter, AskStuck: e.AskStuck, PingpongMax: e.PingpongMax, LimitGrace: e.LimitGrace,
-		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn,
+		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn, DraftQuiet: e.DraftQuiet,
 		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle}
 }

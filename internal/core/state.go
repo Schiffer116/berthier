@@ -80,6 +80,8 @@ type Agent struct {
 	LimitResumedAt *int64 `json:"limit_resumed_at"`
 	ReviveAttempts int    `json:"revive_attempts"`
 	LastReviveAt   *int64 `json:"last_revive_at"`
+	// Last time its input box was read holding the user's draft.
+	DraftAt *int64 `json:"draft_at,omitempty"`
 }
 
 // Agents is an object of Agents by pane id that keeps insertion order, which

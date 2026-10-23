@@ -105,15 +105,33 @@ func (c Client) agentState(pane string) (agentInfo, error) {
 	return agentInfo{got.Result.Agent.Seq, got.Result.Agent.Status}, nil
 }
 
+// ErrDraft is a prompt not sent because the Agent's input box holds text
+// someone typed there (the user may be mid-dictation).
+var ErrDraft = errors.New("its input box holds the user's draft (they may be typing); not sent, try again later")
+
+// HasDraft reports whether the Claude input box in pane holds text someone
+// typed (core.InputDraft); Claude's dim suggested prompt is not a draft.
+func (c Client) HasDraft(pane string) (bool, error) {
+	screen, err := c.Run("pane", "read", pane, "--source", "visible", "--format", "ansi")
+	if err != nil {
+		return false, err
+	}
+	return core.InputDraft(string(screen)), nil
+}
+
 // PromptAgent prompts the Agent in pane and makes sure Claude took it: `agent
 // prompt` only types the text and Enter, and Claude swallows that Enter while
 // it turns pasted image paths into attachments, leaving a draft. Taken once
 // the Agent changes state, or, busy, its box is empty (queued). A draft gets
 // Enter, a lost paste is sent again. The error says why (Herdr's message).
+// It never types into a box holding the user's draft: ErrDraft.
 func (c Client) PromptAgent(pane, text string) error {
 	before, err := c.agentState(pane)
 	if err != nil {
 		return err
+	}
+	if d, _ := c.HasDraft(pane); d {
+		return fmt.Errorf("%s: %w", pane, ErrDraft)
 	}
 	if _, err := c.Run("agent", "prompt", pane, text); err != nil {
 		return err

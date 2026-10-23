@@ -24,13 +24,14 @@ func fakeClaude(t *testing.T, mode string) (c Client, dir string) {
 
 func TestPromptAgent(t *testing.T) {
 	for _, c := range []struct{ mode, err, calls string }{
-		{"takes", "", "agent prompt"},
-		{"draft", "", "agent prompt,pane read,agent send-keys"},
-		{"lost", "", "agent prompt,pane read,agent prompt"},
-		{"busy", "", "agent prompt,pane read"},
+		{"takes", "", "pane read,agent prompt"},
+		{"draft", "", "pane read,agent prompt,pane read,agent send-keys"},
+		{"lost", "", "pane read,agent prompt,pane read,agent prompt"},
+		{"busy", "", "pane read,agent prompt,pane read"},
 		{"never", "Claude in p1 did not take the prompt",
-			"agent prompt,pane read,agent send-keys,pane read,agent send-keys,pane read,agent send-keys,pane read"},
-		{"error", "agent target x not found", "agent prompt"},
+			"pane read,agent prompt,pane read,agent send-keys,pane read,agent send-keys,pane read,agent send-keys,pane read"},
+		{"error", "agent target x not found", "pane read,agent prompt"},
+		{"typing", "p1: its input box holds the user's draft (they may be typing); not sent, try again later", "pane read"},
 	} {
 		client, dir := fakeClaude(t, c.mode)
 		got := ""

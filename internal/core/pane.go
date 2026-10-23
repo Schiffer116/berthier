@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Classifiers over a pane's screen text: text in, verdict out.
@@ -156,6 +157,52 @@ func InputHolds(screen, text string) bool {
 	key := []rune(noSpace(text))
 	n := min(len(key), 24)
 	return n > 0 && (strings.Contains(box, string(key[:n])) || strings.Contains(box, string(key[len(key)-n:])))
+}
+
+var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+// InputDraft reports whether the Claude Code input box on a pane's screen
+// (`pane read --format ansi`) holds text someone typed: a draft Berthier must
+// not type into. The suggested prompt Claude shows after an idle ❯ is dim
+// (SGR 2); typed text is not.
+func InputDraft(screen string) bool {
+	lines := strings.Split(strings.ReplaceAll(screen, "\r", ""), "\n")
+	plain := make([]string, len(lines))
+	for i, l := range lines {
+		plain[i] = sgr.ReplaceAllString(l, "")
+	}
+	rules := ruleLines(plain)
+	if len(rules) < 2 {
+		return false
+	}
+	dim, prompt := false, true
+	for _, l := range lines[rules[len(rules)-2]+1 : rules[len(rules)-1]] {
+		for i := 0; i < len(l); {
+			if m := sgr.FindStringSubmatchIndex(l[i:]); m != nil && m[0] == 0 {
+				for _, p := range strings.Split(l[i+m[2]:i+m[3]], ";") {
+					switch p {
+					case "", "0", "22":
+						dim = false
+					case "2":
+						dim = true
+					}
+				}
+				i += m[1]
+				continue
+			}
+			r, n := utf8.DecodeRuneInString(l[i:])
+			i += n
+			if unicode.IsSpace(r) || dim {
+				continue
+			}
+			if prompt && r == '❯' {
+				prompt = false
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func noSpace(s string) string {

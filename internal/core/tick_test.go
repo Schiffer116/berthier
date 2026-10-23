@@ -93,6 +93,7 @@ type opt struct {
 	budgets map[string]float64
 	gap     int64 // restart gap; default: never
 	spend   SpendBrief
+	quiet   int64 // draft quiet period
 }
 
 var (
@@ -108,7 +109,28 @@ func tick(prev State, s Snapshot, now int64, o opt) TickOut {
 	if o.gap != 0 {
 		cfg.RestartGap = o.gap
 	}
-	return Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: o.obs, Spend: o.spend})
+	if o.quiet != 0 {
+		cfg.DraftQuiet = o.quiet
+	}
+	// Like the Main Loop, read every input box a prompt waits on: empty unless
+	// the test's obs says otherwise.
+	obs := map[string]Obs{}
+	for k, v := range o.obs {
+		obs[k] = v
+	}
+	for {
+		out := Tick(TickIn{Prev: prev, Snap: s, Now: now, Cfg: cfg, Divisions: o.divs, Inbox: o.inbox, Usage: o.usage, Budgets: o.budgets, Obs: obs, Spend: o.spend})
+		more := false
+		for _, l := range out.Look {
+			if v := obs[l.PaneID]; inStrs(l.Want, "draft") && v.Draft == nil {
+				v.Draft, more = yes(false), true
+				obs[l.PaneID] = v
+			}
+		}
+		if !more {
+			return out
+		}
+	}
 }
 
 func yes(b bool) *bool { return &b }
@@ -312,6 +334,36 @@ func TestAsks(t *testing.T) {
 	check(t, "sibling divisions still pingpong", len(o.Escalate), `1`)
 }
 
+func TestDraftHold(t *testing.T) {
+	// skipli's Main Agent is idle with an ask waiting; a Division of it is blocked (escalates to it).
+	sa := snap(W, panes(ag("w1:p1", "idle", "sid-1", "", ""), ag("w2:p1", "blocked", "sid-2", "", ""), ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")),
+		panes(pn("w1:p1"), pn("w2:p1"), pn("w3:p1")))
+	prev := tick(State{}, sa, 1000, opt{}).State
+	inbox := []Ask{ask("1", "notes", "skipli", "hi", 900)}
+	first := Tick(TickIn{Prev: prev, Snap: sa, Now: 1200, Cfg: testCfg, Divisions: D0, Inbox: inbox})
+	check(t, "nothing typed before its box is read", []any{len(first.Deliver), len(first.Escalate), first.State.Escalated["blocked:w2:p1:1000"], first.Look[len(first.Look)-1]},
+		`[0,0,0,{"pane_id":"w1:p1","session_id":null,"want":["draft"]}]`)
+
+	typing := map[string]Obs{"w1:p1": {Draft: yes(true)}}
+	o := tick(prev, sa, 1200, opt{inbox: inbox, obs: typing, quiet: 20})
+	check(t, "held while the box holds a draft", []any{len(o.Deliver), len(o.Escalate), o.State.Escalated["blocked:w2:p1:1000"], *o.State.Agents.M["w1:p1"].DraftAt},
+		`[0,0,0,1200]`)
+	check(t, "hold logged", o.Events, `[{"Kind":"draft_held","Msg":"holding prompts to a-w1-p1 in w1:p1: its input box holds the user's draft","Fields":{"corps":"skipli","name":"a-w1-p1","pane":"w1:p1"}}]`)
+	o = tick(o.State, sa, 1210, opt{inbox: inbox, obs: typing, quiet: 20})
+	check(t, "a hold is logged once", []any{len(o.Deliver), len(o.Events), *o.State.Agents.M["w1:p1"].DraftAt}, `[0,0,1210]`)
+	o = tick(o.State, sa, 1220, opt{inbox: inbox, quiet: 20})
+	check(t, "an empty box waits out the quiet period", []any{len(o.Deliver), len(o.Escalate)}, `[0,0]`)
+	o = tick(o.State, sa, 1230, opt{inbox: inbox, quiet: 20})
+	check(t, "then the held prompts go", []any{len(o.Deliver), escKeys(o.Escalate)}, `[1,["blocked:w2:p1:1000"]]`)
+
+	// Berthier's box is read too, for the asks and escalations it gets; a suggestion is no draft.
+	sb := snap(W, panes(ag("w4:p1", "blocked", "sid-4", "", ""), ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")), panes(pn("w4:p1"), pn("w3:p1")))
+	prev = tick(State{}, sb, 1000, opt{}).State
+	o = tick(prev, sb, 1200, opt{obs: map[string]Obs{"w3:p1": {Draft: yes(true)}}})
+	check(t, "escalation to Berthier held", []any{len(o.Escalate), o.State.Escalated["blocked:w4:p1:1000"]}, `[0,0]`)
+	check(t, "and goes once the box is empty", escKeys(tick(o.State, sb, 1210, opt{}).Escalate), `["blocked:w4:p1:1000"]`)
+}
+
 func TestDivisions(t *testing.T) {
 	WD := []Workspace{ws("w1", "learning", "", ""), ws("w6", "tailscale", "", ""), ws("w3", "berthier", "", "")}
 	dv := Divisions{"tailscale": {Corps: "learning"}}
@@ -407,6 +459,8 @@ func TestUsageLimits(t *testing.T) {
 	resumed := o.State
 	a := resumed.Agents.M["w1:p1"]
 	check(t, "resume recorded", []any{a.Limit.Resumed, a.LimitResumedAt}, `[true,5060]`)
+	o = tick(limited, si, 5060, opt{obs: map[string]Obs{"w1:p1": {Draft: yes(true)}}})
+	check(t, "a draft holds the resume", []any{o.Resume, o.State.Agents.M["w1:p1"].Limit.Resumed}, `[[],false]`)
 	check(t, "resume once per episode", tick(resumed, si, 5070, opt{}).Resume, `[]`)
 	check(t, "resume on the tick it is read", len(tick(prev, si, 2000, opt{obs: read(ptr(int64(1000)))}).Resume), `1`)
 	check(t, "working ends the episode", tick(limited, sw, 5070, opt{}).Resume, `[]`)
@@ -658,6 +712,9 @@ func TestRestartResume(t *testing.T) {
 	// A Corps over budget keeps its Agent waiting.
 	r := tick(p3, si, 1140, opt{gap: 45, obs: obsInt(true), usage: used(1, 0), budgets: map[string]float64{"skipli": 1}})
 	check(t, "over budget: held, kept", []any{r.Proceed, keys(r.State)}, `[[],["sid-1"]]`)
+	// So does a draft in its input box.
+	r = tick(p3, si, 1140, opt{gap: 45, obs: map[string]Obs{"w1:p1": {Interrupted: yes(true), Draft: yes(true)}}})
+	check(t, "draft: held, kept", []any{r.Proceed, r.State.Interrupted}, `[[],{"sid-1":{"name":"principal","since":1100}}]`)
 }
 
 func TestWeeklyOptimizer(t *testing.T) {

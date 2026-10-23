@@ -47,7 +47,7 @@ func TestPromptCommand(t *testing.T) {
 	dir := fakeHerdr(t, s)
 	s.mode(dir, "takes")
 	_, errs, code := s.sh("", "prompt", "p1", "go on")
-	if code != 0 || errs != "" || calls(dir) != "agent prompt" {
+	if code != 0 || errs != "" || calls(dir) != "pane read,agent prompt" {
 		t.Errorf("code %d %q calls %q", code, errs, calls(dir))
 	}
 	text, _ := os.ReadFile(filepath.Join(dir, "text"))
@@ -58,6 +58,13 @@ func TestPromptCommand(t *testing.T) {
 	_, errs, code = s.sh("", "prompt", "p1", "hi")
 	if code != 1 || !strings.Contains(errs, "agent target x not found") {
 		t.Errorf("error case: %d %q", code, errs)
+	}
+	// Never into the user's draft: refused, nothing typed.
+	s.mode(dir, "typing")
+	os.Remove(filepath.Join(dir, "calls"))
+	_, errs, code = s.sh("", "prompt", "p1", "hi")
+	if code != 1 || !strings.Contains(errs, "input box holds the user's draft") || calls(dir) != "pane read" {
+		t.Errorf("draft case: %d %q calls %q", code, errs, calls(dir))
 	}
 	_, errs, code = s.sh("", "prompt", "p1")
 	if code != 1 || !strings.Contains(errs, "usage: berthier prompt") {
