@@ -784,6 +784,10 @@ func Tick(in TickIn) TickOut {
 		}
 		if berthier != nil && k == *berthier {
 			addr = append(addr, addressable{k, a.Status, "berthier", "berthier"})
+			// Berthier is also the Main Agent of the Corps of its own repo (its Board messages are addressed to that).
+			if l := CorpsName(strOr(a.WorkspaceLabel, "")); l != "" && l != "berthier" {
+				addr = append(addr, addressable{k, a.Status, "berthier", l})
+			}
 		} else {
 			addr = append(addr, addressable{k, a.Status, corpsOfLabel(a), CorpsName(strOr(a.WorkspaceLabel, ""))})
 		}

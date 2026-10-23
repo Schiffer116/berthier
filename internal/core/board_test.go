@@ -85,6 +85,12 @@ func TestBoardDelivery(t *testing.T) {
 	b2 := Ask{ID: "board-notes-t2", Kind: "board", From: "skipli", To: "notes", Text: "x", At: 100}
 	o = tick(prev, sa, 2000, opt{inbox: []Ask{b2}})
 	check(t, "held while its Corps works or is absent", []any{len(o.Deliver), escKeys(o.Escalate)}, `[0,[]]`)
+	// Berthier's pane is also the Main Agent of the Corps named after its workspace.
+	sb := snap(W, panes(ag("w4:p1", "idle", "sid-b", "", "/home/u/berthier")), panes(pn("w4:p1")))
+	b3 := Ask{ID: "board-notes-t3", Kind: "board", From: "skipli", To: "notes", Text: "y", At: 100}
+	if o = tick(State{}, sb, 2000, opt{inbox: []Ask{b3}}); len(o.Deliver) != 1 || o.Deliver[0].PaneID != "w4:p1" {
+		t.Errorf("board message for the Corps of Berthier's workspace: %+v", o.Deliver)
+	}
 	if OriginOf(b1.Text) != "board" {
 		t.Errorf("origin of a board message: %s", OriginOf(b1.Text))
 	}
