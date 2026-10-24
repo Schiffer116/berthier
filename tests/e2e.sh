@@ -105,6 +105,14 @@ done
 bin/berthier tick
 cold_sid=$(jq -r --arg p "$cold" '.agents[$p].session_id' "$BERTHIER_HOME/state.json")
 [[ $cold_sid =~ ^[0-9a-f-]{36}$ ]] || fail "no session id recorded for the cold agent (got $cold_sid)"
+# Kill it only once it has answered: a session that never called the API has no context to freeze.
+cold_jsonl() { ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$cold_sid".jsonl 2>/dev/null | head -1; }
+for _ in $(seq 60); do
+  f=$(cold_jsonl)
+  [[ -n $f ]] && grep -q '"usage"' "$f" && break
+  sleep 1
+done
+[[ -n $(cold_jsonl) ]] && grep -q '"usage"' "$(cold_jsonl)" || fail "cold agent never answered its first prompt"
 kill -KILL "$(claude_pid "$cold")"
 sleep 3
 # Every cache counts as cold and every context as big: the haiku session plays a big one an hour idle.
@@ -221,8 +229,10 @@ BERTHIER_DRAFT_QUIET=4 bin/berthier tick
 tail -n "+$((mark + 1))" "$BERTHIER_HOME/loop.log" >"$work/since"
 (($(logged '.kind == "delivered" and .pane == $p and .from == "helper"' "$pane" "$work/since"))) || fail "held ask not delivered: $(cat "$work/since")"
 h agent wait demo-main --timeout 90000 >/dev/null
-h pane read "$pane" --source recent-unwrapped --lines 60 | grep -q '^❯.\{1,3\}\[berthier ask\] from helper: Reply with just: later' \
-  || fail "held ask not sent clean: $(h pane read "$pane" --source recent-unwrapped --lines 60)"
+# Submitted, not left in the box: Claude saved it as the user's prompt (the pane's wording varies).
+for _ in $(seq 30); do grep -qs '"content":"\[berthier ask\] from helper: Reply with just: later' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl && break; sleep 1; done
+grep -qs '"content":"\[berthier ask\] from helper: Reply with just: later' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl \
+  || fail "held ask not sent: $(h pane read "$pane" --source recent-unwrapped --lines 60)"
 
 step "adopt makes helper a Division of demo"
 bin/berthier adopt helper demo >/dev/null
@@ -445,17 +455,10 @@ claude_pid "$budgeted" | grep -q . \
   || fail "not revived once its budget was raised: $(tail -4 "$BERTHIER_HOME/loop.log"; jq -c --arg p "$budgeted" '.agents[$p]' "$BERTHIER_HOME/state.json")"
 
 step "the SessionStart hook gives Berthier's repo root its persona, through a real Claude"
-# The worktree is the repo root, so its session is Berthier's. Its hook prints BERTHIER.md.
-root=$PWD
-rootws=$(h workspace create --cwd "$root" --label persona-check --no-focus | jq -re '.result.root_pane.pane_id')
-hook=$(jq -cn --arg c "$root/bin/berthier session-start" '{hooks: {SessionStart: [{hooks: [{type: "command", command: $c}]}]}}')
-h agent start persona --kind claude --pane "$rootws" --timeout 60000 -- --model haiku --settings "$hook" >/dev/null 2>&1 || {
-  h agent send-keys persona down enter >/dev/null
-  h agent wait persona --until idle --timeout 60000 >/dev/null
-}
-h agent prompt persona "Reply with just the name your persona gives you, nothing else." --wait --timeout 120000 >/dev/null
-h pane read "$rootws" --source recent-unwrapped --lines 40 | grep -q '● Berthier' || fail "repo root's session is not Berthier"
-h workspace close "$(h pane get "$rootws" | jq -re '.result.pane.workspace_id')" >/dev/null
+# The worktree is the repo root, so its session is Berthier's; its hook prints BERTHIER.md.
+hook=$(jq -cn --arg c "$PWD/bin/berthier session-start" '{hooks: {SessionStart: [{hooks: [{type: "command", command: $c}]}]}}')
+answer=$(timeout 180 claude -p --model haiku --settings "$hook" "Reply with just the name your persona gives you, nothing else.") || fail "claude -p failed"
+[[ $answer == *Berthier* ]] || fail "repo root's session is not Berthier: $answer"
 
 step "session-start is silent outside the Army, and fast"
 start_ns=$(date +%s%N)
