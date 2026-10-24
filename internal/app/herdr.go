@@ -33,9 +33,14 @@ func (e *Env) Snapshot() (core.Snapshot, error) {
 // claudeFlags are the flags Claude starts with after `--` in the workspace
 // labelled label: its model, and what its role allows. Only Berthier's own
 // launches load BERTHIER.md, so Divisions never think they are Berthier. A
-// Division's Agent may not use Artifact unless division-new --artifact.
+// Division's Agent may not use Artifact unless division-new --artifact. A
+// Main Agent (not a Division) with no recorded model runs on CorpsModel.
 func (e *Env) claudeFlags(label, model string) []string {
 	var f []string
+	_, isDivision := e.ReadDivisions()[core.CorpsName(label)]
+	if model == "" && !isDivision {
+		model = e.CorpsModel
+	}
 	if model != "" {
 		f = append(f, "--model", model)
 	}

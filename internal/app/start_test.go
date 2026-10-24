@@ -58,7 +58,7 @@ func TestStartClaude(t *testing.T) {
 	text, _ := os.ReadFile(filepath.Join(dir, "text"))
 	eq(t, "brief tagged for the Profile", string(text), "[berthier brief] Build it.\nThen report.")
 	raw, _ := os.ReadFile(filepath.Join(dir, "calls"))
-	eq(t, "start has no brief argument", strings.SplitN(string(raw), "\n", 2)[0], "agent start demo --kind claude --pane p1 --timeout 45000")
+	eq(t, "start has no brief argument", strings.SplitN(string(raw), "\n", 2)[0], "agent start demo --kind claude --pane p1 --timeout 45000 -- --model opus")
 	got, warn := start("nostart", brief)
 	eq(t, "start failure says why", got+" "+warn, "failed agent arguments cannot be encoded safely for the target shell")
 	got, warn = start("never", brief)
@@ -147,9 +147,10 @@ func TestClaudeFlags(t *testing.T) {
 	e.SetDivision("art", &core.Division{Corps: "corps", Worktree: true, Artifact: true})
 	e.SetDivision("adopted", &core.Division{Corps: "corps"})
 	for _, c := range []struct{ label, model, want string }{
-		{"corps", "", ""},
+		{"corps", "", "--model opus"},
+		{"corps", "sonnet", "--model sonnet"},
 		{"corps", "opus", "--model opus"},
-		{"berthier", "", "--append-system-prompt-file /repo/BERTHIER.md"},
+		{"berthier", "", "--model opus --append-system-prompt-file /repo/BERTHIER.md"},
 		{"feat", "haiku", "--model haiku --disallowedTools Artifact"},
 		{"art", "haiku", "--model haiku"},
 		{"adopted", "", "--disallowedTools Artifact"},
