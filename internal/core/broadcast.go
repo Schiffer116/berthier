@@ -12,7 +12,7 @@ const (
 var broadcasts = map[string]struct{ tag, text string }{
 	"shutdown": {TagShutdown, "The user is closing down soon: finish or park your current step, commit and push WIP, leave a `berthier report`, update `berthier notes`, and start nothing long."},
 	"quota":    {TagQuota, "The account is nearly out of quota for this window: hand off briefly. Update `berthier notes` with what you were doing and the next step; no long write-up, start nothing new."},
-	"wake":     {TagWake, "The army is back after a restart: pick up where you left off. Check your Division Brief, the Board and your last `berthier report`, and resume unfinished work."},
+	"wake":     {TagWake, "The army is back after a restart and your context was cleared: run `berthier notes`, read your Board, your last report and git status/log, then resume unfinished work."},
 }
 
 // IsBroadcast: an inbox kind that is an army-wide broadcast.

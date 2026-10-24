@@ -52,3 +52,33 @@ func TestThawRequests(t *testing.T) {
 	_, errs, code := s.sh("", "fresh", "w1:p2")
 	eq(t, "command refuses", []any{strings.TrimSpace(errs), code}, "[berthier: w1:p2 is not a Frozen Agent 1]")
 }
+
+func TestWake(t *testing.T) {
+	s := newSandbox(t)
+	dir := fakeHerdr(t, s)
+	e := LoadEnv(s.getenv)
+	s.write("state.json", `{"agents":{"p1":{"status":"idle","name":"skipli-dark-mode","session_id":"old","workspace_label":"skipli-dark-mode"}}}`)
+	s.write("reports/old.json", `{"line":"halfway through the parser","pane":"p1","at":1}`)
+	if err := e.saveBrief("skipli-dark-mode", "Build dark mode."); err != nil {
+		t.Fatal(err)
+	}
+	s.write("inbox/w1.json", `{}`)
+	d := core.Delivery{ID: "w1", PaneID: "p1", From: "service", To: "skipli-dark-mode", Text: "[berthier wake] up", Wake: true, Ev: core.Fields{"pane": "p1"}}
+
+	s.mode(dir, "takes")
+	e.wake(d)
+	eq(t, "clear, then rename, then prompt", calls(dir), "pane read,agent prompt,agent rename,pane read,agent prompt")
+	eq(t, "self-sufficient prompt", readFile(filepath.Join(dir, "text")), "[berthier wake] up"+core.Rebuild("halfway through the parser", "Build dark mode."))
+	_, err := os.Stat(filepath.Join(e.Inbox, "w1.json"))
+	eq(t, "delivered and dequeued", []any{os.IsNotExist(err), strings.Contains(s.read("loop.log"), `"kind":"delivered"`)}, "[true true]")
+
+	s.write("inbox/w1.json", `{}`)
+	s.mode(dir, "noclear")
+	e.wake(d)
+	_, err = os.Stat(filepath.Join(e.Inbox, "w1.json"))
+	eq(t, "unconfirmed clear: nothing more sent, retried", []any{strings.Contains(calls(dir), "agent rename"), readFile(filepath.Join(dir, "text")), err == nil, strings.Contains(s.read("loop.log"), `"kind":"wake_clear_failed"`)}, "[false /clear true true]")
+
+	s.mode(dir, "typing")
+	e.wake(d)
+	eq(t, "a draft blocks the clear", strings.Contains(calls(dir), "agent prompt"), false)
+}

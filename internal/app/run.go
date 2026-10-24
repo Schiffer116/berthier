@@ -44,7 +44,7 @@ demo <url> [label]                (any Agent) where this Agent's demo or preview
 ask <corps> "<request>"             (any Agent) request work from another Corps, delivered when it is idle
 notify <corps> "<text>"             (service, no pane needed) one-way message to a Corps's Main Agent, no reply expected
 shutdown [text]                     (the user's, army-wide) tell every Agent with a live pane (Frozen skipped) to wrap up: park, commit+push WIP, report, update notes
-wake                                (the user's, army-wide) tell every such Agent to pick up where it left off, after a restart
+wake                                (the user's, army-wide) /clear every such Agent, then tell it to rebuild and resume, after a restart
 prompt <pane> <text>|-              prompt the Agent in a pane and make sure Claude took it (not a bare herdr agent prompt);
                                     - reads the text from stdin
 last <pane>                         the Claude Agent's latest assistant message, from its transcript (no pane read)

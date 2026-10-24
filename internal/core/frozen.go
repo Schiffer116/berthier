@@ -79,7 +79,13 @@ func CacheOf(lines []string) (Cache, bool) {
 // FreshPrompt is the first prompt of a Fresh Start: rebuild from what is
 // written down. A Division also gets its Brief again.
 func FreshPrompt(report, brief string) string {
-	p := "[berthier fresh] You were restarted fresh: run berthier notes, read your Board, your last report and git status, then continue."
+	return "[berthier fresh] You were restarted fresh: run berthier notes, read your Board, your last report and git status, then continue." + Rebuild(report, brief)
+}
+
+// Rebuild is what an Agent with no context left needs besides its Notes, Board
+// and git: its last report and, for a Division, its Brief again.
+func Rebuild(report, brief string) string {
+	p := ""
 	if report != "" {
 		p += fmt.Sprintf("\nYour last report: %s", report)
 	}

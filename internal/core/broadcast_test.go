@@ -39,3 +39,9 @@ func TestBroadcastTargets(t *testing.T) {
 	to, skipped := BroadcastTargets(ag, lbl("b"))
 	check(t, "targets", []any{to, skipped}, `[["berthier","skipli","shutdown-wake"],1]`)
 }
+
+func TestRebuild(t *testing.T) {
+	check(t, "rebuild", []string{Rebuild("", ""), Rebuild("halfway", ""), Rebuild("halfway", "Build it")},
+		`["","\nYour last report: halfway","\nYour last report: halfway\nYour branch holds your progress so far. Your original Brief:\n\nBuild it"]`)
+	check(t, "fresh prompt carries it", FreshPrompt("halfway", "Build it") == "[berthier fresh] You were restarted fresh: run berthier notes, read your Board, your last report and git status, then continue."+Rebuild("halfway", "Build it"), `true`)
+}
