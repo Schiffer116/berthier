@@ -861,3 +861,78 @@ func TestFrozenRouting(t *testing.T) {
 	o = tick(two, all, 1200, opt{divs: dv, thaw: []Thaw{{ID: "f", Pane: "w2:p1", How: "fresh"}}})
 	check(t, "a Division's Fresh Start names it for its Brief", o.Fresh[0].Division, `"dark-mode"`)
 }
+
+func TestIdleNotes(t *testing.T) {
+	sw := snap(W, panes(seq(ag("w1:p1", "working", "sid-1", "skipli", ""), 1)), panes(pn("w1:p1")))
+	si := snap(W, panes(seq(ag("w1:p1", "idle", "sid-1", "skipli", ""), 2)), panes(pn("w1:p1")))
+	prev := tick(State{}, sw, 1000, opt{}).State
+	idle := tick(prev, si, 1100, opt{}).State
+	// Last call at 1090; the window opens at 1090+3000.
+	cache := func(last int64, ctx int64) map[string]Obs {
+		return map[string]Obs{"w1:p1": {Cache: &Cache{LastAt: last, Context: ctx}}}
+	}
+	ask := func(st State, s Snapshot, now int64, o opt) TickOut {
+		cfg := testCfg
+		cfg.NotesLead = 300
+		obs := map[string]Obs{"w1:p1": {Draft: yes(false)}}
+		for k, v := range o.obs {
+			x := obs[k]
+			x.Cache = v.Cache
+			if v.Draft != nil {
+				x.Draft = v.Draft
+			}
+			obs[k] = x
+		}
+		return Tick(TickIn{Prev: st, Snap: s, Now: now, Cfg: cfg, Divisions: D0, Obs: obs, Usage: o.usage, Budgets: o.budgets, NotesSet: map[string]int64{}})
+	}
+	big := cache(1090, 120000)
+	check(t, "off with no lead", len(tick(idle, si, 4100, opt{obs: big}).NotesAsk), `0`)
+	check(t, "too young: not even read", cacheLooks(ask(idle, si, 1200, opt{}), "w1:p1"), `[]`)
+	o := ask(idle, si, 4000, opt{})
+	check(t, "near the window: transcript read", cacheLooks(o, "w1:p1"), `[{"pane_id":"w1:p1","session_id":"sid-1","want":["cache"]}]`)
+	check(t, "before the window", len(ask(idle, si, 4000, opt{obs: big}).NotesAsk), `0`)
+	o = ask(idle, si, 4090, opt{obs: big})
+	check(t, "asked at the window", []any{o.NotesAsk, o.State.Agents.M["w1:p1"].NotesAsked}, `[[{"pane_id":"w1:p1","name":"skipli","ev":{"pane":"w1:p1","corps":"skipli","name":"skipli","session":"sid-1","idle_min":50}}],"2:1100"]`)
+	asked := o.State
+	check(t, "once per episode", len(ask(asked, si, 4100, opt{obs: big}).NotesAsk), `0`)
+	si3 := snap(W, panes(seq(ag("w1:p1", "idle", "sid-1", "skipli", ""), 3)), panes(pn("w1:p1")))
+	later := tick(asked, si3, 5000, opt{}).State
+	check(t, "a new episode is asked again", len(ask(later, si3, 5000+3000, opt{obs: cache(5000, 120000)}).NotesAsk), `1`)
+	check(t, "cold cache: not asked", len(ask(idle, si, 4400, opt{obs: big}).NotesAsk), `0`)
+	check(t, "small context is always warm", len(ask(idle, si, 4400, opt{obs: cache(1090, 20000)}).NotesAsk), `1`)
+	check(t, "a draft holds it", []any{len(ask(idle, si, 4090, opt{obs: map[string]Obs{"w1:p1": {Cache: big["w1:p1"].Cache, Draft: yes(true)}}}).NotesAsk),
+		ask(idle, si, 4090, opt{obs: map[string]Obs{"w1:p1": {Cache: big["w1:p1"].Cache, Draft: yes(true)}}}).State.Agents.M["w1:p1"].NotesAsked}, `[0,""]`)
+	check(t, "working is never asked", len(ask(prev, sw, 4090, opt{obs: big}).NotesAsk), `0`)
+
+	// Fresh Notes: set after the Agent's last call.
+	cfg := testCfg
+	cfg.NotesLead = 300
+	run := func(set map[string]int64, u Usage, b map[string]float64) TickOut {
+		return Tick(TickIn{Prev: idle, Snap: si, Now: 4090, Cfg: cfg, Divisions: D0, Obs: map[string]Obs{"w1:p1": {Cache: big["w1:p1"].Cache, Draft: yes(false)}}, NotesSet: set, Usage: u, Budgets: b})
+	}
+	check(t, "Notes set since its last call: fresh", len(run(map[string]int64{"skipli": 1090}, Usage{}, nil).NotesAsk), `0`)
+	check(t, "Notes set before its last call: stale", len(run(map[string]int64{"skipli": 1089}, Usage{}, nil).NotesAsk), `1`)
+	check(t, "another Corps's Notes do not count", len(run(map[string]int64{"dark-mode": 2000}, Usage{}, nil).NotesAsk), `1`)
+
+	// A Frozen Agent is never asked.
+	frozen := idle
+	frozen.Agents = Agents{Keys: idle.Agents.Keys, M: map[string]*Agent{}}
+	for k, a := range idle.Agents.M {
+		c := *a
+		c.Frozen = &Frozen{Since: 2000, Why: "crash", Cache: Cache{LastAt: 1090, Context: 120000}}
+		frozen.Agents.M[k] = &c
+	}
+	o = Tick(TickIn{Prev: frozen, Snap: si, Now: 4090, Cfg: cfg, Divisions: D0, Obs: map[string]Obs{"w1:p1": {Cache: big["w1:p1"].Cache, Draft: yes(false)}}})
+	check(t, "Frozen is never asked or read", []any{len(o.NotesAsk), cacheLooks(o, "w1:p1")}, `[0,[]]`)
+}
+
+// cacheLooks are the reads of a pane's transcript (not the limit read every idle episode gets).
+func cacheLooks(o TickOut, pane string) []Look {
+	l := []Look{}
+	for _, x := range looksAt(o, pane) {
+		if inStrs(x.Want, "cache") {
+			l = append(l, x)
+		}
+	}
+	return l
+}

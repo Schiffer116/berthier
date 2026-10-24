@@ -18,10 +18,10 @@ type Env struct {
 	Root, Home                                   string
 	State, Log, Inbox, Reports, Demos, Divisions string
 	Ledger, Usage, Budgets, BoardsFile           string
-	Thaws, Briefs, NotesRead                     string
+	Thaws, Briefs, NotesRead, NotesSet           string
 	NotesStore                                   string
 	NotesMax                                     int
-	CacheWarm, FrozenMin, FreshEst               int64
+	CacheWarm, FrozenMin, FreshEst, NotesLead    int64
 	SkipliBin, SkipliEnv                         string
 	BoardPoll, BoardFailAfter                    int64
 	H                                            herdr.Client
@@ -92,6 +92,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.Thaws = filepath.Join(e.Home, "thaw")
 	e.Briefs = filepath.Join(e.Home, "briefs")
 	e.NotesRead = filepath.Join(e.Home, "notes-read.json")
+	e.NotesSet = filepath.Join(e.Home, "notes-set.json")
 	// Empty means the user's default Herdr session; tests point this at an
 	// isolated named session so they never touch live workspaces.
 	e.HerdrSession = getenv("BERTHIER_HERDR_SESSION")
@@ -150,6 +151,9 @@ func LoadEnv(getenv func(string) string) Env {
 	e.CacheWarm = i64("BERTHIER_CACHE_WARM", 3300)
 	e.FrozenMin = i64("BERTHIER_FROZEN_MIN", 50000)
 	e.FreshEst = i64("BERTHIER_FRESH_EST_TOKENS", 60000)
+	// An idle Agent whose last API call is CACHE_WARM-NOTES_LEAD seconds old (cache nearly cold) is
+	// asked once per idle episode to update its Corps's stale Notes; 0 turns it off.
+	e.NotesLead = i64("BERTHIER_NOTES_LEAD", 300)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
 	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "haiku")
@@ -189,5 +193,5 @@ func (e *Env) CoreConfig() (c core.Config) {
 		SpeakAfter: e.SpeakAfter, AskStuck: e.AskStuck, PingpongMax: e.PingpongMax, LimitGrace: e.LimitGrace,
 		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn, DraftQuiet: e.DraftQuiet,
 		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle,
-		CacheWarm: e.CacheWarm, FrozenMin: e.FrozenMin}
+		CacheWarm: e.CacheWarm, FrozenMin: e.FrozenMin, NotesLead: e.NotesLead}
 }

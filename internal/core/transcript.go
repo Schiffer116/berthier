@@ -124,6 +124,7 @@ var originTags = []struct{ prefix, origin string }{
 	{"[berthier continue]", "continue"},
 	{"[berthier resume]", "resume"},
 	{"[berthier fresh]", "fresh"},
+	{TagNotes, "notes"},
 	{TagShutdown, "shutdown"},
 	{TagWake, "wake"},
 	{"<task-notification>", "task"},
