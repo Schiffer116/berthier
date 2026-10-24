@@ -106,9 +106,10 @@ type Obs struct {
 	NoTranscript *bool // its session has no saved transcript: nothing to resume
 	LimitSeen    bool  // limit_reset was read (LimitReset nil: no limit stop)
 	LimitReset   *int64
-	Interrupted  *bool  // its transcript ends mid-turn
-	Draft        *bool  // its input box holds text someone typed
-	Cache        *Cache // its transcript's prompt cache (zero: unknown)
+	Interrupted  *bool      // its transcript ends mid-turn
+	Draft        *bool      // its input box holds text someone typed
+	Cache        *Cache     // its transcript's prompt cache (zero: unknown)
+	Auto         *AutoCheck // a Frozen Division's Brief and git state, for an automatic Fresh Start
 }
 
 // TickIn is everything Tick decides from.
@@ -846,6 +847,46 @@ func Tick(in TickIn) TickOut {
 	}
 
 	decided := append([]Event{}, gaveUp...)
+	sessionOf := func(p string) *string {
+		if a := live.M[p]; a != nil {
+			return a.SessionID
+		}
+		return gone.M[p].SessionID
+	}
+
+	// --- A Frozen Division is given a Fresh Start by itself, once per episode,
+	// when nothing can be lost; else it stays Frozen, and the escalation says why.
+	autoPending := map[string]bool{}
+	for _, k := range agents.Keys {
+		f, a := frozen[k], agents.M[k]
+		if f == nil || f.Auto != "" || inStrs(unfreeze, k) || k == strOr(berthier, "") || !div.IsDivision(strOr(a.WorkspaceLabel, "")) {
+			continue
+		}
+		o := obs(k).Auto
+		if o == nil {
+			autoPending[k] = true
+			look = append(look, Look{k, a.SessionID, []string{"auto_fresh"}})
+			continue
+		}
+		ev := with(about(k), "session", a.SessionID, "why", "frozen")
+		if ok, why := o.Verdict(); !ok {
+			c := *f
+			c.Auto = "refused:" + why
+			frozen[k] = &c
+			a.Frozen = &c
+			decided = append(decided, Event{"auto_fresh_refused", fmt.Sprintf("auto Fresh Start refused for %s in %s: %s; stays Frozen", ev["name"], k, why), with(ev, "reason", why)})
+			continue
+		}
+		decided = append(decided, Event{"auto_fresh", fmt.Sprintf("auto Fresh Start for %s in %s: Brief kept, worktree clean", ev["name"], k), ev})
+		label := strOr(a.WorkspaceLabel, "")
+		fresh = append(fresh, FreshStart{PaneID: k, Name: nameOf(k, a), Session: strOr(a.SessionID, ""), Model: f.Model,
+			Division: CorpsName(label), Label: label, Live: a.Status != "gone", Ev: ev})
+		if a.Status == "gone" {
+			agents.Delete(k)
+		} else {
+			unfreeze = append(unfreeze, k)
+		}
+	}
 	for _, k := range exited {
 		f := with(about(k), "session", prevAgents.M[k].SessionID)
 		why := "user exited it"
@@ -1104,7 +1145,7 @@ func Tick(in TickIn) TickOut {
 	// alone chooses. Several frozen at once (a usage limit reset) go as one prompt.
 	for _, pane := range agents.Keys {
 		f := frozen[pane]
-		if f == nil || inStrs(unfreeze, pane) {
+		if f == nil || inStrs(unfreeze, pane) || autoPending[pane] {
 			continue
 		}
 		v := agents.M[pane]
@@ -1117,6 +1158,9 @@ func Tick(in TickIn) TickOut {
 			cost = fmt.Sprintf(" ~$%.2f", usd)
 		}
 		reason := fmt.Sprintf("%s with a cold cache (%s tokens, last call %dm ago)", what, tokensK(f.Context), minutes(now-f.LastAt))
+		if why, ok := strings.CutPrefix(f.Auto, "refused:"); ok {
+			reason += "; auto Fresh Start refused: " + why
+		}
 		cands = append(cands, Escalation{
 			Key: fmt.Sprintf("frozen:%s:%d", pane, f.Since), PaneID: ptr(pane), Name: v.Name,
 			Head: "[berthier-loop] Frozen Agents: resuming rewrites their whole context, so their messages are held until the user chooses Revive or Fresh Start (Console, or berthier revive|fresh <pane>); tell the user, never choose for them:",
@@ -1177,7 +1221,7 @@ func Tick(in TickIn) TickOut {
 		since := v.StatusSince
 		switch {
 		case frozen[pane] != nil:
-			if inStrs(unfreeze, pane) {
+			if inStrs(unfreeze, pane) || autoPending[pane] {
 				continue
 			}
 			why, text, since = "frozen", where+" is frozen: Revive or Fresh Start?", frozen[pane].Since
@@ -1341,13 +1385,15 @@ func Tick(in TickIn) TickOut {
 		}
 	}
 	for _, f := range freezing {
-		agents.M[f.pane].Frozen = frozen[f.pane]
+		if a := agents.M[f.pane]; a != nil { // not given a Fresh Start by itself
+			a.Frozen = frozen[f.pane]
+		}
 	}
 	for _, k := range unfreeze {
 		agents.M[k].Frozen = nil
 	}
 	for _, f := range freezing {
-		ev := with(about(f.pane), "why", f.why, "context", f.cache.Context, "session", agents.M[f.pane].SessionID)
+		ev := with(about(f.pane), "why", f.why, "context", f.cache.Context, "session", sessionOf(f.pane))
 		decided = append(decided, Event{"frozen", fmt.Sprintf("froze %s in %s: due a %s with a cold cache (%s tokens, last call %dm ago); held for the user",
 			ev["name"], f.pane, map[string]string{"crash": "Revive", "limit": "usage-limit resume"}[f.why], tokensK(f.cache.Context), minutes(now-f.cache.LastAt)), ev})
 	}

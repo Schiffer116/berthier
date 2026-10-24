@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -126,6 +127,10 @@ func tick(prev State, s Snapshot, now int64, o opt) TickOut {
 		for _, l := range out.Look {
 			if v := obs[l.PaneID]; inStrs(l.Want, "draft") && v.Draft == nil {
 				v.Draft, more = yes(false), true
+				obs[l.PaneID] = v
+			}
+			if v := obs[l.PaneID]; inStrs(l.Want, "auto_fresh") && v.Auto == nil {
+				v.Auto, more = &AutoCheck{}, true // no Brief kept unless the test says otherwise
 				obs[l.PaneID] = v
 			}
 			if v := obs[l.PaneID]; len(l.Want) == 1 && l.Want[0] == "cache" && v.Cache == nil {
@@ -935,4 +940,51 @@ func cacheLooks(o TickOut, pane string) []Look {
 		}
 	}
 	return l
+}
+
+func TestAutoFreshVerdict(t *testing.T) {
+	for _, c := range []struct {
+		in  AutoCheck
+		ok  bool
+		why string
+	}{
+		{AutoCheck{Brief: true}, true, ""},
+		{AutoCheck{Brief: true, Dirty: "\n"}, true, ""},
+		{AutoCheck{}, false, "no Brief kept for it"},
+		{AutoCheck{Brief: true, Dirty: " M core/tick.go\n"}, false, "its worktree has uncommitted changes"},
+		{AutoCheck{Brief: true, Err: "exit status 128"}, false, "git status failed: exit status 128"},
+	} {
+		ok, why := c.in.Verdict()
+		check(t, fmt.Sprintf("%+v", c.in), []any{ok, why}, fmt.Sprintf("[%v,%q]", c.ok, c.why))
+	}
+}
+
+func TestAutoFresh(t *testing.T) {
+	berthier := ag("w3:p1", "idle", "sid-b", "", "/home/u/berthier")
+	s1 := snap(W, panes(ag("w2:p1", "idle", "sid-2", "dark-mode", ""), ag("w1:p1", "idle", "sid-1", "", ""), berthier), panes(pn("w1:p1"), pn("w2:p1"), pn("w3:p1")))
+	prev := tick(State{}, s1, 1000, opt{}).State
+	s2 := snap(W, panes(berthier), panes(pn("w1:p1"), pn("w2:p1"), pn("w3:p1")))
+	cold := Cache{LastAt: 6600, Context: 183000, Model: "claude-opus-5-5"}
+	crashed := func(a *AutoCheck) map[string]Obs {
+		return map[string]Obs{"w2:p1": {Exited: yes(false), AtShell: yes(true), Cache: &cold, Auto: a}, "w1:p1": {Exited: yes(false), AtShell: yes(true), Cache: &cold, Auto: a}}
+	}
+	kinds := func(o TickOut) []string {
+		k := []string{}
+		for _, e := range o.Events {
+			k = append(k, e.Kind)
+		}
+		return k
+	}
+
+	// w1 (Main Agent of skipli, in no Division) stays Frozen; w2 is a Division.
+	o := tick(prev, s2, 10000, opt{divs: Divisions{"dark-mode": {Corps: "skipli", Worktree: true}}, obs: crashed(&AutoCheck{Brief: true})})
+	check(t, "clean Division: Fresh Start by itself, Main Agent stays Frozen", []any{kinds(o), len(o.Fresh), o.Fresh[0].PaneID, o.Fresh[0].Division, o.State.Agents.Get("w2:p1") == nil, escKeys(o.Escalate)},
+		`[["auto_fresh","frozen","frozen"],1,"w2:p1","dark-mode",true,["frozen:w1:p1:10000"]]`)
+
+	o = tick(prev, s2, 10000, opt{divs: Divisions{"dark-mode": {Corps: "skipli", Worktree: true}}, obs: crashed(&AutoCheck{Brief: true, Dirty: "?? x\n"})})
+	check(t, "dirty: refused, stays Frozen, escalation says why", []any{kinds(o), o.Fresh, o.State.Agents.M["w2:p1"].Frozen.Auto, len(o.Escalate), strings.Contains(o.Escalate[0].Text+o.Escalate[1].Text, "56m ago); auto Fresh Start refused: its worktree has uncommitted changes: agent")},
+		`[["auto_fresh_refused","frozen","frozen"],[],"refused:its worktree has uncommitted changes",2,true]`)
+	frozen := o.State
+	o = tick(frozen, s2, 20000, opt{divs: Divisions{"dark-mode": {Corps: "skipli", Worktree: true}}, obs: map[string]Obs{"w2:p1": {Auto: &AutoCheck{Brief: true}}}})
+	check(t, "once per episode: not asked again", []any{looksAt(o, "w2:p1"), o.Fresh, kinds(o)}, `[[],[],[]]`)
 }

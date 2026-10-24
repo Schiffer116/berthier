@@ -26,6 +26,7 @@ type Cache struct {
 type Frozen struct {
 	Since int64  `json:"since"`
 	Why   string `json:"why"`
+	Auto  string `json:"auto,omitempty"` // "refused:<why>": no automatic Fresh Start for this episode
 	Cache
 }
 
@@ -112,3 +113,25 @@ type FreshStart struct {
 
 // tokensK is a token count for people: 183k.
 func tokensK(n int64) string { return fmt.Sprintf("%dk", (n+500)/1000) }
+
+// AutoCheck is what the shell read for an automatic Fresh Start of a Frozen
+// Division: whether its Brief is kept, and git's verdict on its worktree.
+type AutoCheck struct {
+	Brief bool   `json:"brief"`
+	Dirty string `json:"dirty,omitempty"` // `git status --porcelain` output
+	Err   string `json:"err,omitempty"`   // git could not tell
+}
+
+// Verdict: a Fresh Start by itself only when it can lose nothing. Committed
+// WIP counts as clean (the branch keeps it); uncommitted changes do not.
+func (c AutoCheck) Verdict() (bool, string) {
+	switch {
+	case !c.Brief:
+		return false, "no Brief kept for it"
+	case c.Err != "":
+		return false, "git status failed: " + c.Err
+	case strings.TrimSpace(c.Dirty) != "":
+		return false, "its worktree has uncommitted changes"
+	}
+	return true, ""
+}

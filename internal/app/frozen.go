@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -166,4 +167,25 @@ func (e *Env) saveBrief(division, brief string) error {
 		return err
 	}
 	return writeAtomic(e.briefFile(division), []byte(brief+"\n"))
+}
+
+// autoCheck reads what an automatic Fresh Start of a Frozen Division needs:
+// its Brief on file and its worktree's `git status --porcelain`.
+func (e *Env) autoCheck(pane string) *core.AutoCheck {
+	c := &core.AutoCheck{}
+	st := e.ReadState()
+	a := st.Agents.Get(pane)
+	if a == nil {
+		c.Err = "agent unknown"
+		return c
+	}
+	name := core.CorpsName(strOr(a.WorkspaceLabel))
+	_, err := os.Stat(e.briefFile(name))
+	c.Brief = err == nil
+	out, err := exec.Command("git", "-C", strOr(a.Cwd), "status", "--porcelain").Output()
+	if err != nil {
+		c.Err = err.Error()
+	}
+	c.Dirty = string(out)
+	return c
 }

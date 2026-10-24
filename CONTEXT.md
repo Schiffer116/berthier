@@ -70,7 +70,7 @@ Restarting a crashed or usage-limited Agent by resuming its previous session; th
 _Avoid_: restart, respawn
 
 **Frozen**:
-An Agent that needs a Revive but whose cache has gone cold, so resuming would pay to rewrite its whole context. It waits, its messages held, until the user chooses: Revive anyway, or a Fresh Start. Only the user decides.
+An Agent that needs a Revive but whose cache has gone cold, so resuming would pay to rewrite its whole context. It waits, its messages held, until the user chooses: Revive anyway, or a Fresh Start. Only the user decides, except a Division with a kept Brief and a clean worktree, which gets a Fresh Start by itself.
 _Avoid_: cold, stuck, dead
 
 **Fresh Start**:

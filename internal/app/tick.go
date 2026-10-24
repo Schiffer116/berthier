@@ -298,6 +298,8 @@ func (e *Env) look(l core.Look, now int64, o core.Obs) core.Obs {
 				}
 			}
 			o.Cache = &c
+		case "auto_fresh":
+			o.Auto = e.autoCheck(l.PaneID)
 		case "draft":
 			// Unreadable counts as empty: the prompt itself then fails or not, as before.
 			b, _ := e.H.HasDraft(l.PaneID)
