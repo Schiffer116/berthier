@@ -30,7 +30,7 @@ func (e *Env) ArmyView() core.ArmyView {
 		available = float64(now-st.ModTime().Unix()) <= e.IntervalSecs*3
 	}
 	in := core.ArmyIn{Reports: e.ReadReports(), Demos: e.ReadDemos(), Inbox: e.ReadInbox(), Log: TailLines(e.Log, 2000),
-		Budgets: e.ReadBudgets(), BudgetWarn: e.BudgetWarn, Available: available, Now: now,
+		Budgets: e.ReadBudgets(), BudgetWarn: e.BudgetWarn, FreshEst: e.FreshEst, Available: available, Now: now,
 		Interval: e.IntervalSecs, ReviveMax: e.ReviveMax}
 	readJSON(e.State, &in.State)
 	in.Divisions = e.ReadDivisions()

@@ -36,14 +36,17 @@ func (c Cache) Warm(now int64, cfg Config) bool {
 
 // ReviveUSD estimates what resuming a cold session costs: its whole context
 // written to the cache again (at the TTL Claude Code used for it).
-func (c Cache) ReviveUSD() (float64, bool) {
+func (c Cache) ReviveUSD() (float64, bool) { return c.WriteUSD(c.Context) }
+
+// WriteUSD prices n tokens written to the cache, as ReviveUSD does the context.
+func (c Cache) WriteUSD(n int64) (float64, bool) {
 	p, ok := PriceOf(c.Model)
 	if !ok {
 		return 0, false
 	}
-	t := Tokens{W5m: c.Context}
+	t := Tokens{W5m: n}
 	if c.TTL1h {
-		t = Tokens{W1h: c.Context}
+		t = Tokens{W1h: n}
 	}
 	return p.USD(t, false), true
 }

@@ -19,6 +19,11 @@ func TestCacheOf(t *testing.T) {
 	c.TTL1h = false
 	usd, _ = c.ReviveUSD()
 	check(t, "or the 5m one", round2(usd), `0.76`)
+	usd, _ = c.WriteUSD(60000)
+	check(t, "a Fresh Start's estimate priced the same way", round2(usd), `0.30`)
+	if _, ok := (Cache{Model: "gpt-9"}).WriteUSD(1); ok {
+		t.Error("an unpriced model priced")
+	}
 	if _, ok := CacheOf(lines[2:]); ok {
 		t.Error("a cache from no real call")
 	}

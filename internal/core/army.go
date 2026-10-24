@@ -38,6 +38,7 @@ type ArmyIn struct {
 	Usage      Usage
 	Budgets    map[string]float64
 	BudgetWarn float64
+	FreshEst   int64 // tokens a Fresh Start loads
 	Available  bool
 	Now        int64
 	Interval   float64 // Main Loop seconds
@@ -72,6 +73,9 @@ type AgentView struct {
 type FrozenView struct {
 	Frozen
 	ReviveUSD *float64 `json:"revive_usd"`
+	// What a Fresh Start loads (Notes, Board, last report, git), estimated.
+	FreshTokens int64    `json:"fresh_tokens"`
+	FreshUSD    *float64 `json:"fresh_usd"`
 }
 
 type DivisionView struct {
@@ -255,6 +259,10 @@ func Army(in ArmyIn) ArmyView {
 			v.Frozen = &FrozenView{Frozen: *a.Frozen}
 			if usd, ok := a.Frozen.ReviveUSD(); ok {
 				v.Frozen.ReviveUSD = &usd
+			}
+			v.Frozen.FreshTokens = in.FreshEst
+			if usd, ok := a.Frozen.WriteUSD(in.FreshEst); ok {
+				v.Frozen.FreshUSD = &usd
 			}
 		}
 		v.NeedsYou = (line != nil && needsRe.MatchString(*line)) || a.Status == "blocked" || a.Frozen != nil

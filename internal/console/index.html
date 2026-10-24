@@ -942,13 +942,14 @@ const thawing = {}; // pane -> what was asked, until the view moves on
 function frozenBox(a) {
   const f = a.frozen, k = Math.round(f.context / 1000);
   const why = f.why === 'limit' ? 'its usage limit reset' : 'it crashed';
-  const cost = f.revive_usd == null ? '' : ` (~${usd(f.revive_usd)} cache rewrite)`;
+  const est = (n, u) => `${Math.round(n / 1000)}k tok${u == null ? '' : ` ~${usd(u)}`}`;
+  const cost = ` ${est(f.context, f.revive_usd)}`, fcost = ` ~${est(f.fresh_tokens, f.fresh_usd)}`;
   const asked = thawing[a.pane_id];
   return `<div class="needs frozen">
     <div>frozen · waiting <span data-ago="${f.since}">${ago(f.since)}</span></div>
     <div>${why} with a cold cache: ${k}k tokens, last call ${ago(f.last_at)} ago. Its messages wait for your choice.</div>
     <div class="thaw">${asked ? `<span class="dim">${esc(asked)}</span>` : `<button type="button" class="btn" data-thaw="revive" data-for="${esc(a.pane_id)}">Revive${cost}</button>
-      <button type="button" class="btn" data-thaw="fresh" data-for="${esc(a.pane_id)}" title="a new session in the same pane, rebuilt from Notes, Board, last report and git">Fresh Start</button>`}</div>
+      <button type="button" class="btn" data-thaw="fresh" data-for="${esc(a.pane_id)}" title="a new session in the same pane, rebuilt from Notes, Board, last report and git">Fresh Start${fcost}</button>`}</div>
   </div>`;
 }
 $('det').addEventListener('click', async (e) => {

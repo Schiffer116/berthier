@@ -21,7 +21,7 @@ type Env struct {
 	Thaws, Briefs, NotesRead                     string
 	NotesStore                                   string
 	NotesMax                                     int
-	CacheWarm, FrozenMin                         int64
+	CacheWarm, FrozenMin, FreshEst               int64
 	SkipliBin, SkipliEnv                         string
 	BoardPoll, BoardFailAfter                    int64
 	H                                            herdr.Client
@@ -149,6 +149,7 @@ func LoadEnv(getenv func(string) string) Env {
 	// FROZEN_MIN tokens; otherwise the Agent is Frozen until the user chooses.
 	e.CacheWarm = i64("BERTHIER_CACHE_WARM", 3300)
 	e.FrozenMin = i64("BERTHIER_FROZEN_MIN", 50000)
+	e.FreshEst = i64("BERTHIER_FRESH_EST_TOKENS", 60000)
 	// Claude model of spawned Divisions (division-new --model overrides); Main
 	// Agents and Berthier use claude's own default.
 	e.DivisionModel = str("BERTHIER_DIVISION_MODEL", "haiku")
