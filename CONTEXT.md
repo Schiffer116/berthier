@@ -18,6 +18,9 @@ _Avoid_: memory, journal, log
 Army-wide broadcasts by the user: Shutdown tells every Agent to park its step, push WIP, report and update Notes; Wake, after a restart, tells every Agent to resume where it left off. Frozen Agents are skipped.
 _Avoid_: stop, pause, restart
 
+**Quota guard**:
+At 90% of the five-hour or seven-day window, each idle Agent is asked once per window for a short handoff in Notes (a quota broadcast); nothing new is started.
+
 **Main Loop**:
 The deterministic, always-running process that observes the Grand Army, Revives gone Agents, and Escalates everything else to Berthier.
 _Avoid_: daemon, watcher, supervisor
