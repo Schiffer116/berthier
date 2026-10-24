@@ -42,7 +42,7 @@ type Env struct {
 	ProfileWeeks                                 int
 	ProfileSince                                 float64
 	ProfileProjects                              string
-	BudgetWarn                                   float64
+	BudgetWarn, QuotaGuardPct                    float64
 	Speak                                        string
 	DivisionModel                                string
 	StartTimeoutMS                               int64
@@ -135,6 +135,7 @@ func LoadEnv(getenv func(string) string) Env {
 	e.ProfileProjects = str("BERTHIER_PROFILE_PROJECTS", "*")
 	// Share of its budget at which a Corps's Main Agent is told and the user hears (percent).
 	e.BudgetWarn = num("BERTHIER_BUDGET_WARN", 80)
+	e.QuotaGuardPct = num("BERTHIER_QUOTA_GUARD_PCT", 90)
 	// Boards: skipli-cli, on one Skipli Environment (dev for now), polled this often (seconds).
 	e.SkipliBin = str("BERTHIER_SKIPLI_BIN", "skipli-cli")
 	e.SkipliEnv = str("BERTHIER_SKIPLI_ENV", "dev")
@@ -191,7 +192,7 @@ func (e *Env) CoreConfig() (c core.Config) {
 	return core.Config{BerthierRoot: e.Root, BlockedAfter: e.BlockedAfter, LongAfter: e.LongAfter, DivisionSettle: e.DivisionSettle,
 		ReviveMax: e.ReviveMax, ReviveBackoff: e.ReviveBackoff, ReviveReset: e.ReviveReset, EscalationTTL: e.EscalationTTL,
 		SpeakAfter: e.SpeakAfter, AskStuck: e.AskStuck, PingpongMax: e.PingpongMax, LimitGrace: e.LimitGrace,
-		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn, DraftQuiet: e.DraftQuiet,
+		LimitRetry: e.LimitRetry, BudgetWarn: e.BudgetWarn, QuotaGuardPct: e.QuotaGuardPct, DraftQuiet: e.DraftQuiet,
 		RestartGap: e.RestartGap, RestartWait: e.RestartWait, RestartSettle: e.RestartSettle,
 		CacheWarm: e.CacheWarm, FrozenMin: e.FrozenMin, NotesLead: e.NotesLead}
 }

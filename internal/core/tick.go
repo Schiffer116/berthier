@@ -34,6 +34,7 @@ type Config struct {
 	LimitGrace     int64
 	LimitRetry     int64
 	BudgetWarn     float64 // percent of an allowance
+	QuotaGuardPct  float64 // percent of a 5h/7d window (0: 90)
 	DraftQuiet     int64   // prompts to a pane wait this long after its input box last held the user's draft
 	// Restart resume: a gap this long since the last state write may have cut
 	// Agents off mid-turn; wait RestartWait for each to reappear (idle for
@@ -987,6 +988,8 @@ func Tick(in TickIn) TickOut {
 			}
 		}
 	}
+	quota := quotaGuard(in.Usage.View(in.Budgets, now), cfg.QuotaGuardPct, quotaAgents(agents, frozen, used), held, prevEsc)
+	deliver = append(deliver, quota.Deliver...)
 	askLog := []AskLogEntry{}
 	for _, e := range in.Prev.AskLog {
 		if e.At > now-3600 {
@@ -1193,6 +1196,7 @@ func Tick(in TickIn) TickOut {
 			fmt.Sprintf("%s has used %d percent of its weekly budget", Spoken(corps), w.Ev["pct"]),
 			Fields{"corps": corps, "why": "budget_warn", "to": "you"}})
 	}
+	speakAll = append(speakAll, quota.Speak...)
 	for _, b := range blocks {
 		speakAll = append(speakAll, Speak{"speak_" + b.key, Spoken(b.corps) + " is over its weekly budget",
 			Fields{"corps": b.corps, "why": "budget_exhausted", "to": "you"}})
@@ -1230,6 +1234,10 @@ func Tick(in TickIn) TickOut {
 	for _, b := range blocks {
 		escalated[b.key] = now
 	}
+	for _, k := range quota.Mark {
+		escalated[k] = now
+	}
+	decided = append(decided, quota.Events...)
 
 	// --- Corps: every workspace that is not a known Division and not Berthier's own.
 	byWS := map[string][]string{}
