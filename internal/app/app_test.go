@@ -405,6 +405,19 @@ func TestReportAskHookLog(t *testing.T) {
 	eq(t, "notify capped", jq(t, string(must(os.ReadFile(m[0]))), "text"), `"abcde [truncated]"`)
 	clear()
 	delete(s.env, "BERTHIER_NOTIFY_MAX")
+	// --- shutdown / wake: one one-way file per live Agent, tagged
+	out, _, _ := s.sh("", "shutdown", "back at 9")
+	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
+	b0 = string(must(os.ReadFile(m[0])))
+	eq(t, "shutdown queued", []any{len(m) > 0, jq(t, b0, "kind"), strings.HasPrefix(jq(t, b0, "text"), `"[berthier shutdown] `), strings.Contains(jq(t, b0, "text"), "back at 9")}, []any{true, `"shutdown"`, true, true})
+	if !strings.Contains(out, fmt.Sprintf("queued for %d Agents; 0 Frozen skipped", len(m))) {
+		t.Errorf("shutdown output %q for %d files", out, len(m))
+	}
+	clear()
+	s.sh("", "wake")
+	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))
+	eq(t, "wake queued", jq(t, string(must(os.ReadFile(m[0]))), "kind"), `"wake"`)
+	clear()
 	s.env["HERDR_PANE_ID"] = "b:p1"
 	s.sh("", "ask", "skipli", "all done")
 	m, _ = filepath.Glob(filepath.Join(s.home, "inbox", "*.json"))

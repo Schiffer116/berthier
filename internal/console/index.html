@@ -330,7 +330,7 @@ svg.spark { display: block; width: 92px; height: 20px; }
 .ctx span.big { background: var(--peach); }
 .ctx em { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--dim); }
 .o-user { color: var(--fg); } .o-ask { color: var(--blue); } .o-loop { color: var(--green); } .o-task { color: var(--teal); }
-.o-subagent { color: var(--mauve); } .o-notify, .o-board { color: var(--sky); } .o-brief { color: var(--accent); } .o-continue, .o-resume { color: var(--yellow); }
+.o-subagent { color: var(--mauve); } .o-notify, .o-board { color: var(--sky); } .o-brief { color: var(--accent); } .o-continue, .o-resume, .o-shutdown, .o-wake { color: var(--yellow); }
 @media (max-width: 699px) {
   .prow { grid-template-columns: minmax(110px, 1fr) 64px 56px 62px; min-width: 0; }
   .prow > :nth-child(3), .prow > :nth-child(4), .prow > :nth-child(6), .prow > :nth-child(8) { display: none; }
@@ -352,6 +352,11 @@ svg.spark { display: block; width: 92px; height: 20px; }
     <span class="muted" id="fresh"></span>
     <span class="grow"></span>
     <span id="tallies" style="display: contents"></span>
+    <span class="logs" id="bcast">
+      <button type="button" class="logbtn" data-bcast="shutdown" title="Tell every Agent the user is closing down: park, commit and push WIP, report, update Notes">shutdown</button>
+      <button type="button" class="logbtn" data-bcast="wake" title="Tell every Agent to pick up where it left off (after a restart)">wake</button>
+      <span class="muted" id="bcast-note" role="status"></span>
+    </span>
     <span class="logs">
       <button type="button" class="logbtn" data-log="escalations" aria-controls="drawer" aria-expanded="false">escalations <span class="badge" id="esc-badge">0</span></button>
       <button type="button" class="logbtn" data-log="asks" aria-controls="drawer" aria-expanded="false">asks <span class="badge" id="ask-badge">0</span></button>
@@ -481,7 +486,7 @@ svg.spark { display: block; width: 92px; height: 20px; }
 // Renders `berthier army` (lib/army.jq), pushed by the dashboard server over
 // /api/events. The only state here is what the viewer picked and is typing;
 // the writes are a message to an Agent (POST api/prompt), a Corps's budget
-// (POST api/budget) and the choice for a Frozen Agent (POST api/thaw).
+// (POST api/budget) and the choice for a Frozen Agent (POST api/thaw) and the army-wide broadcasts (POST api/shutdown, api/wake).
 
 const C = Object.fromEntries(['accent', 'blue', 'sky', 'soft', 'muted', 'dim', 'faint', 'green', 'red', 'purple', 'bright']
   .map((k) => [k, `var(--${k})`]));
@@ -624,6 +629,25 @@ async function setBudget(corps, pct) {
     return false;
   }
 }
+// Army-wide broadcasts (the same writes as `berthier shutdown|wake`): a second click within 4s confirms.
+$('bcast').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-bcast]'), note = $('bcast-note');
+  if (!b) return;
+  const kind = b.dataset.bcast;
+  if (!b.dataset.arm) {
+    b.dataset.arm = '1'; b.textContent = `${kind}: sure?`;
+    setTimeout(() => { delete b.dataset.arm; b.textContent = kind; }, 4000);
+    return;
+  }
+  delete b.dataset.arm; b.textContent = kind;
+  try {
+    const res = await fetch(`api/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    const r = await res.json();
+    note.textContent = `${kind}: ${r.sent} sent, ${r.skipped} Frozen skipped`;
+  } catch (err) { note.textContent = `${kind} failed: ${err.message}`; }
+  setTimeout(() => { note.textContent = ''; }, 10000);
+});
 // A committed budget shows at once and stays until the next view model (up to 2s later) carries it, or 10s pass.
 function withPending(c) {
   const p = ui.pending?.[c.name];
@@ -1345,8 +1369,8 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // when the view opens and every 30s while it is open. The view keeps what the
 // viewer opened and picked across refreshes.
 const prof = { on: false, week: 0, data: null, open: new Set(), openDiv: new Set(), session: null, turns: null, hl: null, timer: null };
-const PO = ['user', 'ask', 'loop', 'notify', 'board', 'brief', 'continue', 'resume', 'task', 'subagent'];
-const PC = { user: 'var(--fg)', ask: 'var(--blue)', loop: 'var(--green)', notify: 'var(--sky)', board: 'var(--sky)', brief: 'var(--accent)', continue: 'var(--yellow)', resume: 'var(--yellow)', task: 'var(--teal)', subagent: 'var(--mauve)' };
+const PO = ['user', 'ask', 'loop', 'notify', 'board', 'brief', 'continue', 'resume', 'shutdown', 'wake', 'task', 'subagent'];
+const PC = { user: 'var(--fg)', ask: 'var(--blue)', loop: 'var(--green)', notify: 'var(--sky)', board: 'var(--sky)', brief: 'var(--accent)', continue: 'var(--yellow)', resume: 'var(--yellow)', shutdown: 'var(--yellow)', wake: 'var(--yellow)', task: 'var(--teal)', subagent: 'var(--mauve)' };
 const KIND = { bloat: 'context bloat', cache_miss: 'cache miss', big_result: 'big result', reread: 're-read', model: 'model' };
 const dollars = (v) => v == null ? '–' : '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 const pct1 = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';

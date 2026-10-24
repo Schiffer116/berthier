@@ -96,6 +96,8 @@ func TestFoldTranscriptOrigins(t *testing.T) {
 		{"[berthier brief] Build the thing", "brief"},
 		{"[berthier continue] The machine restarted", "continue"},
 		{"[berthier resume] The usage limit has reset", "resume"},
+		{"[berthier shutdown] The user is closing down", "shutdown"},
+		{"[berthier wake] The army is back", "wake"},
 		{"<task-notification>done</task-notification>", "task"},
 	} {
 		check(t, tc.prompt, OriginOf(tc.prompt), `"`+tc.origin+`"`)

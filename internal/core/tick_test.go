@@ -311,6 +311,15 @@ func TestAsks(t *testing.T) {
 	n2 := Ask{ID: "n2", Kind: "notify", From: "service", To: "nobody", Text: "x", At: 100}
 	check(t, "undelivered notify never stuck", escKeys(tick(prev, sa, 2000, opt{inbox: []Ask{n2}}).Escalate), `[]`)
 
+	b1 := Ask{ID: "b1", Kind: "shutdown", From: "service", To: "skipli", Text: "[berthier shutdown] wrap up", At: 100}
+	o = tick(prev, sa, 2000, opt{inbox: []Ask{b1}})
+	texts = nil
+	for _, d := range o.Deliver {
+		texts = append(texts, []any{d.ID, d.Text, d.Oneway})
+	}
+	check(t, "broadcast delivered as is, one-way", texts, `[["b1","[berthier shutdown] wrap up",true]]`)
+	check(t, "broadcast never stuck", escKeys(tick(prev, sa, 2000, opt{inbox: []Ask{{ID: "b2", Kind: "wake", From: "service", To: "nobody", Text: "x", At: 100}}}).Escalate), `[]`)
+
 	withLog := func(l []AskLogEntry, d Divisions) TickOut {
 		p := prev
 		p.AskLog = l

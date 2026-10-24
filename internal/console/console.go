@@ -1,6 +1,6 @@
 // Package console serves the Grand Army view model (`berthier army`) as a
 // live console page. It holds no state and no logic of its own: it polls the
-// view model and pushes each change to open pages over server-sent events. Its writes are POST /api/prompt, which sends the user's text to a known Agent, POST /api/budget, which sets a Corps's weekly budget, and POST /api/thaw, the user's choice for a Frozen Agent; GET
+// view model and pushes each change to open pages over server-sent events. Its writes are POST /api/prompt, which sends the user's text to a known Agent, POST /api/budget, which sets a Corps's weekly budget, and POST /api/thaw, the user's choice for a Frozen Agent, POST /api/shutdown and /api/wake, the army-wide broadcasts; GET
 // /api/chat shows that Agent's conversation (chat.go) and GET /api/skills lists
 // what its Claude Code can run as /<name> (skills.go). app.go makes the page an
 // installable app.
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"mime"
 	"net"
@@ -36,6 +37,10 @@ type BudgetSetter func(corps string, pct *float64) error
 // Thawer records the user's choice for a Frozen Agent ("revive" or "fresh");
 // a request-caused refusal has a Bad() method reporting true.
 type Thawer func(pane, how string) error
+
+// Broadcaster queues an army-wide "shutdown" or "wake" (extra: the user's own
+// words) and reports how many Agents it went to and how many Frozen ones it skipped.
+type Broadcaster func(kind, extra string) (sent, skipped int, err error)
 
 // Army keeps the latest view model and fans changes out to subscribers.
 type Army struct {
@@ -207,11 +212,11 @@ type ProfileSource func(weeksAgo int, session string) ([]byte, error)
 
 // Handler serves the Console without a Profile.
 func Handler(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts) http.Handler {
-	return HandlerWith(a, h, setBudget, tr, nil, nil)
+	return HandlerWith(a, h, setBudget, tr, nil, nil, nil)
 }
 
 // HandlerWith serves the Console; profile feeds its Profile view.
-func HandlerWith(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts, profile ProfileSource, thaw Thawer) http.Handler {
+func HandlerWith(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcripts, profile ProfileSource, thaw Thawer, broadcast Broadcaster) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -312,6 +317,31 @@ func HandlerWith(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcript
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	for _, kind := range []string{"shutdown", "wake"} {
+		mux.HandleFunc("POST /api/"+kind, func(w http.ResponseWriter, r *http.Request) {
+			if t, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); t != "application/json" {
+				http.Error(w, "want application/json", http.StatusUnsupportedMediaType)
+				return
+			}
+			var req struct{ Text string }
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil && err != io.EOF {
+				http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if broadcast == nil {
+				http.Error(w, "broadcast unavailable", http.StatusNotFound)
+				return
+			}
+			sent, skipped, err := broadcast(kind, req.Text)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("%s: %d queued, %d Frozen skipped", kind, sent, skipped)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]int{"sent": sent, "skipped": skipped})
+		})
+	}
 	mux.HandleFunc("POST /api/thaw", func(w http.ResponseWriter, r *http.Request) {
 		if t, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); t != "application/json" {
 			http.Error(w, "want application/json", http.StatusUnsupportedMediaType)
@@ -429,7 +459,7 @@ func HandlerWith(a *Army, h herdr.Client, setBudget BudgetSetter, tr *Transcript
 }
 
 // Serve runs the Console on addr until it fails.
-func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, profile ProfileSource, thaw Thawer, claudeDir string, every time.Duration) error {
+func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget BudgetSetter, profile ProfileSource, thaw Thawer, broadcast Broadcaster, claudeDir string, every time.Duration) error {
 	a := NewArmy()
 	go Poll(context.Background(), a, source, every)
 	l, err := net.Listen("tcp", addr)
@@ -438,5 +468,5 @@ func Serve(addr string, source func() ([]byte, error), h herdr.Client, setBudget
 	}
 	// The bound address, so -addr 127.0.0.1:0 says which port it got.
 	log.Printf("serving the Grand Army console on http://%s", l.Addr())
-	return http.Serve(l, HandlerWith(a, h, setBudget, NewTranscripts(claudeDir), profile, thaw))
+	return http.Serve(l, HandlerWith(a, h, setBudget, NewTranscripts(claudeDir), profile, thaw, broadcast))
 }

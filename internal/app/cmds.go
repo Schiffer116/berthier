@@ -464,6 +464,64 @@ func cmdNotify(e *Env, args []string, io IO) error {
 	return nil
 }
 
+// --- shutdown, wake
+
+// Broadcast queues an army-wide `shutdown` or `wake` (extra: the user's own
+// words, capped like notify) as one one-way inbox file per Agent with a live
+// pane, Frozen ones skipped; the loop delivers each when its Agent is idle.
+func (e *Env) Broadcast(kind, extra string) (sent, skipped int, err error) {
+	if st, err := os.Stat(e.State); err != nil || st.Size() == 0 {
+		return 0, 0, fmt.Errorf("no Grand Army State yet; is berthier-loop running?")
+	}
+	max := 2000
+	if n, err := strconv.Atoi(e.getenv("BERTHIER_NOTIFY_MAX")); err == nil {
+		max = n
+	}
+	text, ok := core.BroadcastText(kind, extra, max)
+	if !ok {
+		return 0, 0, fmt.Errorf("unknown broadcast %q", kind)
+	}
+	st := e.ReadState()
+	to, skipped := core.BroadcastTargets(st.Agents, st.Berthier)
+	now, stamp := e.now(), e.Now().UnixNano()
+	for i, name := range to {
+		b, _ := json.Marshal(struct {
+			Kind string `json:"kind"`
+			From string `json:"from"`
+			To   string `json:"to"`
+			At   int64  `json:"at"`
+			Text string `json:"text"`
+		}{kind, "service", name, now, text})
+		if err := writeAtomic(filepath.Join(e.Inbox, fmt.Sprintf("%d-%s-%d.json", stamp, kind, i)), append(b, '\n')); err != nil {
+			return sent, skipped, err
+		}
+		sent++
+	}
+	return sent, skipped, nil
+}
+
+// cmdBroadcast is `berthier shutdown [text]` / `berthier wake`.
+func cmdBroadcast(kind string) command {
+	return func(e *Env, args []string, io IO) error {
+		if len(args) > 1 || (kind == "wake" && len(args) > 0) {
+			if kind == "wake" {
+				return die("usage: berthier wake")
+			}
+			return die(`usage: berthier shutdown ["<text>"]`)
+		}
+		extra := ""
+		if len(args) == 1 {
+			extra = args[0]
+		}
+		sent, skipped, err := e.Broadcast(kind, extra)
+		if err != nil {
+			return die("%v", err)
+		}
+		fmt.Fprintf(io.Out, "%s: queued for %d Agents; %d Frozen skipped; each gets it when idle\n", kind, sent, skipped)
+		return nil
+	}
+}
+
 // --- report
 
 // forkedFrom lists the sessions a backgrounded ("bg") Claude session sid was
@@ -1094,7 +1152,7 @@ func cmdDashboard(e *Env, args []string, io IO) error {
 		err := encode(&b, e.ArmyView())
 		return b.Bytes(), err
 	}
-	return console.Serve(*addr, source, e.H, e.setBudgetFor, e.profileJSON, e.thawAndTick, *claude, *every)
+	return console.Serve(*addr, source, e.H, e.setBudgetFor, e.profileJSON, e.thawAndTick, e.Broadcast, *claude, *every)
 }
 
 // cmdPrompt prompts the Agent in a pane and makes sure Claude took it

@@ -88,7 +88,7 @@ func (a SnapAgent) session() *string {
 // Ask is a pending `berthier ask` (a file of state/inbox).
 type Ask struct {
 	ID   string `json:"id"`
-	Kind string `json:"kind,omitempty"` // "notify": one-way, from a service; "board": one-way, a new card or task on a Board
+	Kind string `json:"kind,omitempty"` // "notify": one-way, from a service; "board": one-way, a new card or task on a Board; "shutdown", "wake": one-way army-wide broadcasts, Text is the whole prompt
 	From string `json:"from"`
 	To   string `json:"to"`
 	Text string `json:"text"`
@@ -917,17 +917,17 @@ func Tick(in TickIn) TickOut {
 	for _, m := range inbox {
 		to := CorpsName(m.To)
 		for _, o := range addr {
-			if o.name == to && (o.status == "idle" || o.status == "done") && !over[o.corps] && !used[o.pane] && !held(o.pane) {
+			if o.name == to && (o.status == "idle" || o.status == "done") && (!over[o.corps] || IsBroadcast(m.Kind)) && !used[o.pane] && !held(o.pane) {
 				used[o.pane] = true
 				delivered[m.ID] = true
 				text := fmt.Sprintf("[berthier ask] from %s: %s (Reply or report back with: berthier ask %s \"...\")", m.From, m.Text, m.From)
 				if m.Kind == "notify" {
 					text = fmt.Sprintf("[berthier notify] from %s: %s", m.From, m.Text)
 				}
-				if m.Kind == "board" {
+				if m.Kind == "board" || IsBroadcast(m.Kind) {
 					text = m.Text
 				}
-				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify" || m.Kind == "board",
+				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify" || m.Kind == "board" || IsBroadcast(m.Kind),
 					Fields{"pane": o.pane, "from": m.From, "to": to, "ask": m.ID}})
 				break
 			}
@@ -982,7 +982,7 @@ func Tick(in TickIn) TickOut {
 		})
 	}
 	for _, m := range in.Inbox {
-		if m.Kind == "notify" || m.Kind == "board" || now-m.At < cfg.AskStuck || delivered[m.ID] || heldFor[CorpsName(m.To)] {
+		if m.Kind == "notify" || m.Kind == "board" || IsBroadcast(m.Kind) || now-m.At < cfg.AskStuck || delivered[m.ID] || heldFor[CorpsName(m.To)] {
 			continue
 		}
 		reason := fmt.Sprintf("undelivered %dm", minutes(now-m.At))

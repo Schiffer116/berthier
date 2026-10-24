@@ -14,6 +14,10 @@ _Avoid_: orchestrator, controller, first mate
 A Corps's running record of open threads, commitments, and recent decisions, kept with its Board so any new session of its Main Agent (Berthier included) continues exactly where the last one stopped. How the user works is kept separately, in instructions.
 _Avoid_: memory, journal, log
 
+**Shutdown / Wake**:
+Army-wide broadcasts by the user: Shutdown tells every Agent to park its step, push WIP, report and update Notes; Wake, after a restart, tells every Agent to resume where it left off. Frozen Agents are skipped.
+_Avoid_: stop, pause, restart
+
 **Main Loop**:
 The deterministic, always-running process that observes the Grand Army, Revives gone Agents, and Escalates everything else to Berthier.
 _Avoid_: daemon, watcher, supervisor
@@ -103,7 +107,7 @@ A commit landed on a Corps's main branch, or a finished Division; Spend per deli
 _Avoid_: output, result
 
 **Turn origin**:
-What started a turn: the user, or Berthier (loop event, Ask, notify, Brief, restart continue, usage-limit resume).
+What started a turn: the user, or Berthier (loop event, Ask, notify, Brief, restart continue, usage-limit resume, shutdown or wake broadcast).
 _Avoid_: trigger, source
 
 **Command overhead**:

@@ -245,7 +245,7 @@ func TestProfileRoute(t *testing.T) {
 		asked = append(asked, fmt.Sprintf("%d %q", week, session))
 		return []byte(`{"week":{}}`), nil
 	}
-	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, src, nil))
+	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, src, nil, nil))
 	defer srv.Close()
 	for _, tc := range []struct {
 		q    string
@@ -286,7 +286,7 @@ func TestThaw(t *testing.T) {
 	}
 	a := NewArmy()
 	a.Set([]byte(`{"corps":[{"agents":[{"pane_id":"w1:p1"}],"divisions":[]}]}`))
-	srv := httptest.NewServer(HandlerWith(a, herdr.Client{}, nil, nil, nil, thaw))
+	srv := httptest.NewServer(HandlerWith(a, herdr.Client{}, nil, nil, nil, thaw, nil))
 	defer srv.Close()
 	for _, c := range []struct {
 		name, ctype, body string
@@ -308,5 +308,43 @@ func TestThaw(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "w1:p1 fresh,w1:p1 revive" {
 		t.Errorf("thawed: %v", got)
+	}
+}
+
+func TestBroadcastEndpoints(t *testing.T) {
+	var got []string
+	bc := func(kind, extra string) (int, int, error) {
+		got = append(got, kind+":"+extra)
+		if extra == "boom" {
+			return 0, 0, fmt.Errorf("no state")
+		}
+		return 3, 1, nil
+	}
+	srv := httptest.NewServer(HandlerWith(NewArmy(), herdr.Client{}, nil, nil, nil, nil, bc))
+	defer srv.Close()
+	for _, c := range []struct {
+		path, ctype, body string
+		status            int
+		resp              string
+	}{
+		{"shutdown", "application/json", `{"text":"back at 9"}`, http.StatusOK, `{"sent":3,"skipped":1}`},
+		{"wake", "application/json", `{}`, http.StatusOK, `{"sent":3,"skipped":1}`},
+		{"wake", "application/json", ``, http.StatusOK, `{"sent":3,"skipped":1}`},
+		{"shutdown", "application/json", `{"text":"boom"}`, http.StatusInternalServerError, ""},
+		{"wake", "text/plain", `{}`, http.StatusUnsupportedMediaType, ""},
+		{"wake", "application/json", `{"text":`, http.StatusBadRequest, ""},
+	} {
+		res, err := http.Post(srv.URL+"/api/"+c.path, c.ctype, strings.NewReader(c.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != c.status || (c.resp != "" && strings.TrimSpace(string(b)) != c.resp) {
+			t.Errorf("%s %q: %d %q, want %d %q", c.path, c.body, res.StatusCode, b, c.status, c.resp)
+		}
+	}
+	if want := "shutdown:back at 9 wake: wake: shutdown:boom"; strings.Join(got, " ") != want {
+		t.Errorf("calls %q, want %q", got, want)
 	}
 }
