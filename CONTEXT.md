@@ -15,7 +15,7 @@ A Corps's running record of open threads, commitments, and recent decisions, kep
 _Avoid_: memory, journal, log
 
 **Shutdown / Wake**:
-Army-wide broadcasts by the user: Shutdown tells every Agent to park its step, push WIP, report and update Notes; Wake, after a restart, tells every Agent to resume where it left off. Frozen Agents are skipped.
+Army-wide broadcasts by the user: Shutdown tells every Agent to park its step, push WIP, report and update Notes; Wake, after a restart, clears every Agent's context and tells it to rebuild from Notes, Board, last report, git and Brief, then resume. Frozen Agents are skipped.
 _Avoid_: stop, pause, restart
 
 **Quota guard**:

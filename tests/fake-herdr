@@ -9,6 +9,7 @@
 #   typing   the user's draft sits in the box
 #   nostart  Herdr refuses to start Claude
 #   dialog   Claude starts behind a dialog the user answers; then takes
+# A `/clear` prompt starts a new session (file `sid`) unless the mode is noclear.
 # A file `shell` puts the pane at a shell prompt (process-info).
 d=$(dirname "$0")
 mode=$(cat "$d/mode") seq=$(cat "$d/seq" 2>/dev/null || echo 1)
@@ -21,12 +22,16 @@ case "$1 $2" in
     status=idle
     [[ $mode == dialog && ! -e $d/answered ]] && status=blocked
     [[ $mode == busy ]] && status=working
-    echo "{\"result\":{\"agent\":{\"state_change_seq\":$seq,\"agent_status\":\"$status\"}}}" ;;
+    echo "{\"result\":{\"agent\":{\"state_change_seq\":$seq,\"agent_status\":\"$status\",\"agent_session\":{\"value\":\"$(cat "$d/sid" 2>/dev/null || echo s1)\"}}}}" ;;
   "agent start")
     [[ $mode != dialog ]] || { echo '{"error":{"code":"agent_not_ready","message":"blocked"}}' >&2; exit 1; }
     [[ $mode != nostart ]] || { echo '{"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"}}' >&2; exit 1; } ;;
   "agent prompt")
     printf '%s' "$4" >"$d/text"
+    if [[ $4 == /clear ]]; then
+      [[ $mode == noclear ]] || { echo s2 >"$d/sid"; bump; }
+      exit 0
+    fi
     case $mode in
       error) echo '{"error":{"code":"agent_not_found","message":"agent target x not found"}}' >&2; exit 1 ;;
       takes | dialog) bump ;;

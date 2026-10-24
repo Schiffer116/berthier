@@ -230,6 +230,7 @@ type Delivery struct {
 	To     string `json:"to"`
 	Text   string `json:"text"`
 	Oneway bool   `json:"oneway"`
+	Wake   bool   `json:"wake,omitempty"` // clear the Agent's context first, then send Text plus what it needs to rebuild
 	Ev     Fields `json:"ev"`
 }
 
@@ -1023,7 +1024,7 @@ func Tick(in TickIn) TickOut {
 				if m.Kind == "board" || IsBroadcast(m.Kind) {
 					text = m.Text
 				}
-				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify" || m.Kind == "board" || IsBroadcast(m.Kind),
+				deliver = append(deliver, Delivery{m.ID, o.pane, m.From, to, text, m.Kind == "notify" || m.Kind == "board" || IsBroadcast(m.Kind), m.Kind == "wake",
 					Fields{"pane": o.pane, "from": m.From, "to": to, "ask": m.ID}})
 				break
 			}

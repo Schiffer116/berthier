@@ -189,3 +189,32 @@ func (e *Env) autoCheck(pane string) *core.AutoCheck {
 	c.Dirty = string(out)
 	return c
 }
+
+// wake delivers a queued wake: /clear the Agent's context (confirmed by its
+// new session), then the wake prompt with what it needs to rebuild, read before
+// the clear. A failed clear sends nothing more; the ask stays queued for the next tick.
+func (e *Env) wake(d core.Delivery) {
+	name, report, brief := "", "", ""
+	st := e.ReadState()
+	if a := st.Agents.Get(d.PaneID); a != nil {
+		name = strOr(a.Name)
+		report = e.ReadReports()[strOr(a.SessionID)].Line
+		if b, err := os.ReadFile(e.briefFile(core.CorpsName(strOr(a.WorkspaceLabel)))); err == nil {
+			brief = strings.TrimSpace(string(b))
+		}
+	}
+	if err := e.H.ClearAgent(d.PaneID); err != nil {
+		e.Event("wake_clear_failed", fmt.Sprintf("wake: /clear failed: %s -> %s (%s), ask %s: %s", d.From, d.To, d.PaneID, d.ID, err), with(d.Ev, "why", err.Error()))
+		return
+	}
+	if name != "" {
+		// Herdr keeps a pane's name across /clear; make sure.
+		e.H.Run("agent", "rename", d.PaneID, name)
+	}
+	if err := e.H.PromptAgent(d.PaneID, d.Text+core.Rebuild(report, brief)); err != nil {
+		e.Event("delivery_failed", fmt.Sprintf("wake delivery failed after /clear: %s (%s), ask %s: %s", d.To, d.PaneID, d.ID, err), with(d.Ev, "why", err.Error()))
+		return
+	}
+	os.Remove(filepath.Join(e.Inbox, d.ID+".json"))
+	e.Event("delivered", fmt.Sprintf("woke %s (%s): context cleared, wake prompt sent", d.To, d.PaneID), d.Ev)
+}

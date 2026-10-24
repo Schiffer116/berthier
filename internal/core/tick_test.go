@@ -323,6 +323,13 @@ func TestAsks(t *testing.T) {
 		texts = append(texts, []any{d.ID, d.Text, d.Oneway})
 	}
 	check(t, "broadcast delivered as is, one-way", texts, `[["b1","[berthier shutdown] wrap up",true]]`)
+	w1 := Ask{ID: "w1", Kind: "wake", From: "service", To: "skipli", Text: "[berthier wake] up", At: 100}
+	o = tick(prev, sa, 2000, opt{inbox: []Ask{w1, b1}})
+	texts = nil
+	for _, d := range o.Deliver {
+		texts = append(texts, []any{d.ID, d.Wake})
+	}
+	check(t, "only a wake clears first", texts, `[["w1",true]]`)
 	check(t, "broadcast never stuck", escKeys(tick(prev, sa, 2000, opt{inbox: []Ask{{ID: "b2", Kind: "wake", From: "service", To: "nobody", Text: "x", At: 100}}}).Escalate), `[]`)
 
 	withLog := func(l []AskLogEntry, d Divisions) TickOut {

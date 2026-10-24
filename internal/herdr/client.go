@@ -85,16 +85,20 @@ func (c Client) JSON(v any, args ...string) error {
 }
 
 type agentInfo struct {
-	Seq    json.Number
-	Status string
+	Seq     json.Number
+	Status  string
+	Session string
 }
 
 func (c Client) agentState(pane string) (agentInfo, error) {
 	var got struct {
 		Result struct {
 			Agent struct {
-				Seq    json.Number `json:"state_change_seq"`
-				Status string      `json:"agent_status"`
+				Seq     json.Number `json:"state_change_seq"`
+				Status  string      `json:"agent_status"`
+				Session struct {
+					Value string `json:"value"`
+				} `json:"agent_session"`
 			}
 		}
 	}
@@ -102,7 +106,7 @@ func (c Client) agentState(pane string) (agentInfo, error) {
 	if err != nil || json.Unmarshal(out, &got) != nil || got.Result.Agent.Status == "" {
 		return agentInfo{}, fmt.Errorf("no agent in %s", pane)
 	}
-	return agentInfo{got.Result.Agent.Seq, got.Result.Agent.Status}, nil
+	return agentInfo{got.Result.Agent.Seq, got.Result.Agent.Status, got.Result.Agent.Session.Value}, nil
 }
 
 // ErrDraft is a prompt not sent because the Agent's input box holds text
@@ -163,4 +167,38 @@ func (c Client) PromptAgent(pane, text string) error {
 			c.Run("agent", "prompt", pane, text)
 		}
 	}
+}
+
+// ClearAgent runs Claude's local `/clear` in pane and returns once the Agent
+// is in a new session (its context is gone), the proof it took; a stuck draft
+// or an unchanged session is an error. Like PromptAgent it never types into a
+// box holding the user's draft.
+func (c Client) ClearAgent(pane string) error {
+	before, err := c.agentState(pane)
+	if err != nil {
+		return err
+	}
+	if d, _ := c.HasDraft(pane); d {
+		return fmt.Errorf("%s: %w", pane, ErrDraft)
+	}
+	if _, err := c.Run("agent", "prompt", pane, "/clear"); err != nil {
+		return err
+	}
+	for polls := 1; polls <= 40; polls++ {
+		time.Sleep(c.PromptPoll)
+		now, err := c.agentState(pane)
+		if err != nil {
+			return fmt.Errorf("agent in %s went away", pane)
+		}
+		if now.Session != "" && now.Session != before.Session {
+			return nil
+		}
+		// Claude's slash menu can hold the command until Enter.
+		if polls%8 == 0 {
+			if screen, _ := c.Command("pane", "read", pane, "--source", "visible").Output(); core.InputHolds(string(screen), "/clear") {
+				c.Run("agent", "send-keys", pane, "enter")
+			}
+		}
+	}
+	return fmt.Errorf("Claude in %s did not clear its context", pane)
 }

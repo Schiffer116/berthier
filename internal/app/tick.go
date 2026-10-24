@@ -132,6 +132,10 @@ func (e *Env) Tick() error {
 
 	// --- Deliver asks; a delivered ask leaves the inbox.
 	for _, d := range out.Deliver {
+		if d.Wake {
+			e.wake(d)
+			continue
+		}
 		if err := e.H.PromptAgent(d.PaneID, d.Text); err == nil {
 			os.Remove(filepath.Join(e.Inbox, d.ID+".json"))
 			e.Event("delivered", fmt.Sprintf("delivered ask %s -> %s (%s)", d.From, d.To, d.PaneID), d.Ev)

@@ -25,7 +25,7 @@ func fakeHerdr(t *testing.T, s *sandbox) (dir string) {
 
 func (s *sandbox) mode(dir, m string) {
 	os.WriteFile(filepath.Join(dir, "mode"), []byte(m), 0o644)
-	for _, f := range []string{"seq", "box", "calls", "text", "answered"} {
+	for _, f := range []string{"seq", "box", "calls", "text", "answered", "sid"} {
 		os.Remove(filepath.Join(dir, f))
 	}
 }
